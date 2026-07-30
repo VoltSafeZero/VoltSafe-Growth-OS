@@ -111,6 +111,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [shorePowerFilter, setShorePowerFilter] = useState("all");
   const [sortOption, setSortOption] = useState("default");
+  const [commStatusFilter, setCommStatusFilter] = useState("all");
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
     const v = new URLSearchParams(window.location.search).get("view");
@@ -646,11 +647,50 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
           {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
         </div>
       ) : view === "pipeline" ? (
-        <PipelineView
-          leads={allLeads}
-          onSelect={setSelectedLead}
-          onUpdateStatus={(id, status) => updateStatusMutation.mutate({ id, status })}
-        />
+        <>
+          {/* CommStatus chip filter — pipeline only */}
+          <div className="flex items-center gap-2 flex-wrap" data-testid="pipeline-comm-status-filter">
+            {[
+              { value: "all", label: "All" },
+              { value: "recently_contacted", label: "Recently Contacted" },
+              { value: "stale", label: "Stale" },
+              { value: "never_contacted", label: "Never Contacted" },
+            ].map(chip => (
+              <button
+                key={chip.value}
+                onClick={() => setCommStatusFilter(chip.value)}
+                data-testid={`chip-comm-status-${chip.value}`}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  commStatusFilter === chip.value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground border-border/60 hover:border-primary/40 hover:text-foreground"
+                }`}
+              >
+                {chip.value !== "all" && (
+                  <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${
+                    chip.value === "recently_contacted" ? "bg-emerald-500" :
+                    chip.value === "stale" ? "bg-amber-400" :
+                    "bg-muted-foreground/40"
+                  }`} />
+                )}
+                {chip.label}
+                {chip.value !== "all" && (() => {
+                  const count = allLeads.filter(l => (l as any).commStatus === chip.value).length;
+                  return count > 0 ? (
+                    <span className={`ml-0.5 ${commStatusFilter === chip.value ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                      {count}
+                    </span>
+                  ) : null;
+                })()}
+              </button>
+            ))}
+          </div>
+          <PipelineView
+            leads={commStatusFilter === "all" ? allLeads : allLeads.filter(l => (l as any).commStatus === commStatusFilter)}
+            onSelect={setSelectedLead}
+            onUpdateStatus={(id, status) => updateStatusMutation.mutate({ id, status })}
+          />
+        </>
       ) : (
         <>
           <Card className="border-border/50">
