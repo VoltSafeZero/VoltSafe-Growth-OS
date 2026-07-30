@@ -55,6 +55,24 @@ export interface EngineResult {
   dryRun: boolean;
 }
 
+// ── Allowlist for objectType ───────────────────────────────────────────────────
+
+/**
+ * Only these objectType values are accepted by the engine.
+ * Any caller-supplied value not in this set is rejected before touching the DB.
+ */
+const ALLOWED_OBJECT_TYPES = new Set([
+  "lead", "account", "opportunity", "quote",
+  "deployment", "project", "purchase_order", "general",
+]);
+
+function validateObjectType(raw: string): string {
+  if (!ALLOWED_OBJECT_TYPES.has(raw)) {
+    throw new Error(`Invalid objectType: "${raw}"`);
+  }
+  return raw;
+}
+
 // ── Phase 2 — Condition Evaluator ─────────────────────────────────────────────
 
 function resolveField(ctx: TriggerContext, field: string): unknown {
@@ -159,6 +177,29 @@ export function evaluateConditions(conditions: Condition[], ctx: TriggerContext)
 
 // ── Phase 3 — Action Executor ─────────────────────────────────────────────────
 
+/**
+ * Hardcoded table map used by change_status.
+ * The table name is NEVER taken from user-supplied action params —
+ * it is always derived from the validated objectType via this map.
+ */
+const OBJECT_TYPE_TABLE_MAP: Record<string, string> = {
+  lead: "leads",
+  account: "accounts",
+  opportunity: "opportunities",
+  quote: "quotes",
+  deployment: "deployments",
+  project: "projects",
+  purchase_order: "purchase_orders",
+};
+
+const OWNER_TABLE_MAP: Record<string, string> = {
+  lead: "leads",
+  opportunity: "opportunities",
+  account: "accounts",
+  project: "projects",
+  deployment: "deployments",
+};
+
 async function execAction(
   action: Action,
   ctx: TriggerContext,
@@ -166,7 +207,10 @@ async function execAction(
   dryRun: boolean
 ): Promise<{ success: boolean; detail: string; skipped?: boolean }> {
   const p = action.params ?? {};
-  const ot = (p.objectType as string) ?? ctx.objectType;
+  // Validate objectType against the allowlist before any DB work.
+  // p.objectType (if present) must also pass the allowlist.
+  const rawOt = (p.objectType as string | undefined) ?? ctx.objectType;
+  const ot = validateObjectType(rawOt);
   const oid = (p.objectId as number) ?? ctx.objectId;
   const uid = ctx.actorUserId ?? null;
 
@@ -185,12 +229,11 @@ async function execAction(
         const dueDate = dueDays > 0
           ? new Date(Date.now() + dueDays * 86_400_000).toISOString()
           : null;
-        const dueSql = dueDate ? `'${dueDate}'` : "NULL";
-        const descSql = desc ? `'${desc.replace(/'/g, "''")}'` : "NULL";
-        await db.execute(sql.raw(`
+        const sourceLabel = `Automation Rule #${ruleId}`;
+        await db.execute(sql`
           INSERT INTO tasks (linked_object_type, linked_object_id, title, description, priority, due_date, status, source, source_label, ai_suggested, created_by_user_id, created_at, updated_at)
-          VALUES ('${ot}', ${oid}, '${title.replace(/'/g, "''")}', ${descSql}, '${priority}', ${dueSql}, 'pending', 'automation', 'Automation Rule #${ruleId}', false, ${uid ?? "NULL"}, NOW(), NOW())
-        `));
+          VALUES (${ot}, ${oid}, ${title}, ${desc}, ${priority}, ${dueDate}::timestamptz, 'pending', 'automation', ${sourceLabel}, false, ${uid}, NOW(), NOW())
+        `);
         return { success: true, detail: `Task created: "${title}"` };
       }
 
@@ -198,10 +241,11 @@ async function execAction(
         const title = (p.title as string) ?? "Review required";
         const reason = (p.reason as string) ?? "Triggered by automation rule";
         const priority = (p.priority as string) ?? "medium";
-        await db.execute(sql.raw(`
+        const sourceLabel = `Automation Rule #${ruleId}`;
+        await db.execute(sql`
           INSERT INTO task_suggestions (object_type, object_id, signal_type, severity, title, reason, suggested_action_type, suggested_action_label, priority, status, source_label, created_at, updated_at)
-          VALUES ('${ot}', ${oid}, 'automation_rule', '${priority}', '${title.replace(/'/g, "''")}', '${reason.replace(/'/g, "''")}', 'review', 'Review', '${priority}', 'pending', 'Automation Rule #${ruleId}', NOW(), NOW())
-        `));
+          VALUES (${ot}, ${oid}, 'automation_rule', ${priority}, ${title}, ${reason}, 'review', 'Review', ${priority}, 'pending', ${sourceLabel}, NOW(), NOW())
+        `);
         return { success: true, detail: `Suggestion created: "${title}"` };
       }
 
@@ -212,58 +256,51 @@ async function execAction(
         const actionUrl = (p.actionUrl as string) ?? "/";
         const targetUserId = Number(p.userId ?? uid ?? 4);
         const dedupeKey = `auto_rule_${ruleId}_${ot}_${oid}_${Date.now()}`;
-        await db.execute(sql.raw(`
+        await db.execute(sql`
           INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key, created_at)
-          VALUES (${targetUserId}, 'automation_rule', '${notifTitle.replace(/'/g, "''")}', '${body.replace(/'/g, "''")}', '${severity}', '${ot}', ${oid}, '${actionUrl}', false, '${dedupeKey}', NOW())
-        `));
+          VALUES (${targetUserId}, 'automation_rule', ${notifTitle}, ${body}, ${severity}, ${ot}, ${oid}, ${actionUrl}, false, ${dedupeKey}, NOW())
+        `);
         return { success: true, detail: `Notification created: "${notifTitle}"` };
       }
 
       case "add_timeline_event": {
         const subject = (p.subject as string) ?? "Automation event";
         const summary = (p.summary as string) ?? `Triggered by automation rule #${ruleId}`;
-        await db.execute(sql.raw(`
+        await db.execute(sql`
           INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
-          VALUES ('${ot}', ${oid}, 'activity', '${subject.replace(/'/g, "''")}', '${summary.replace(/'/g, "''")}', ${uid ?? "NULL"}, NOW())
-        `));
+          VALUES (${ot}, ${oid}, 'activity', ${subject}, ${summary}, ${uid}, NOW())
+        `);
         return { success: true, detail: `Timeline event added: "${subject}"` };
       }
 
       case "change_status": {
         const newStatus = (p.status as string);
         if (!newStatus) return { success: false, detail: "change_status: no status provided" };
-        const table = p.table as string | undefined;
-        // Try to infer the table from objectType if not explicit
-        const tableMap: Record<string, string> = {
-          lead: "leads", account: "accounts", opportunity: "opportunities",
-          quote: "quotes", deployment: "deployments", project: "projects",
-          purchase_order: "purchase_orders",
-        };
-        const tbl = table ?? tableMap[ot];
+        // Table name is ALWAYS derived from the validated objectType via the hardcoded map.
+        // p.table is intentionally ignored to prevent injection via stored rule params.
+        const tbl = OBJECT_TYPE_TABLE_MAP[ot];
         if (!tbl) return { success: false, detail: `change_status: unknown table for objectType '${ot}'` };
-        await db.execute(sql.raw(`UPDATE "${tbl}" SET status = '${newStatus.replace(/'/g, "''")}', updated_at = NOW() WHERE id = ${oid}`));
+        // tbl comes from a hardcoded constant — safe to embed as an identifier.
+        await db.execute(sql`UPDATE ${sql.raw(`"${tbl}"`)} SET status = ${newStatus}, updated_at = NOW() WHERE id = ${oid}`);
         return { success: true, detail: `Status changed to "${newStatus}" on ${tbl}#${oid}` };
       }
 
       case "flag_record": {
         const flagNote = (p.note as string) ?? "Flagged by automation";
-        await db.execute(sql.raw(`
+        await db.execute(sql`
           INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
-          VALUES ('${ot}', ${oid}, 'activity', 'Record flagged', '${flagNote.replace(/'/g, "''")}', ${uid ?? "NULL"}, NOW())
-        `));
+          VALUES (${ot}, ${oid}, 'activity', 'Record flagged', ${flagNote}, ${uid}, NOW())
+        `);
         return { success: true, detail: `Record flagged: ${flagNote}` };
       }
 
       case "assign_owner": {
         const newOwnerId = Number(p.userId);
         if (!newOwnerId) return { success: false, detail: "assign_owner: no userId provided" };
-        const ownerTableMap: Record<string, string> = {
-          lead: "leads", opportunity: "opportunities", account: "accounts",
-          project: "projects", deployment: "deployments",
-        };
-        const tbl = ownerTableMap[ot];
+        const tbl = OWNER_TABLE_MAP[ot];
         if (!tbl) return { success: false, detail: `assign_owner: unsupported objectType '${ot}'` };
-        await db.execute(sql.raw(`UPDATE "${tbl}" SET owner_user_id = ${newOwnerId}, updated_at = NOW() WHERE id = ${oid}`));
+        // tbl comes from a hardcoded constant — safe to embed as an identifier.
+        await db.execute(sql`UPDATE ${sql.raw(`"${tbl}"`)} SET owner_user_id = ${newOwnerId}, updated_at = NOW() WHERE id = ${oid}`);
         return { success: true, detail: `Owner assigned to userId=${newOwnerId}` };
       }
 
@@ -285,15 +322,23 @@ export async function isCooledDown(
 ): Promise<boolean> {
   if (cooldownMinutes <= 0) return true;
   const cutoff = new Date(Date.now() - cooldownMinutes * 60_000).toISOString();
-  const keyClause = contextKey
-    ? `AND trigger_data->>'contextKey' = '${contextKey.replace(/'/g, "''")}'`
-    : "";
-  const rows = await db.execute(sql.raw(`
-    SELECT id FROM automation_run_logs
-    WHERE rule_id = ${ruleId} AND status = 'success' AND dry_run = false
-      AND executed_at > '${cutoff}' ${keyClause}
-    LIMIT 1
-  `));
+  let rows: unknown;
+  if (contextKey) {
+    rows = await db.execute(sql`
+      SELECT id FROM automation_run_logs
+      WHERE rule_id = ${ruleId} AND status = 'success' AND dry_run = false
+        AND executed_at > ${cutoff}::timestamptz
+        AND trigger_data->>'contextKey' = ${contextKey}
+      LIMIT 1
+    `);
+  } else {
+    rows = await db.execute(sql`
+      SELECT id FROM automation_run_logs
+      WHERE rule_id = ${ruleId} AND status = 'success' AND dry_run = false
+        AND executed_at > ${cutoff}::timestamptz
+      LIMIT 1
+    `);
+  }
   return (rows as { rows?: unknown[] }).rows?.length === 0;
 }
 
@@ -310,6 +355,9 @@ export async function runAutomationRule(
   ctx: TriggerContext,
   dryRun = false
 ): Promise<EngineResult> {
+  // Validate objectType at the entry point so every downstream action gets a safe value.
+  ctx = { ...ctx, objectType: validateObjectType(ctx.objectType) };
+
   const { matched, results: conditionResults } = evaluateConditions(rule.conditions, ctx);
 
   if (!matched) {
@@ -339,15 +387,20 @@ export async function runAutomationRule(
   }
 
   if (!dryRun) {
-    await db.execute(sql.raw(`
+    const triggerDataJson = JSON.stringify({
+      triggerType: ctx.triggerType,
+      objectType: ctx.objectType,
+      objectId: ctx.objectId,
+    });
+    const actionsResultJson = JSON.stringify(actionsResult);
+    await db.execute(sql`
       INSERT INTO automation_run_logs (rule_id, trigger_data, actions_result, status, dry_run, actions_taken, executed_at)
-      VALUES (${rule.id}, '${JSON.stringify({ triggerType: ctx.triggerType, objectType: ctx.objectType, objectId: ctx.objectId }).replace(/'/g, "''")}',
-              '${JSON.stringify(actionsResult).replace(/'/g, "''")}', 'success', false, ${actionsTaken}, NOW())
-    `));
-    await db.execute(sql.raw(`
+      VALUES (${rule.id}, ${triggerDataJson}::jsonb, ${actionsResultJson}::jsonb, 'success', false, ${actionsTaken}, NOW())
+    `);
+    await db.execute(sql`
       UPDATE automation_rules SET last_run_at = NOW(), last_result = 'success', run_count = run_count + 1, updated_at = NOW()
       WHERE id = ${rule.id}
-    `));
+    `);
   }
 
   return { matched: true, conditionResults, actionsResult, actionsTaken, dryRun };

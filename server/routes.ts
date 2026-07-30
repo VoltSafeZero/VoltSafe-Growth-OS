@@ -16255,6 +16255,22 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     console.log("[CTA-CID-LIVE-VERSION-2026-06-08-0435] POST /api/gmail/send active — resolver v5 (step5+self-heal+public_url-LIKE+relative-url-fix)");
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
+    // Diagnostic: confirm the request reached Express (fires even for invalid requests)
+    {
+      const _diagBody = String(req.body.body || "");
+      console.log(`[gmail-send] arrived userId=${userId} bodyLen=${_diagBody.length} hasSig=${_diagBody.includes("<!--vs-sig-start-->")} imgCount=${(_diagBody.match(/<img\b/gi) || []).length}`);
+    }
+    // Validate required fields BEFORE account resolution so callers get a precise 400
+    // (not a 403 about missing Gmail account) when the request body itself is malformed.
+    {
+      const { to, body: emailBody, subject, threadId } = req.body;
+      if (!to || !emailBody) {
+        return res.status(400).json({ message: "to and body are required" });
+      }
+      if (!threadId && !subject) {
+        return res.status(400).json({ message: "subject is required for new emails" });
+      }
+    }
     // Resolve account BEFORE the main try/catch so that any error here also returns JSON
     // (not an HTML error page) — prevents "Unexpected token '<'" in the frontend.
     let resolved: Awaited<ReturnType<typeof resolveAccount>> | null = null;
@@ -16272,9 +16288,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const { to, subject, body, threadId, attachmentIds, cc, bcc, enableTracking, icalContent, isForward } = req.body;
       // selectedSignatureId: frontend sends the sig id instead of raw HTML — backend loads + appends.
       const selectedSignatureId: number | null = req.body.selectedSignatureId ? Number(req.body.selectedSignatureId) : null;
-      // Diagnostic: confirm the request reached Express (if this log appears, proxy did not block it)
-      const _diagBody = String(body || "");
-      console.log(`[gmail-send] arrived userId=${userId} bodyLen=${_diagBody.length} hasSig=${_diagBody.includes("<!--vs-sig-start-->")} imgCount=${(_diagBody.match(/<img\b/gi) || []).length}`);
+      // (Required-field checks and diagnostic log performed above before account resolution.)
       if (!to || !body) {
         return res.status(400).json({ message: "to and body are required" });
       }
@@ -25909,7 +25923,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // POST /api/automations — create rule (BEFORE /:id/run)
-  app.post("/api/automations", requireAuth, async (req, res) => {
+  app.post("/api/automations", requireAuth, requireAdmin, async (req, res) => {
     try {
       const { name, description, triggerType, conditions, actions, scope, cooldownMinutes, dedupeKey, enabled, isTemplate, templateName } = req.body;
       if (!name || !triggerType) return res.status(400).json({ message: "name and triggerType are required" });
@@ -25957,7 +25971,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // POST /api/automations/:id/run — manual trigger with optional dry-run
-  app.post("/api/automations/:id/run", requireAuth, async (req, res) => {
+  app.post("/api/automations/:id/run", requireAuth, requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const rule = await storage.getAutomationRule(id);
@@ -25989,7 +26003,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // PUT /api/automations/:id — update rule
-  app.put("/api/automations/:id", requireAuth, async (req, res) => {
+  app.put("/api/automations/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const existing = await storage.getAutomationRule(id);
@@ -26000,7 +26014,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // PATCH /api/automations/:id/toggle — enable/disable
-  app.patch("/api/automations/:id/toggle", requireAuth, async (req, res) => {
+  app.patch("/api/automations/:id/toggle", requireAuth, requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const existing = await storage.getAutomationRule(id);
@@ -26011,7 +26025,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // DELETE /api/automations/:id
-  app.delete("/api/automations/:id", requireAuth, async (req, res) => {
+  app.delete("/api/automations/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const ok = await storage.deleteAutomationRule(Number(req.params.id));
       if (!ok) return res.status(404).json({ message: "Rule not found" });
