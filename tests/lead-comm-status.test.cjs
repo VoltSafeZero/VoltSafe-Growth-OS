@@ -68,8 +68,10 @@ async function main() {
   let leadStaleId   = null;   // stale thread (> 30 days)
   let leadMultiA    = null;   // L5: first lead linked to shared contact
   let leadMultiB    = null;   // L5: second lead linked to same shared contact
+  let leadUnlinkId  = null;   // L6: lead whose contact link will be removed mid-test
   let contactId     = null;
   let contactMultiId = null;  // L5: contact shared across two leads
+  let contactUnlinkId = null; // L6: contact that will be unlinked from the lead
   const threadGuids = [];
 
   console.log(`=== Lead commStatus contact-path expansion ===`);
@@ -137,6 +139,29 @@ async function main() {
       [g3, leadStaleId]
     );
 
+    // ── L6 setup: lead whose contact will be unlinked mid-test ───────────
+    leadUnlinkId = await ins("unlink");
+
+    const ctUnlinkRow = await pool.query(
+      `INSERT INTO contacts (account_id, name, email)
+       VALUES (1, '${PREFIX}unlink_contact', '${PREFIX}unlink@testlead.invalid') RETURNING id`
+    );
+    contactUnlinkId = ctUnlinkRow.rows[0].id;
+
+    await pool.query(
+      `INSERT INTO lead_contacts (lead_id, contact_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [leadUnlinkId, contactUnlinkId]
+    );
+
+    const gUnlink = `${PREFIX}t_unlink`;
+    threadGuids.push(gUnlink);
+    await pool.query(
+      `INSERT INTO email_threads (gmail_thread_id, primary_contact_id, primary_lead_id,
+                                   last_outbound_at, created_at, updated_at)
+       VALUES ($1, $2, NULL, NOW(), NOW(), NOW()) ON CONFLICT (gmail_thread_id) DO NOTHING`,
+      [gUnlink, contactUnlinkId]
+    );
+
     // ── L5 setup: two leads sharing one contact, one thread ──────────────
     [leadMultiA, leadMultiB] = await Promise.all([ins("multi_a"), ins("multi_b")]);
 
@@ -167,6 +192,7 @@ async function main() {
 
     console.log(`  leads: none=${leadNoneId} via_ct=${leadViaCtId} direct=${leadDirectId} stale=${leadStaleId}`);
     console.log(`  multi leads: a=${leadMultiA} b=${leadMultiB} contact=${contactMultiId}`);
+    console.log(`  unlink lead: id=${leadUnlinkId} contact=${contactUnlinkId}`);
     console.log(`  contact=${contactId}  threads: ${threadGuids.join(", ")}\n`);
 
     // ── Helper: fetch lead IDs for a commStatus, scoped to our PREFIX ─────
@@ -277,6 +303,46 @@ async function main() {
         bad("L5d: second lead (multi_b) absent from never_contacted", `id=${leadMultiB} incorrectly present`);
     }
 
+    // ── L6: Remove contact from lead mid-session → reverts to never_contacted
+    // Pins the delete-path: once lead_contacts row is removed, the contact-path
+    // subquery finds no matching threads and commStatus must drop to never_contacted.
+    console.log("\n── L6: unlink contact from lead (mid-session delete) ──");
+    {
+      // Pre-unlink: lead should appear under recently_contacted via contact path
+      const recentBefore = await fetchIds("recently_contacted");
+      const neverBefore  = await fetchIds("never_contacted");
+
+      if (recentBefore.has(leadUnlinkId))
+        ok("L6a: pre-unlink lead appears in recently_contacted");
+      else
+        bad("L6a: pre-unlink lead in recently_contacted", `id=${leadUnlinkId}; set=${[...recentBefore]}`);
+
+      if (!neverBefore.has(leadUnlinkId))
+        ok("L6b: pre-unlink lead absent from never_contacted");
+      else
+        bad("L6b: pre-unlink lead absent from never_contacted", `id=${leadUnlinkId} incorrectly present`);
+
+      // Simulate mid-session removal: delete the lead_contacts row
+      await pool.query(
+        `DELETE FROM lead_contacts WHERE lead_id = $1 AND contact_id = $2`,
+        [leadUnlinkId, contactUnlinkId]
+      );
+
+      // Post-unlink: lead has no linked threads → must appear under never_contacted
+      const recentAfter = await fetchIds("recently_contacted");
+      const neverAfter  = await fetchIds("never_contacted");
+
+      if (neverAfter.has(leadUnlinkId))
+        ok("L6c: post-unlink lead appears in never_contacted");
+      else
+        bad("L6c: post-unlink lead in never_contacted", `id=${leadUnlinkId}; set=${[...neverAfter]}`);
+
+      if (!recentAfter.has(leadUnlinkId))
+        ok("L6d: post-unlink lead absent from recently_contacted");
+      else
+        bad("L6d: post-unlink lead absent from recently_contacted", `id=${leadUnlinkId} incorrectly present`);
+    }
+
   } catch (err) {
     console.error("FATAL:", err.message, err.stack?.split("\n")[1]);
     failed++;
@@ -285,11 +351,14 @@ async function main() {
     for (const g of threadGuids) {
       await pool.query(`DELETE FROM email_threads WHERE gmail_thread_id = $1`, [g]).catch(() => {});
     }
-    if (contactId)      await pool.query(`DELETE FROM lead_contacts WHERE contact_id = $1`, [contactId]).catch(() => {});
-    if (contactId)      await pool.query(`DELETE FROM contacts WHERE id = $1`, [contactId]).catch(() => {});
-    if (contactMultiId) await pool.query(`DELETE FROM lead_contacts WHERE contact_id = $1`, [contactMultiId]).catch(() => {});
-    if (contactMultiId) await pool.query(`DELETE FROM contacts WHERE id = $1`, [contactMultiId]).catch(() => {});
-    for (const id of [leadNoneId, leadViaCtId, leadDirectId, leadStaleId, leadMultiA, leadMultiB].filter(Boolean)) {
+    if (contactId)       await pool.query(`DELETE FROM lead_contacts WHERE contact_id = $1`, [contactId]).catch(() => {});
+    if (contactId)       await pool.query(`DELETE FROM contacts WHERE id = $1`, [contactId]).catch(() => {});
+    if (contactMultiId)  await pool.query(`DELETE FROM lead_contacts WHERE contact_id = $1`, [contactMultiId]).catch(() => {});
+    if (contactMultiId)  await pool.query(`DELETE FROM contacts WHERE id = $1`, [contactMultiId]).catch(() => {});
+    // L6: lead_contacts row may already be gone (deleted by the test itself); contact + lead still need cleanup
+    if (contactUnlinkId) await pool.query(`DELETE FROM lead_contacts WHERE contact_id = $1`, [contactUnlinkId]).catch(() => {});
+    if (contactUnlinkId) await pool.query(`DELETE FROM contacts WHERE id = $1`, [contactUnlinkId]).catch(() => {});
+    for (const id of [leadNoneId, leadViaCtId, leadDirectId, leadStaleId, leadMultiA, leadMultiB, leadUnlinkId].filter(Boolean)) {
       await pool.query(`DELETE FROM leads WHERE id = $1`, [id]).catch(() => {});
     }
     await pool.end();
