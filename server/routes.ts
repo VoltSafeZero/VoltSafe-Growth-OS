@@ -6457,7 +6457,7 @@ export async function registerRoutes(
   // and they should be looking at /api/tickets/:id/attachments for those).
   app.get("/api/documents", requireAuth, async (req, res) => {
     try {
-      const { category, useCase, visibility, objectType, search, limit, offset } = req.query;
+      const { category, useCase, visibility, objectType, search, limit, offset, noOwner } = req.query;
       const userId = (req.session as any).userId as number;
       const section = objectType
         ? attachmentSectionFor(String(objectType))
@@ -6470,6 +6470,7 @@ export async function registerRoutes(
         visibility: visibility as string,
         objectType: objectType as string,
         search: search as string,
+        noOwner: noOwner === "true",
         limit: limit ? Number(limit) : 50,
         offset: offset ? Number(offset) : 0,
       });

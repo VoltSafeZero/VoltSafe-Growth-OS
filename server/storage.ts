@@ -160,7 +160,7 @@ export interface IStorage {
   deleteAttachment(id: number): Promise<Attachment | undefined>;
   getAttachment(id: number): Promise<Attachment | undefined>;
   updateAttachment(id: number, data: Partial<InsertAttachment>): Promise<Attachment | undefined>;
-  getAllDocuments(filters: { category?: string; useCase?: string; visibility?: string; objectType?: string; uploadedBy?: number; search?: string; limit?: number; offset?: number; }): Promise<{ documents: Attachment[]; total: number }>;
+  getAllDocuments(filters: { category?: string; useCase?: string; visibility?: string; objectType?: string; uploadedBy?: number; noOwner?: boolean; search?: string; limit?: number; offset?: number; }): Promise<{ documents: Attachment[]; total: number }>;
 
   getUsers(): Promise<Pick<User, 'id' | 'name' | 'email'>[]>;
 
@@ -1229,7 +1229,7 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getAllDocuments(filters: { category?: string; useCase?: string; visibility?: string; objectType?: string; uploadedBy?: number; search?: string; limit?: number; offset?: number; }) {
+  async getAllDocuments(filters: { category?: string; useCase?: string; visibility?: string; objectType?: string; uploadedBy?: number; noOwner?: boolean; search?: string; limit?: number; offset?: number; }) {
     const limit = filters.limit ?? 50;
     const offset = filters.offset ?? 0;
     const conditions: string[] = [];
@@ -1255,6 +1255,9 @@ export class DatabaseStorage implements IStorage {
     if (filters.uploadedBy) {
       conditions.push(`a.uploaded_by = $${pi++}`);
       params.push(filters.uploadedBy);
+    }
+    if (filters.noOwner) {
+      conditions.push(`a.uploaded_by IS NULL`);
     }
     if (filters.search) {
       conditions.push(`(a.original_name ILIKE $${pi} OR a.title ILIKE $${pi} OR a.notes ILIKE $${pi})`);

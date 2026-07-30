@@ -15,7 +15,7 @@ import {
   ShieldCheck, Package, Wrench, Camera, Receipt, RefreshCcw, FlaskConical,
   FileSignature, Ruler, Paperclip, X, ExternalLink, FolderOpen, File,
   FileImage, FileVideo, ChevronRight, Star, Lock, Users, Megaphone,
-  TrendingUp, Layers, ShieldAlert,
+  TrendingUp, Layers, ShieldAlert, UserX, AlertTriangle,
 } from "lucide-react";
 import type { Attachment } from "@shared/schema";
 
@@ -635,12 +635,16 @@ function DocumentRow({ doc, selected, onClick }: { doc: DocRow; selected: boolea
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+const NO_OWNER_ALERT_THRESHOLD = 10;
+
 export default function DocumentsPage() {
   const [search, setSearch] = useState("");
   const [useCaseFilter, setUseCaseFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [visibilityFilter, setVisibilityFilter] = useState("all");
   const [objectTypeFilter, setObjectTypeFilter] = useState("all");
+  const [noOwnerFilter, setNoOwnerFilter] = useState(false);
+  const [noOwnerBannerDismissed, setNoOwnerBannerDismissed] = useState(false);
   const [page, setPage] = useState(0);
   const [selectedDoc, setSelectedDoc] = useState<DocRow | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -653,11 +657,12 @@ export default function DocumentsPage() {
   if (categoryFilter !== "all") queryParams.set("category", categoryFilter);
   if (visibilityFilter !== "all") queryParams.set("visibility", visibilityFilter);
   if (objectTypeFilter !== "all") queryParams.set("objectType", objectTypeFilter);
+  if (noOwnerFilter) queryParams.set("noOwner", "true");
   queryParams.set("limit", String(limit));
   queryParams.set("offset", String(page * limit));
 
   const { data, isLoading } = useQuery<{ documents: DocRow[]; total: number }>({
-    queryKey: ["/api/documents", search, useCaseFilter, categoryFilter, visibilityFilter, objectTypeFilter, page],
+    queryKey: ["/api/documents", search, useCaseFilter, categoryFilter, visibilityFilter, objectTypeFilter, noOwnerFilter, page],
     queryFn: async () => {
       const res = await fetch(`/api/documents?${queryParams}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load documents");
@@ -681,8 +686,44 @@ export default function DocumentsPage() {
   const statRestricted = documents.filter(d => isRestricted((d as any).visibility ?? "customer_safe")).length;
   const statFavorites = documents.filter(d => (d as any).isFavorite).length;
 
+  const noOwnerCount = statsData?.noOwner ?? 0;
+  const showNoOwnerBanner = !noOwnerBannerDismissed && noOwnerCount >= NO_OWNER_ALERT_THRESHOLD && !noOwnerFilter;
+
+  const clearAllFilters = () => {
+    setSearch(""); setUseCaseFilter("all"); setCategoryFilter("all");
+    setVisibilityFilter("all"); setObjectTypeFilter("all");
+    setNoOwnerFilter(false); setPage(0);
+  };
+
+  const hasActiveFilters = search || useCaseFilter !== "all" || categoryFilter !== "all"
+    || visibilityFilter !== "all" || objectTypeFilter !== "all" || noOwnerFilter;
+
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="page-documents">
+      {/* No-Owner alert banner */}
+      {showNoOwnerBanner && (
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-400" data-testid="banner-no-owner">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <p className="text-xs flex-1">
+            <span className="font-semibold">{noOwnerCount} unowned docs</span> — assets without an owner can't be managed or expired.{" "}
+            <button
+              className="underline hover:no-underline font-medium"
+              onClick={() => { setNoOwnerFilter(true); setPage(0); }}
+              data-testid="banner-no-owner-filter-link"
+            >
+              Review them
+            </button>
+          </p>
+          <button
+            className="h-5 w-5 flex items-center justify-center rounded hover:bg-amber-500/20 transition-colors"
+            onClick={() => setNoOwnerBannerDismissed(true)}
+            data-testid="banner-no-owner-dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="p-4 sm:p-6 pb-4 border-b border-border/30">
         <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -703,19 +744,45 @@ export default function DocumentsPage() {
         {/* Stats strip */}
         <div className="flex items-center gap-6 mt-4 flex-wrap">
           {[
-            { label: "Total Assets", value: total },
-            { label: "Sales", value: statSales },
-            { label: "Restricted", value: statRestricted },
-            { label: "Favorites", value: statFavorites },
-            { label: "Recent (30d)", value: statsData?.recent ?? "—" },
-            { label: "Stale (6mo+)", value: statsData?.stale ?? "—" },
-            { label: "No Owner", value: statsData?.noOwner ?? "—" },
-          ].map(s => (
-            <div key={s.label}>
-              <p className="text-lg font-bold" data-testid={`stat-${s.label.toLowerCase().replace(/[\s()]+/g, "-").replace(/-+$/g, "")}`}>{s.value}</p>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</p>
-            </div>
-          ))}
+            { label: "Total Assets", value: total, clickable: false },
+            { label: "Sales", value: statSales, clickable: false },
+            { label: "Restricted", value: statRestricted, clickable: false },
+            { label: "Favorites", value: statFavorites, clickable: false },
+            { label: "Recent (30d)", value: statsData?.recent ?? "—", clickable: false },
+            { label: "Stale (6mo+)", value: statsData?.stale ?? "—", clickable: false },
+            { label: "No Owner", value: statsData?.noOwner ?? "—", clickable: true },
+          ].map(s => {
+            const isNoOwner = s.label === "No Owner";
+            const isActive = isNoOwner && noOwnerFilter;
+            return (
+              <div
+                key={s.label}
+                onClick={s.clickable ? () => { setNoOwnerFilter(v => !v); setPage(0); } : undefined}
+                className={s.clickable ? `cursor-pointer group` : undefined}
+                data-testid={isNoOwner ? "stat-no-owner-btn" : undefined}
+              >
+                <p
+                  className={`text-lg font-bold transition-colors ${
+                    isActive
+                      ? "text-amber-400"
+                      : isNoOwner && noOwnerCount > 0
+                        ? "text-amber-400/80 group-hover:text-amber-400"
+                        : ""
+                  }`}
+                  data-testid={`stat-${s.label.toLowerCase().replace(/[\s()]+/g, "-").replace(/-+$/g, "")}`}
+                >
+                  {s.value}
+                </p>
+                <p className={`text-[10px] uppercase tracking-wide flex items-center gap-1 ${
+                  isActive ? "text-amber-400" : "text-muted-foreground"
+                }`}>
+                  {isNoOwner && <UserX className="h-2.5 w-2.5" />}
+                  {s.label}
+                  {isActive && <span className="text-[9px] font-semibold ml-0.5">(filtered)</span>}
+                </p>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -741,6 +808,24 @@ export default function DocumentsPage() {
               </button>
             );
           })}
+          {/* No Owner quick-filter chip */}
+          <button
+            onClick={() => { setNoOwnerFilter(v => !v); setPage(0); }}
+            data-testid="use-case-filter-no-owner"
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              noOwnerFilter
+                ? "bg-amber-500/15 text-amber-400 border-amber-500/30 shadow-sm"
+                : "bg-muted/30 text-muted-foreground border-border/30 hover:bg-muted/50"
+            }`}
+          >
+            <UserX className="h-3 w-3" />
+            No Owner
+            {noOwnerCount > 0 && (
+              <span className={`ml-0.5 px-1 py-0 rounded-full text-[9px] font-bold ${noOwnerFilter ? "bg-amber-500/30" : "bg-muted/60"}`}>
+                {noOwnerCount}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -775,8 +860,8 @@ export default function DocumentsPage() {
               {OBJECT_TYPES.map(t => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}
             </SelectContent>
           </Select>
-          {(search || useCaseFilter !== "all" || categoryFilter !== "all" || visibilityFilter !== "all" || objectTypeFilter !== "all") && (
-            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setSearch(""); setUseCaseFilter("all"); setCategoryFilter("all"); setVisibilityFilter("all"); setObjectTypeFilter("all"); setPage(0); }} data-testid="button-clear-filters">
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={clearAllFilters} data-testid="button-clear-filters">
               Clear
             </Button>
           )}
