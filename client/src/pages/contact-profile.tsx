@@ -527,7 +527,17 @@ export default function ContactProfilePage() {
             {emails.length === 0 ? <EmptyRow text="No emails found for this contact" /> : (
               <div className="space-y-0.5">
                 {emails.map((e: any) => (
-                  <div key={e.id} className="flex items-start gap-2.5 py-2 border-b border-border/30 last:border-0">
+                  <div
+                    key={e.id}
+                    onClick={() => {
+                      if (!e.gmail_thread_id) return;
+                      const p = new URLSearchParams({ thread: e.gmail_thread_id });
+                      if (e.source_account_id) p.set("account", String(e.source_account_id));
+                      navigate(`/gmail?${p.toString()}`);
+                    }}
+                    className={`flex items-start gap-2.5 py-2 border-b border-border/30 last:border-0 rounded-sm transition-colors ${e.gmail_thread_id ? "cursor-pointer hover:bg-muted/30" : ""}`}
+                    data-testid={`email-row-${e.id}`}
+                  >
                     <div className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.direction === "inbound" ? "bg-blue-400" : "bg-emerald-400"}`} />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium truncate" data-testid={`email-subject-${e.id}`}>{e.subject || "(no subject)"}</div>
@@ -664,12 +674,16 @@ export default function ContactProfilePage() {
                 {linkedLeads.map((l: any) => (
                   <div key={l.leadId} className="flex items-center gap-2 py-1.5 group">
                     <Link2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate">{l.company || l.leadName}</p>
+                    <button
+                      onClick={() => navigate(`/leads/${l.leadId}`)}
+                      className="flex-1 min-w-0 text-left hover:text-primary transition-colors"
+                      data-testid={`button-open-lead-${l.leadId}`}
+                    >
+                      <p className="text-sm truncate hover:underline">{l.company || l.leadName}</p>
                       {l.leadName && l.company && (
                         <p className="text-xs text-muted-foreground truncate">{l.leadName}</p>
                       )}
-                    </div>
+                    </button>
                     <button
                       onClick={() => unlinkFromLead(l.leadId)}
                       className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
@@ -714,8 +728,12 @@ export default function ContactProfilePage() {
                 {tasks.map((t: any) => {
                   const overdue = t.status !== "done" && t.due_date && isPast(new Date(t.due_date));
                   return (
-                    <div key={t.id} className="flex items-start gap-2 py-1.5 border-b border-border/20 last:border-0"
-                      data-testid={`task-row-${t.id}`}>
+                    <div
+                      key={t.id}
+                      onClick={() => navigate(`/execution/tasks?taskId=${t.id}`)}
+                      className="flex items-start gap-2 py-1.5 border-b border-border/20 last:border-0 rounded-sm cursor-pointer hover:bg-muted/30 transition-colors"
+                      data-testid={`task-row-${t.id}`}
+                    >
                       <div className={`w-3 h-3 rounded-full border mt-0.5 flex-shrink-0 ${t.status === "done" ? "bg-emerald-500 border-emerald-500" : overdue ? "border-red-400" : "border-border"}`} />
                       <div className="min-w-0 flex-1">
                         <p className={`text-sm leading-tight ${t.status === "done" ? "line-through text-muted-foreground" : ""}`}>{t.title}</p>

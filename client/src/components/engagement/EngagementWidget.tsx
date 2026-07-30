@@ -368,16 +368,23 @@ export function CreateFollowUpButton({
 // ── Summary stat card ──────────────────────────────────────────────────────
 
 function StatCard({
-  icon: Icon, label, value, sub, highlight,
+  icon: Icon, label, value, sub, highlight, onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string | number;
   sub?: string;
   highlight?: boolean;
+  onClick?: () => void;
 }) {
+  const isClickable = !!onClick && typeof value === "number" && value > 0;
   return (
-    <div className={`flex flex-col gap-0.5 rounded-lg border px-3 py-2 min-w-0 ${highlight ? "bg-primary/8 border-primary/25" : "bg-muted/20 border-border/20"}`}>
+    <div
+      onClick={isClickable ? onClick : undefined}
+      className={`flex flex-col gap-0.5 rounded-lg border px-3 py-2 min-w-0 transition-colors
+        ${highlight ? "bg-primary/8 border-primary/25" : "bg-muted/20 border-border/20"}
+        ${isClickable ? "cursor-pointer hover:bg-primary/10 hover:border-primary/40" : ""}`}
+    >
       <div className="flex items-center gap-1 text-muted-foreground">
         <Icon className={`h-3 w-3 flex-shrink-0 ${highlight ? "text-primary" : ""}`} />
         <span className="text-[10px] font-medium uppercase tracking-wide truncate">{label}</span>
@@ -390,7 +397,13 @@ function StatCard({
 
 // ── EngagementSummaryCards ─────────────────────────────────────────────────
 
-export function EngagementSummaryCards({ summary }: { summary: EngagementSummary }) {
+export function EngagementSummaryCards({
+  summary,
+  onCardClick,
+}: {
+  summary: EngagementSummary;
+  onCardClick?: (filter: FilterType) => void;
+}) {
   const hasAny = summary.opens + summary.emailLinkClicks + summary.signatureCtaClicks +
     summary.videoClicks + summary.replies > 0;
 
@@ -398,10 +411,10 @@ export function EngagementSummaryCards({ summary }: { summary: EngagementSummary
 
   return (
     <div className="grid grid-cols-5 gap-1.5" data-testid="engagement-summary-cards">
-      <StatCard icon={Eye}              label="Opens"       value={summary.opens}            highlight={summary.opens > 3} />
-      <StatCard icon={Link2}           label="Links"       value={summary.emailLinkClicks}  />
-      <StatCard icon={Video}           label="Demo"        value={summary.videoClicks}       highlight={summary.videoClicks > 0} />
-      <StatCard icon={Reply}           label="Replies"     value={summary.replies}           highlight={summary.replies > 0} />
+      <StatCard icon={Eye}   label="Opens"   value={summary.opens}           highlight={summary.opens > 3}       onClick={onCardClick ? () => onCardClick("opens")   : undefined} />
+      <StatCard icon={Link2} label="Links"   value={summary.emailLinkClicks}                                     onClick={onCardClick ? () => onCardClick("links")   : undefined} />
+      <StatCard icon={Video} label="Demo"    value={summary.videoClicks}     highlight={summary.videoClicks > 0} onClick={onCardClick ? () => onCardClick("demo")    : undefined} />
+      <StatCard icon={Reply} label="Replies" value={summary.replies}         highlight={summary.replies > 0}     onClick={onCardClick ? () => onCardClick("replies") : undefined} />
       <StatCard
         icon={Clock}
         label="Last"
@@ -1206,8 +1219,14 @@ export function ContactEngagementWidget({ contactId }: { contactId: number }) {
         </div>
       )}
 
-      {/* Summary cards */}
-      <EngagementSummaryCards summary={syntheticSummary} />
+      {/* Summary cards — clicking a non-zero card expands the activity table filtered to that type */}
+      <EngagementSummaryCards
+        summary={syntheticSummary}
+        onCardClick={(f) => {
+          setShowTable(true);
+          setFilter(f);
+        }}
+      />
 
       {/* Activity breakdown toggle */}
       {syntheticActivities.length > 0 && (

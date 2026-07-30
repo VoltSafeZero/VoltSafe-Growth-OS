@@ -641,7 +641,17 @@ export default function AccountProfilePage() {
             {emails.length === 0 ? <EmptyRow text="No emails synced for this account" /> : (
               <div className="space-y-0.5">
                 {emails.map((e: any) => (
-                  <div key={e.id} className="flex items-start gap-2.5 py-2 border-b border-border/30 last:border-0">
+                  <div
+                    key={e.id}
+                    onClick={() => {
+                      if (!e.gmail_thread_id) return;
+                      const p = new URLSearchParams({ thread: e.gmail_thread_id });
+                      if (e.source_account_id) p.set("account", String(e.source_account_id));
+                      navigate(`/gmail?${p.toString()}`);
+                    }}
+                    className={`flex items-start gap-2.5 py-2 border-b border-border/30 last:border-0 rounded-sm transition-colors ${e.gmail_thread_id ? "cursor-pointer hover:bg-muted/30" : ""}`}
+                    data-testid={`email-row-${e.id}`}
+                  >
                     <div className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.direction === "inbound" ? "bg-blue-400" : "bg-emerald-400"}`} />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium truncate" data-testid={`email-subject-${e.id}`}>{e.subject || "(no subject)"}</div>

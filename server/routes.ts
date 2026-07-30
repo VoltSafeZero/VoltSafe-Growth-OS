@@ -3579,9 +3579,17 @@ export async function registerRoutes(
           ORDER BY o.updated_at DESC LIMIT 10
         `)),
         db.execute(sql.raw(`
-          SELECT id, subject, from_email, from_name, direction, snippet, sent_at
-          FROM email_messages
-          WHERE source_account_id = ${id}
+          SELECT id, subject, from_email, from_name, direction, snippet, sent_at,
+                 gmail_thread_id, source_account_id
+          FROM (
+            SELECT DISTINCT ON (COALESCE(gmail_thread_id, id::text))
+              id, subject, from_email, from_name, direction, snippet, sent_at,
+              gmail_thread_id, source_account_id
+            FROM email_messages
+            WHERE source_account_id = ${id}
+              AND COALESCE(is_draft, false) = false
+            ORDER BY COALESCE(gmail_thread_id, id::text), sent_at DESC
+          ) _dedup
           ORDER BY sent_at DESC LIMIT 8
         `)),
         db.execute(sql.raw(`
@@ -3865,17 +3873,20 @@ export async function registerRoutes(
           ORDER BY o.updated_at DESC LIMIT 10
         `)),
         contact.email ? db.execute(sql.raw(`
-          (SELECT id, subject, from_email, from_name, direction, snippet, sent_at
-           FROM email_messages
-           WHERE from_email = ${emailQ}
-           ORDER BY sent_at DESC LIMIT 8)
-          UNION
-          (SELECT id, subject, from_email, from_name, direction, snippet, sent_at
-           FROM email_messages
-           WHERE from_email != ${emailQ}
-             AND all_participants ILIKE '%${contact.email.replace(/'/g, "''")}%'
-           ORDER BY sent_at DESC LIMIT 8)
-          ORDER BY sent_at DESC LIMIT 8
+          SELECT id, subject, from_email, from_name, direction, snippet, sent_at,
+                 gmail_thread_id, source_account_id
+          FROM (
+            SELECT DISTINCT ON (COALESCE(gmail_thread_id, id::text))
+              id, subject, from_email, from_name, direction, snippet, sent_at,
+              gmail_thread_id, source_account_id
+            FROM email_messages
+            WHERE (from_email = ${emailQ}
+                   OR all_participants ILIKE '%${contact.email.replace(/'/g, "''")}%')
+              AND COALESCE(is_draft, false) = false
+            ORDER BY COALESCE(gmail_thread_id, id::text), sent_at DESC
+          ) _dedup
+          ORDER BY sent_at DESC
+          LIMIT 8
         `)) : Promise.resolve({ rows: [] }),
         db.execute(sql.raw(`
           SELECT id, title, event_type, start_time, end_time, location, meeting_url, status, invitees
