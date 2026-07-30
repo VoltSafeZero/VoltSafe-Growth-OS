@@ -39,6 +39,7 @@ import {
   insertSaasBillingLineSchema,
   insertRolloutPhaseSchema,
   insertTradeshowEventSchema,
+  campaignRecipients,
 } from "@shared/schema";
 import multer from "multer";
 import { z } from "zod";
@@ -6338,6 +6339,76 @@ export async function registerRoutes(
     const result = await storage.updateCampaignDraft(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Campaign not found" });
     res.json(result);
+  });
+
+  // POST /api/campaigns/:id/send
+  // Inserts campaign_recipients rows for each recipient, resolving contact_id → account_id
+  // at insert time so heat-score queries always hit the indexed account_id path.
+  app.post("/api/campaigns/:id/send", requireAuth, requirePermission("communications", "edit"), async (req, res) => {
+    const campaignId = Number(req.params.id);
+    if (isNaN(campaignId)) return res.status(400).json({ message: "Invalid campaign id" });
+
+    const campaign = await storage.getCampaignDraft(campaignId);
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+
+    // recipients: Array<{ email: string; contactId?: number }>
+    const rawRecipients: { email?: string; contactId?: number }[] = Array.isArray(req.body.recipients)
+      ? req.body.recipients
+      : [];
+
+    if (rawRecipients.length === 0) {
+      return res.status(400).json({ message: "recipients array is required and must not be empty" });
+    }
+
+    // Batch-resolve account_id for every unique contactId in this send.
+    // One SQL round-trip regardless of recipient count.
+    const contactIds = [...new Set(
+      rawRecipients.map(r => r.contactId).filter((id): id is number => typeof id === "number" && !isNaN(id))
+    )];
+
+    const accountByContact = new Map<number, number>();
+    if (contactIds.length > 0) {
+      const rows = await db
+        .select({ id: contacts.id, accountId: contacts.accountId })
+        .from(contacts)
+        .where(inArray(contacts.id, contactIds));
+      for (const row of rows) {
+        if (row.accountId != null) accountByContact.set(row.id, row.accountId);
+      }
+    }
+
+    // Build insert rows — account_id populated wherever contact has one.
+    const now = new Date();
+    const insertRows = rawRecipients
+      .filter(r => typeof r.email === "string" && r.email.trim().length > 0)
+      .map(r => ({
+        campaignDraftId: campaignId,
+        contactId:  typeof r.contactId === "number" ? r.contactId : null,
+        accountId:  typeof r.contactId === "number" ? (accountByContact.get(r.contactId) ?? null) : null,
+        email:      (r.email as string).trim().toLowerCase(),
+        status:     "sent" as const,
+        sentAt:     now,
+      }));
+
+    if (insertRows.length === 0) {
+      return res.status(400).json({ message: "No valid recipient emails provided" });
+    }
+
+    await db.insert(campaignRecipients).values(insertRows);
+
+    // Mark campaign as sent
+    const updated = await storage.updateCampaignDraft(campaignId, {
+      status: "sent",
+      sentAt: now,
+    });
+
+    const missing = insertRows.filter(r => r.contactId !== null && r.accountId === null).length;
+    res.json({
+      ok: true,
+      inserted: insertRows.length,
+      accountIdMissing: missing,
+      campaign: updated,
+    });
   });
 
   // ── Comments ──────────────────────────────────────────────────────
