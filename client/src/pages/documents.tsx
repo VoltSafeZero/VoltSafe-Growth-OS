@@ -1104,7 +1104,21 @@ export default function DocumentsPage() {
 
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
       <LinkModal open={linkOpen} onClose={() => setLinkOpen(false)} />
-      <StaleBreakdownSheet open={staleSheetOpen} onClose={() => setStaleSheetOpen(false)} />
+      <StaleBreakdownSheet
+        open={staleSheetOpen}
+        onClose={() => setStaleSheetOpen(false)}
+        onSelect={(type, key) => {
+          if (type === "useCase") {
+            setUseCaseFilter(key);
+            setCategoryFilter("all");
+          } else {
+            setCategoryFilter(key);
+            setUseCaseFilter("all");
+          }
+          setPage(0);
+          setStaleSheetOpen(false);
+        }}
+      />
       <BulkAssignDialog
         open={bulkAssignOpen}
         onClose={() => setBulkAssignOpen(false)}
@@ -1117,7 +1131,13 @@ export default function DocumentsPage() {
 
 type StaleBreakdownData = { byUseCase: StaleBreakdownItem[]; byCategory: StaleBreakdownItem[] };
 
-function StaleBreakdownSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+function StaleBreakdownSheet({
+  open, onClose, onSelect,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (type: "useCase" | "category", key: string) => void;
+}) {
   const { data, isLoading } = useQuery<StaleBreakdownData>({
     queryKey: ["/api/documents/stats/stale-breakdown"],
     queryFn: async () => {
@@ -1128,19 +1148,36 @@ function StaleBreakdownSheet({ open, onClose }: { open: boolean; onClose: () => 
     enabled: open,
   });
 
-  function BreakdownBar({ item, max, labelFn }: { item: StaleBreakdownItem; max: number; labelFn: (key: string) => string }) {
+  function BreakdownBar({
+    item, max, labelFn, type,
+  }: {
+    item: StaleBreakdownItem;
+    max: number;
+    labelFn: (key: string) => string;
+    type: "useCase" | "category";
+  }) {
     const pct = max > 0 ? Math.round((item.count / max) * 100) : 0;
     return (
-      <div className="flex items-center gap-3 py-1.5">
-        <span className="text-xs text-muted-foreground w-32 shrink-0 truncate">{labelFn(item.key)}</span>
+      <button
+        className="w-full flex items-center gap-3 py-1.5 px-2 -mx-2 rounded-md hover:bg-amber-500/10 transition-colors group text-left"
+        onClick={() => onSelect(type, item.key)}
+        title={`Filter by ${labelFn(item.key)}`}
+        data-testid={`stale-bar-${type}-${item.key}`}
+      >
+        <span className="text-xs text-muted-foreground w-32 shrink-0 truncate group-hover:text-amber-300 transition-colors">
+          {labelFn(item.key)}
+        </span>
         <div className="flex-1 h-2 bg-muted/40 rounded-full overflow-hidden">
           <div
-            className="h-full bg-amber-500/70 rounded-full transition-all"
+            className="h-full bg-amber-500/70 rounded-full transition-all group-hover:bg-amber-400"
             style={{ width: `${pct}%` }}
           />
         </div>
-        <span className="text-xs font-semibold w-6 text-right shrink-0">{item.count}</span>
-      </div>
+        <span className="text-xs font-semibold w-6 text-right shrink-0 group-hover:text-amber-300 transition-colors">
+          {item.count}
+        </span>
+        <ChevronRight className="h-3 w-3 text-muted-foreground/30 group-hover:text-amber-400 transition-colors shrink-0" />
+      </button>
     );
   }
 
@@ -1156,7 +1193,7 @@ function StaleBreakdownSheet({ open, onClose }: { open: boolean; onClose: () => 
             Stale Docs — 6 mo+ Breakdown
           </SheetTitle>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Shows which use cases and categories have the most outdated content so you can prioritize cleanup.
+            Click a bar to filter the list to stale docs in that grouping.
           </p>
         </SheetHeader>
 
@@ -1184,6 +1221,7 @@ function StaleBreakdownSheet({ open, onClose }: { open: boolean; onClose: () => 
                         item={item}
                         max={maxUseCase}
                         labelFn={k => getUseCaseMeta(k).label}
+                        type="useCase"
                       />
                     ))}
                   </div>
@@ -1201,6 +1239,7 @@ function StaleBreakdownSheet({ open, onClose }: { open: boolean; onClose: () => 
                         item={item}
                         max={maxCategory}
                         labelFn={k => getCategoryMeta(k).label}
+                        type="category"
                       />
                     ))}
                   </div>
