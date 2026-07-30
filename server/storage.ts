@@ -56,7 +56,7 @@ import {
   tradeshowEvents,
   type TradeshowEvent, type InsertTradeshowEvent,
 } from "@shared/schema";
-import { ilike, eq, or, sql, asc, desc, and, inArray, type AnyColumn, type SQL } from "drizzle-orm";
+import { ilike, eq, or, sql, asc, desc, and, inArray, getTableColumns, type AnyColumn, type SQL } from "drizzle-orm";
 
 function getSortOrder(column: AnyColumn, order: string) {
   return order === "asc" ? asc(column) : desc(column);
@@ -501,12 +501,39 @@ export class DatabaseStorage implements IStorage {
         : sql`CAST(NULLIF(REGEXP_REPLACE(${leads.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) ASC NULLS LAST`)
       : sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(leads.createdAt);
 
+    const commStatusExpr = sql<string>`
+      CASE
+        WHEN EXISTS (
+          SELECT 1 FROM email_threads et
+          WHERE (et.primary_lead_id = ${leads.id}
+                 OR et.primary_contact_id IN (
+                   SELECT lc.contact_id FROM lead_contacts lc
+                   WHERE lc.lead_id = ${leads.id}
+                 ))
+            AND GREATEST(
+                  COALESCE(et.last_inbound_at, et.created_at),
+                  COALESCE(et.last_outbound_at, et.created_at)
+                ) >= NOW() - INTERVAL '30 days'
+        ) THEN 'recently_contacted'
+        WHEN EXISTS (
+          SELECT 1 FROM email_threads et
+          WHERE et.primary_lead_id = ${leads.id}
+             OR et.primary_contact_id IN (
+               SELECT lc.contact_id FROM lead_contacts lc
+               WHERE lc.lead_id = ${leads.id}
+             )
+        ) THEN 'stale'
+        ELSE 'never_contacted'
+      END
+    `;
+
     const [data, countResult] = await Promise.all([
-      db.select().from(leads).where(where).orderBy(orderClause).limit(limit).offset(offset),
+      db.select({ ...getTableColumns(leads), commStatus: commStatusExpr })
+        .from(leads).where(where).orderBy(orderClause).limit(limit).offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(leads).where(where),
     ]);
 
-    return { data, total: Number(countResult[0].count), page, totalPages: Math.ceil(Number(countResult[0].count) / limit) };
+    return { data: data as (Lead & { commStatus?: string })[], total: Number(countResult[0].count), page, totalPages: Math.ceil(Number(countResult[0].count) / limit) };
   }
 
   async getLeadStates(): Promise<string[]> {

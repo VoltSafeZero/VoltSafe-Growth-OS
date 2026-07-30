@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { EmailAutocompleteInput } from "@/components/email/email-autocomplete";
 import { Link, useLocation } from "wouter";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
@@ -20,6 +20,7 @@ import {
   LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink, Globe,
   CheckCircle2, AlertCircle, Link2, UserCheck, Shuffle, ClipboardList, Archive,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
 import { ScoreBadge } from "@/components/scores/score-badge";
@@ -74,6 +75,29 @@ const CONVERSION_TARGET_OPTIONS = [
 
 function getStageLabel(value: string) {
   return PIPELINE_STAGES.find(s => s.value === value)?.label || value;
+}
+
+const COMM_STATUS_META: Record<string, { label: string; dot: string }> = {
+  recently_contacted: { label: "Recently contacted", dot: "bg-emerald-500" },
+  stale:              { label: "Stale — no recent contact", dot: "bg-amber-400" },
+  never_contacted:    { label: "Never contacted", dot: "bg-muted-foreground/40" },
+};
+
+function CommStatusBadge({ commStatus }: { commStatus?: string | null }) {
+  if (!commStatus) return null;
+  const meta = COMM_STATUS_META[commStatus];
+  if (!meta) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={`inline-block h-2 w-2 rounded-full shrink-0 ${meta.dot}`}
+          data-testid={`comm-status-dot-${commStatus}`}
+        />
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">{meta.label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: { canEdit?: boolean; lockedStatus?: string; pageTitle?: string }) {
@@ -685,9 +709,12 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                         )}
                       </td>
                       <td className="p-3 sm:p-4" onClick={() => setSelectedLead(lead)}>
-                        <Badge variant="outline" className={`text-xs ${statusColors[lead.status] || ""}`} data-testid={`badge-status-${lead.id}`}>
-                          {getStageLabel(lead.status)}
-                        </Badge>
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="outline" className={`text-xs ${statusColors[lead.status] || ""}`} data-testid={`badge-status-${lead.id}`}>
+                            {getStageLabel(lead.status)}
+                          </Badge>
+                          <CommStatusBadge commStatus={(lead as any).commStatus} />
+                        </div>
                       </td>
                       <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{lead.source || "—"}</td>
                       <td className="p-3 sm:p-4 hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
