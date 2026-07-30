@@ -18,6 +18,8 @@ import {
   Mail, ExternalLink, Reply, CalendarPlus, Star,
 } from "lucide-react";
 import { formatDistanceToNow, addBusinessDays, format } from "date-fns";
+import { setPendingCompose } from "@/lib/compose-handoff";
+import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -147,40 +149,81 @@ function timeAgo(ts: string | null) {
 
 // ── Account Row ───────────────────────────────────────────────────────────────
 
-function AccountRow({ acct, onNavigate }: { acct: AccountEngagement; onNavigate: (id: number) => void }) {
+function AccountRow({ acct, onNavigate, onSendEmail, onCreateTask }: {
+  acct: AccountEngagement;
+  onNavigate: (id: number) => void;
+  onSendEmail?: (acct: AccountEngagement) => void;
+  onCreateTask?: (acct: AccountEngagement) => void;
+}) {
   return (
     <div
-      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/30 cursor-pointer transition-colors group"
-      onClick={() => onNavigate(acct.accountId)}
+      className="rounded-lg hover:bg-muted/30 transition-colors group"
       data-testid={`ri-account-row-${acct.accountId}`}
     >
-      <div className={`flex-shrink-0 w-1.5 h-8 rounded-full ${
-        acct.trend === "accelerating" ? "bg-emerald-400" :
-        acct.trend === "cooling"      ? "bg-orange-400"  :
-        acct.trend === "dormant"      ? "bg-muted/40"    : "bg-amber-400"
-      }`} />
+      {/* Main row — click navigates to account */}
+      <div
+        className="flex items-center gap-3 px-3 py-2.5 cursor-pointer"
+        onClick={() => onNavigate(acct.accountId)}
+      >
+        <div className={`flex-shrink-0 w-1.5 h-8 rounded-full ${
+          acct.trend === "accelerating" ? "bg-emerald-400" :
+          acct.trend === "cooling"      ? "bg-orange-400"  :
+          acct.trend === "dormant"      ? "bg-muted/40"    : "bg-amber-400"
+        }`} />
 
-      <div className="flex-1 min-w-0">
-        <p className="text-[12px] font-semibold text-foreground truncate">{acct.accountName}</p>
-        {acct.champion && (
-          <p className="text-[10px] text-muted-foreground/60 truncate">
-            🏆 {acct.champion.name ?? acct.champion.email}
-          </p>
-        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] font-semibold text-foreground truncate">{acct.accountName}</p>
+          {acct.champion && (
+            <p className="text-[10px] text-muted-foreground/60 truncate">
+              🏆 {acct.champion.name ?? acct.champion.email}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
+            <Eye className="h-2.5 w-2.5 text-sky-400" />
+            {acct.totalOpens}
+          </span>
+          <ScoreBadge score={acct.engagementScore} />
+          <span className={`text-[10px] font-medium flex items-center gap-0.5 ${trendColor(acct.trend)}`}>
+            <TrendIcon trend={acct.trend} />
+            <span className="hidden sm:inline">{trendLabel(acct.trend, acct.trendPct)}</span>
+          </span>
+          <ChevronRight className="h-3 w-3 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
+        </div>
       </div>
 
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <span className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
-          <Eye className="h-2.5 w-2.5 text-sky-400" />
-          {acct.totalOpens}
-        </span>
-        <ScoreBadge score={acct.engagementScore} />
-        <span className={`text-[10px] font-medium flex items-center gap-0.5 ${trendColor(acct.trend)}`}>
-          <TrendIcon trend={acct.trend} />
-          <span className="hidden sm:inline">{trendLabel(acct.trend, acct.trendPct)}</span>
-        </span>
-        <ChevronRight className="h-3 w-3 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
-      </div>
+      {/* Quick-action buttons — visible on hover */}
+      {(onSendEmail || onCreateTask) && (
+        <div
+          className="flex items-center gap-1.5 px-3 pb-2 opacity-0 group-hover:opacity-100 transition-opacity"
+          data-testid={`ri-account-actions-${acct.accountId}`}
+        >
+          {onSendEmail && acct.champion && (
+            <Button
+              variant="ghost" size="sm"
+              className="h-6 text-[10px] text-muted-foreground/60 hover:text-foreground px-2 gap-1"
+              onClick={(e) => { e.stopPropagation(); onSendEmail(acct); }}
+              data-testid={`ri-send-email-${acct.accountId}`}
+            >
+              <Mail className="h-2.5 w-2.5" />
+              Send Email
+            </Button>
+          )}
+          {onCreateTask && (
+            <Button
+              variant="ghost" size="sm"
+              className="h-6 text-[10px] text-muted-foreground/60 hover:text-foreground px-2 gap-1"
+              onClick={(e) => { e.stopPropagation(); onCreateTask(acct); }}
+              data-testid={`ri-create-task-${acct.accountId}`}
+            >
+              <CalendarPlus className="h-2.5 w-2.5" />
+              Create Task
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -532,6 +575,21 @@ function StatCard({ label, value, sub, icon: Icon, iconClass }: {
 
 export default function RevenueIntelligencePage() {
   const [, navigate] = useLocation();
+  const [taskAccount, setTaskAccount] = useState<{ id: number; label: string } | null>(null);
+
+  const handleSendEmail = (acct: AccountEngagement) => {
+    if (!acct.champion) return;
+    setPendingCompose({
+      to: acct.champion.email,
+      subject: `Following up — ${acct.accountName}`,
+      body: "",
+    });
+    navigate("/gmail");
+  };
+
+  const handleCreateTask = (acct: AccountEngagement) => {
+    setTaskAccount({ id: acct.accountId, label: acct.accountName });
+  };
 
   const { data, isLoading, refetch, isFetching } = useQuery<CommandCenterData>({
     queryKey: ["/api/revenue-intelligence/command-center"],
@@ -558,6 +616,17 @@ export default function RevenueIntelligencePage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Quick-action: Create Task drawer */}
+      {taskAccount && (
+        <TaskDetailDrawer
+          taskId={null}
+          createMode
+          initialLinkedAccount={taskAccount}
+          onOpenChange={(open) => { if (!open) setTaskAccount(null); }}
+          onCreated={() => setTaskAccount(null)}
+        />
+      )}
+
       {/* Header */}
       <div className="border-b border-border/40 bg-card/30 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
@@ -615,7 +684,7 @@ export default function RevenueIntelligencePage() {
             ) : (
               <div className="space-y-0.5">
                 {(data?.hotAccounts ?? []).map(a => (
-                  <AccountRow key={a.accountId} acct={a} onNavigate={goToAccount} />
+                  <AccountRow key={a.accountId} acct={a} onNavigate={goToAccount} onSendEmail={handleSendEmail} onCreateTask={handleCreateTask} />
                 ))}
               </div>
             )}
@@ -656,7 +725,7 @@ export default function RevenueIntelligencePage() {
             ) : (
               <div className="space-y-0.5">
                 {(data?.accelerating ?? []).map(a => (
-                  <AccountRow key={a.accountId} acct={a} onNavigate={goToAccount} />
+                  <AccountRow key={a.accountId} acct={a} onNavigate={goToAccount} onSendEmail={handleSendEmail} onCreateTask={handleCreateTask} />
                 ))}
               </div>
             )}
@@ -723,7 +792,7 @@ export default function RevenueIntelligencePage() {
             ) : (
               <div className="space-y-0.5">
                 {(data?.atRisk ?? []).map(a => (
-                  <AccountRow key={a.accountId} acct={a} onNavigate={goToAccount} />
+                  <AccountRow key={a.accountId} acct={a} onNavigate={goToAccount} onSendEmail={handleSendEmail} onCreateTask={handleCreateTask} />
                 ))}
               </div>
             )}

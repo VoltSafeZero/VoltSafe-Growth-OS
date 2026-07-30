@@ -57,6 +57,8 @@ type Props = {
   onCreated?: (taskId: number) => void;
   onOpenChange: (open: boolean) => void;
   onTaskChanged?: () => void;
+  /** Pre-fill the linked account when opening in createMode. */
+  initialLinkedAccount?: { id: number; label: string };
 };
 
 const PRIORITY_OPTIONS = ["low", "medium", "high", "urgent"];
@@ -86,7 +88,7 @@ function fmtDateTime(v?: string | null) {
   try { return format(new Date(v), "MMM d 'at' h:mma"); } catch { return null; }
 }
 
-export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, onTaskChanged }: Props) {
+export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, onTaskChanged, initialLinkedAccount }: Props) {
   const open = taskId != null || !!createMode;
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -249,6 +251,7 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
           <NewTaskForm
             onCreated={(id) => { onTaskChanged?.(); onCreated?.(id); }}
             onCancel={() => onOpenChange(false)}
+            initialLinkedAccount={initialLinkedAccount}
           />
         ) : null}
         {dragActive && t && (
@@ -1708,7 +1711,7 @@ function CrmLinkCombobox({
 // All key task fields are shown upfront — the user came to the Task Hub
 // intentionally, so we give them the full creation form, not a quick capture.
 
-function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void; onCancel: () => void }) {
+function NewTaskForm({ onCreated, onCancel, initialLinkedAccount }: { onCreated: (id: number) => void; onCancel: () => void; initialLinkedAccount?: { id: number; label: string } }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { columns: cols } = useTaskColumns();
@@ -1720,7 +1723,7 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
   const [column, setColumn] = useState("backlog");
   const [ownerUserId, setOwnerUserId] = useState<string>("me");
   const [linkedContact, setLinkedContact] = useState<{ id: number; label: string } | null>(null);
-  const [linkedAccount, setLinkedAccount] = useState<{ id: number; label: string } | null>(null);
+  const [linkedAccount, setLinkedAccount] = useState<{ id: number; label: string } | null>(initialLinkedAccount ?? null);
   const [recurrenceRule, setRecurrenceRule] = useState("none");
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
 
