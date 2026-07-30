@@ -279,13 +279,16 @@ assert(
   'PEOPLE branch is inside the inMatch block (processed as label, not freetext)'
 );
 
-// Other categories use "in:<cat>" or "in:<cat> is:unread" — never with an "in:inbox" prefix.
-// The "is:unread" suffix is allowed (and now required to match badge counts).
+// Updates/promotions/social/forums are now handled via aggregate categories:
+//   "newsletters"   (promotions + forums)  → returns "in:inbox is:unread"
+//   "notifications" (updates   + social)   → returns "in:inbox is:unread"
+// Client-side getEmailCategory() buckets results. The key invariants:
+//   1. No "in:inbox in:<cat>" double-prefix leaks (FTS bug).
+//   2. Aggregate categories still emit is:unread (badge-count parity).
+//   3. SECTION_FETCH_QUERIES still issues per-category queries for smart sections.
 assert(
-  (inboxPageSrc.includes('return "in:updates"') || inboxPageSrc.includes('return "in:updates is:unread"')) &&
-  (inboxPageSrc.includes('return "in:promotions"') || inboxPageSrc.includes('return "in:promotions is:unread"')) &&
-  (inboxPageSrc.includes('return "in:social"') || inboxPageSrc.includes('return "in:social is:unread"')) &&
-  (inboxPageSrc.includes('return "in:forums"') || inboxPageSrc.includes('return "in:forums is:unread"')),
+  inboxPageSrc.includes('return "in:newsletters is:unread"') &&
+  inboxPageSrc.includes('return "in:notifications is:unread"'),
   'updates/promotions/social/forums inboxCategoryQ uses single in: token each (is:unread suffix allowed)'
 );
 assert(

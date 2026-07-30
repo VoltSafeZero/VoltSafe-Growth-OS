@@ -81,7 +81,7 @@ export interface IStorage {
   getMarinas(options: { search?: string; state?: string; page?: number; limit?: number }): Promise<{ data: Marina[]; total: number; page: number; totalPages: number }>;
   getMarinaStates(): Promise<string[]>;
 
-  getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
+  getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; commStatus?: string; type?: string; priority?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
   getLead(id: number): Promise<Lead | undefined>;
   createLead(data: InsertLead): Promise<Lead>;
   updateLead(id: number, data: Partial<InsertLead>): Promise<Lead | undefined>;
@@ -373,7 +373,7 @@ export class DatabaseStorage implements IStorage {
     return result.map((r) => r.state);
   }
 
-  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; type?: string; priority?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
+  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; commStatus?: string; type?: string; priority?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -442,6 +442,53 @@ export class DatabaseStorage implements IStorage {
     }
     // Note: leads table has no `priority` column yet — this param is accepted
     // for UI parity with Accounts but currently has no filtering effect.
+
+    // ── commStatus filter ─────────────────────────────────────────────────
+    // A thread is considered "linked" to a lead via two paths:
+    //   Direct path:  email_threads.primary_lead_id = leads.id
+    //   Contact path: email_threads.primary_contact_id IN (
+    //                   SELECT contact_id FROM lead_contacts WHERE lead_id = leads.id
+    //                 )
+    // "recently_contacted" = a linked thread whose last activity is within 30 days.
+    // "stale"              = has a linked thread but none within 30 days.
+    // "never_contacted"    = no linked thread at all.
+    if (options?.commStatus && options.commStatus !== "all") {
+      const cs = options.commStatus;
+
+      // Correlated subquery: any thread reachable via direct OR contact path
+      const anyThreadSql = `
+        EXISTS (
+          SELECT 1 FROM email_threads et
+          WHERE et.primary_lead_id = leads.id
+             OR et.primary_contact_id IN (
+                  SELECT lc.contact_id FROM lead_contacts lc
+                  WHERE lc.lead_id = leads.id
+                )
+        )`;
+
+      // Correlated subquery: any such thread with recent activity (within 30 days)
+      const recentThreadSql = `
+        EXISTS (
+          SELECT 1 FROM email_threads et
+          WHERE (et.primary_lead_id = leads.id
+                 OR et.primary_contact_id IN (
+                      SELECT lc.contact_id FROM lead_contacts lc
+                      WHERE lc.lead_id = leads.id
+                    ))
+            AND GREATEST(
+                  COALESCE(et.last_inbound_at, et.created_at),
+                  COALESCE(et.last_outbound_at, et.created_at)
+                ) >= NOW() - INTERVAL '30 days'
+        )`;
+
+      if (cs === "recently_contacted") {
+        conditions.push(sql.raw(recentThreadSql));
+      } else if (cs === "stale") {
+        conditions.push(sql.raw(`${anyThreadSql} AND NOT (${recentThreadSql})`));
+      } else if (cs === "never_contacted") {
+        conditions.push(sql.raw(`NOT (${anyThreadSql})`));
+      }
+    }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     // "name" is an alias for company so the shared FILTER_SORT_OPTIONS key works.

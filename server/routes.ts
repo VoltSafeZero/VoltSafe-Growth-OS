@@ -2212,7 +2212,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/leads", requirePermission("crm", "view"), async (req, res) => {
-    const { search, status, state, country, primaryIndustry, marketSegment, shorePower, type, priority, page, limit, sortBy, sortOrder } = req.query;
+    const { search, status, state, country, primaryIndustry, marketSegment, shorePower, commStatus, type, priority, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getLeads({
       search: search as string | undefined,
       status: status as string | undefined,
@@ -2221,6 +2221,7 @@ export async function registerRoutes(
       primaryIndustry: primaryIndustry as string | undefined,
       marketSegment: marketSegment as string | undefined,
       shorePower: shorePower as string | undefined,
+      commStatus: commStatus as string | undefined,
       type: type as string | undefined,
       priority: priority as string | undefined,
       page: page ? Number(page) : undefined,

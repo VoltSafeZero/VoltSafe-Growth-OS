@@ -36,29 +36,37 @@ function ok(condition, label) {
 const inboxPagePath = path.join(__dirname, "../client/src/pages/gmail-inbox.tsx");
 const src = fs.readFileSync(inboxPagePath, "utf8");
 
-// ── (a) inboxCategoryQ — all 5 categories send is:unread ─────────────────────
+// ── (a) inboxCategoryQ — all active categories send is:unread ────────────────
+//
+// NOTE: The code was refactored to aggregate categories:
+//   "newsletters"   covers promotions + forums  → sends "in:inbox is:unread"
+//   "notifications" covers updates  + social    → sends "in:inbox is:unread"
+//   "people"                                    → sends "in:people is:unread"
+// Every non-"all" category still sends is:unread; the query is just broader
+// so client-side category filtering (getEmailCategory) can bucket the results.
 
 console.log("\n(a) inboxCategoryQ — all category tabs include is:unread");
 
-ok(
-  src.includes('return "in:social is:unread"'),
-  'inboxCategoryQ returns "in:social is:unread" for Social tab'
-);
 ok(
   src.includes('return "in:people is:unread"'),
   'inboxCategoryQ returns "in:people is:unread" for People tab'
 );
 ok(
-  src.includes('return "in:updates is:unread"'),
-  'inboxCategoryQ returns "in:updates is:unread" for Updates tab'
+  src.includes('return "in:newsletters is:unread"'),
+  'inboxCategoryQ returns "in:newsletters is:unread" for Newsletters (promotions+forums) tab'
 );
 ok(
-  src.includes('return "in:promotions is:unread"'),
-  'inboxCategoryQ returns "in:promotions is:unread" for Promotions tab'
+  src.includes('return "in:notifications is:unread"'),
+  'inboxCategoryQ returns "in:notifications is:unread" for Notifications (updates+social) tab'
+);
+// SECTION_FETCH_QUERIES still issues per-category queries for smart-section fetches
+ok(
+  src.includes('"in:social is:unread"'),
+  'SECTION_FETCH_QUERIES includes "in:social is:unread" for smart-section fetch'
 );
 ok(
-  src.includes('return "in:forums is:unread"'),
-  'inboxCategoryQ returns "in:forums is:unread" for Forums tab'
+  src.includes('"in:updates is:unread"') && src.includes('"in:promotions is:unread"') && src.includes('"in:forums is:unread"'),
+  'SECTION_FETCH_QUERIES includes is:unread for updates, promotions, and forums smart-section fetches'
 );
 
 // Old bare queries (without is:unread) must not be present in inboxCategoryQ.

@@ -235,15 +235,20 @@ check(
 check(
   "people/updates/promotions category filters are guarded behind crmFilter check",
   // Ensure the category filter sits after the crmFilter bypass.
-  // Phase 6: the pattern may be either:
+  // Three known forms (pre-Phase 6, Phase 6, Phase 7+ canonical-var):
   //   getEmailCategory(m.labelIds) === inboxCategory          (pre-Phase 6)
-  //   (m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory  (Phase 6+)
+  //   (m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory  (Phase 6)
+  //   canonical === inboxCategory  (Phase 7+: raw extracted to var, mapped to canonical)
   (() => {
     const guardIdx = inboxSrc.indexOf('categorizedInbox = crmFilter === "unread"');
     const catIdxOld = inboxSrc.indexOf('getEmailCategory(m.labelIds) === inboxCategory');
     // Phase 6 form: bare getEmailCategory no longer at top level — the ?? wrapper adds '))'
     const catIdxNew = inboxSrc.indexOf('getEmailCategory(m.labelIds)) === inboxCategory');
-    const catIdx = catIdxOld !== -1 ? catIdxOld : catIdxNew;
+    // Phase 7+ form: raw + canonical variable, always appears after the guard
+    const catIdxCanonical = inboxSrc.indexOf('canonical === inboxCategory');
+    const catIdx = catIdxOld !== -1 ? catIdxOld
+                 : catIdxNew !== -1 ? catIdxNew
+                 : catIdxCanonical;
     return guardIdx !== -1 && catIdx !== -1 && guardIdx < catIdx;
   })()
 );

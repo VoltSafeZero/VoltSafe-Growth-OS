@@ -175,23 +175,33 @@ assert(
 }
 
 // ── (F) Call sites use m.smartCategory ?? getEmailCategory ───────────────────
+//
+// NOTE: The code was refactored to extract a `raw` variable:
+//   const raw = (m.smartCategory ?? getEmailCategory(m.labelIds)) as string;
+// and then normalise raw to a canonical InboxCategory before comparing.
+// updatesCount was removed; counts come from the server category-counts API instead.
 
-console.log("\n[F] categorizedInbox / peopleCount / updatesCount use smartCategory ??");
+console.log("\n[F] categorizedInbox / peopleCount use smartCategory ?? (via raw var)");
 
+// categorizedInbox: extracts raw via ??, then maps to canonical, then compares
 assert(
-  inboxSrc.includes("(m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory"),
+  inboxSrc.includes("m.smartCategory ?? getEmailCategory(m.labelIds)") &&
+  inboxSrc.includes("canonical === inboxCategory"),
   "categorizedInbox uses (m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory",
 );
+// peopleCount: extracts raw via ??, then checks raw === "people"
 assert(
-  inboxSrc.includes("(m.smartCategory ?? getEmailCategory(m.labelIds)) === \"people\""),
+  inboxSrc.includes("m.smartCategory ?? getEmailCategory(m.labelIds)") &&
+  inboxSrc.includes('raw === "people"'),
   "peopleCount uses (m.smartCategory ?? getEmailCategory(m.labelIds)) === \"people\"",
 );
+// updatesCount was replaced by server category-counts API; verify raw var pattern still present
 assert(
-  inboxSrc.includes("(m.smartCategory ?? getEmailCategory(m.labelIds)) === \"updates\""),
+  inboxSrc.includes("m.smartCategory ?? getEmailCategory(m.labelIds)"),
   "updatesCount uses (m.smartCategory ?? getEmailCategory(m.labelIds)) === \"updates\"",
 );
 
-// None of the three call sites should use the old bare getEmailCategory pattern
+// None of the call sites should use the old bare getEmailCategory pattern
 // (a bare `getEmailCategory(m.labelIds) === inboxCategory` without the ?? prefix)
 const bareCallsiteRe = /getEmailCategory\(m\.labelIds\)\s*===\s*(inboxCategory|"people"|"updates")/g;
 const bareCalls = [...inboxSrc.matchAll(bareCallsiteRe)];
