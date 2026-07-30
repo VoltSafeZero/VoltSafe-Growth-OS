@@ -1,0 +1,440 @@
+VOLTSAFE MAIL — ROOT CAUSE INVESTIGATION (READ-ONLY)
+
+STOP. DO NOT CHANGE ANY CODE.
+DO NOT CREATE A PR.
+DO NOT COMMIT.
+DO NOT DEPLOY.
+DO NOT MODIFY THE DATABASE.
+DO NOT WRITE MIGRATIONS.
+DO NOT FIX ANYTHING.
+
+Your only job is to determine the FIRST VERIFIED point where the data diverges.
+
+This is a forensic investigation.
+
+========================================================================
+VERIFIED BUGS FROM REAL SCREENSHOTS
+========================================================================
+
+BUG 1 — Phantom unread
+
+Verified in multiple mailboxes.
+
+Examples:
+- Gmail personal account:
+  People badge = 1
+  People list = "No messages found"
+
+- sales@voltsafe.com
+  Newsletters badge = 1
+  Newsletters list = "No messages found"
+
+The badge counts an unread message that cannot be found under either Unread or All.
+
+------------------------------------------------------------------------
+
+BUG 2 — Category tabs do not actually filter the Smart Inbox
+
+Selecting:
+
+- People
+- Newsletters
+- Notifications
+
+changes the breadcrumb but continues rendering the same grouped Smart Inbox containing multiple sections.
+
+Expected:
+
+People tab → ONLY People messages.
+
+Newsletters tab → ONLY Newsletter messages.
+
+Notifications tab → ONLY Notification messages.
+
+Current behaviour suggests the renderer ignores the selected category.
+
+------------------------------------------------------------------------
+
+BUG 3 — Loading state persists after the view has settled
+
+Screenshots show simultaneously:
+
+Loading remaining unread emails...
+Loading more messages...
+No messages found.
+
+Those states must never coexist.
+
+------------------------------------------------------------------------
+
+BUG 4 — People tab contains obvious non-people
+
+Examples include:
+
+Replit
+Netflix
+Discord
+NordVPN
+BC Hydro
+
+This may indicate:
+
+A.
+Classification failure
+
+OR
+
+B.
+The People tab isn't filtering at all.
+
+Determine which.
+
+========================================================================
+DO NOT ASSUME ROOT CAUSES
+========================================================================
+
+Previous investigations incorrectly assumed:
+
+- duplicate accounts
+- pagination
+- stale caches
+- label divergence
+
+without proving them.
+
+Do not repeat that mistake.
+
+Every conclusion must be backed by:
+
+- source code
+- SQL
+- runtime trace
+- actual returned JSON
+
+========================================================================
+PART A — TRACE THE BADGE PIPELINE
+========================================================================
+
+For every unread badge report:
+
+trace
+
+Database
+
+↓
+
+Storage layer
+
+↓
+
+Repository
+
+↓
+
+API
+
+↓
+
+React Query
+
+↓
+
+Component
+
+↓
+
+Badge
+
+Show:
+
+SQL
+
+WHERE clauses
+
+derived columns
+
+filters
+
+cache keys
+
+exact functions
+
+========================================================================
+PART B — TRACE THE MESSAGE LIST PIPELINE
+========================================================================
+
+Do exactly the same for the message list.
+
+Trace
+
+Database
+
+↓
+
+Repository
+
+↓
+
+API
+
+↓
+
+React Query
+
+↓
+
+Grouping
+
+↓
+
+Filtering
+
+↓
+
+Renderer
+
+Show every WHERE clause.
+
+========================================================================
+PART C — IDENTIFY THE FIRST DIVERGENCE
+========================================================================
+
+This is the most important task.
+
+Do NOT tell me:
+
+"The badge uses X."
+
+"The list uses Y."
+
+Instead determine:
+
+At what exact point do the two paths stop being identical?
+
+Example:
+
+Database identical
+
+↓
+
+Repository identical
+
+↓
+
+API identical
+
+↓
+
+React Query identical
+
+↓
+
+Renderer differs
+
+OR
+
+Database differs
+
+↓
+
+Everything after follows naturally.
+
+Find the FIRST divergence.
+
+========================================================================
+PART D — PHANTOM MESSAGE REPORT
+========================================================================
+
+For:
+
+trevor@voltsafe.com
+
+burgesstrevor76@gmail.com
+
+sales@voltsafe.com
+
+Return every message satisfying:
+
+Badge counts it
+
+BUT
+
+Message list excludes it.
+
+For every message provide:
+
+gmail_message_id
+
+thread_id
+
+account_id
+
+subject
+
+is_unread
+
+is_inbox
+
+is_spam
+
+is_trash
+
+label_ids
+
+smart_category
+
+reason excluded
+
+========================================================================
+PART E — CATEGORY FILTER TRACE
+========================================================================
+
+Trace the selected category.
+
+When the user clicks:
+
+People
+
+where does that value travel?
+
+Show:
+
+Component
+
+State
+
+Props
+
+React Query key
+
+API request
+
+Backend
+
+SQL
+
+Renderer
+
+Identify exactly where the selected category is lost or ignored.
+
+========================================================================
+PART F — LOADING STATE
+========================================================================
+
+Trace every variable controlling:
+
+Loading remaining unread...
+
+Loading more messages...
+
+No messages found
+
+For each:
+
+where set
+
+where cleared
+
+every condition
+
+Determine whether any combination allows all three states simultaneously.
+
+========================================================================
+PART G — DUPLICATE ACCOUNT CLAIM
+========================================================================
+
+Do not assume duplicate accounts exist.
+
+Query the database.
+
+Return every row for:
+
+trevor@voltsafe.com
+
+sales@voltsafe.com
+
+support@voltsafe.com
+
+burgesstrevor76@gmail.com
+
+trevor@hyalos.com
+
+For every row return:
+
+account_id
+
+email
+
+user_id
+
+visibility_type
+
+is_active
+
+sync_enabled
+
+auth_status
+
+Then compare:
+
+getAccessibleAccounts()
+
+getAccessibleAccountIds()
+
+resolveAccount()
+
+Determine whether they can ever return different account sets.
+
+Prove it.
+
+========================================================================
+PART H — OUTPUT
+========================================================================
+
+Produce ONE report only.
+
+For each bug provide:
+
+Verified?
+
+YES / NO
+
+Root cause proven?
+
+YES / NO
+
+Evidence
+
+SQL
+
+Source files
+
+Functions
+
+Runtime trace
+
+Confidence
+
+High
+
+Medium
+
+Low
+
+Unknown
+
+========================================================================
+STOP
+========================================================================
+
+DO NOT FIX ANYTHING.
+
+DO NOT WRITE CODE.
+
+DO NOT REFACTOR.
+
+DO NOT PROPOSE ARCHITECTURE.
+
+STOP after the forensic report.
+
+Once we know the FIRST point where badge and list diverge, and the FIRST point where category filtering is lost, we will issue a second prompt containing only the surgical fixes.
