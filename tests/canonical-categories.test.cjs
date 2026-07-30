@@ -171,10 +171,11 @@ check(
   'Shared INBOX_CATEGORY_TABS constant defines "notifications" key exactly once (count = 1)',
   notifKeys === 1
 );
-// Verify all 3 sidebar sections consume the constant
+// Verify all 4 sidebar sections consume the constant
+// (personal + fallback/no-personal-account + private + team)
 check(
-  'INBOX_CATEGORY_TABS.map used exactly 3 times (personal + private + team)',
-  [...inboxSrc.matchAll(/INBOX_CATEGORY_TABS\.map/g)].length === 3
+  'INBOX_CATEGORY_TABS.map used exactly 4 times (personal + fallback + private + team)',
+  [...inboxSrc.matchAll(/INBOX_CATEGORY_TABS\.map/g)].length === 4
 );
 
 console.log("\n── sidebarCategoryBadges ─────────────────────────────────────────────");

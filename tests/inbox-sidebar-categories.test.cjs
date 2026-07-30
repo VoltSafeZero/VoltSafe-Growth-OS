@@ -40,8 +40,8 @@ check('INBOX_CATEGORY_TABS entry: no "forums"',         !ctKeys.includes("forums
 console.log("\n── Sidebar sections use shared constant ─────────────────────────────────");
 
 const mapUsages = [...inboxSrc.matchAll(/INBOX_CATEGORY_TABS\.map/g)].length;
-check('INBOX_CATEGORY_TABS.map appears exactly 3 times (personal + private + team)',
-  mapUsages === 3);
+check('INBOX_CATEGORY_TABS.map appears exactly 4 times (personal + fallback + private + team)',
+  mapUsages === 4);
 
 // The shared constant defines key:"all" as InboxCategory exactly once.
 // Sidebar sections use INBOX_CATEGORY_TABS.map — no additional inline copies.

@@ -8995,11 +8995,38 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 )}
               </>
             ) : (
-              <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-inbox"
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "inbox" && activeAccountId === null ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
-                <Inbox className="h-4 w-4" /><span className="flex-1 text-left">Inbox</span>
-                {serverInboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{serverInboxUnreadCount}</span>}
-              </button>
+              // Fallback when no personal account is active (e.g. OAuth expired).
+              // Renders category tabs so the user can still filter by People /
+              // Newsletters / Notifications.  Queries run in unified (asAccountId=all)
+              // mode and cover every accessible account.
+              <div className="ml-1 space-y-0.5">
+                <button onClick={() => { setTab("inbox"); setInboxCategory("all"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-inbox"
+                  className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                  <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
+                  {serverInboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{serverInboxUnreadCount}</span>}
+                </button>
+                {tab === "inbox" && (
+                  <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
+                    {INBOX_CATEGORY_TABS.map(({ key, label, Icon }) => {
+                      const badge = key === "people" ? sidebarCategoryBadges.people
+                                  : key === "newsletters" ? sidebarCategoryBadges.newsletters
+                                  : key === "notifications" ? sidebarCategoryBadges.notifications
+                                  : 0;
+                      const isActive = inboxCategory === key;
+                      return (
+                        <button key={key}
+                          onClick={() => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                          data-testid={`nav-inbox-cat-${key}`}
+                          className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
+                          <Icon className="h-3 w-3 flex-shrink-0" />
+                          <span className="flex-1 text-left truncate">{label}</span>
+                          {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
 
             {/* ── PRIVATE INBOXES section ──────────────────────────────────
