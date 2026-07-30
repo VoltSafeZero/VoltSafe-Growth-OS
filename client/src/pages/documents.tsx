@@ -20,6 +20,14 @@ import {
   CheckSquare, Square, UserCheck,
 } from "lucide-react";
 import type { Attachment } from "@shared/schema";
+import { VALID_USE_CASE_SET } from "@shared/document-use-cases";
+// Re-export so other modules can reference the authoritative set without
+// importing directly from @shared/document-use-cases.
+// NOTE: ASSET_USE_CASES below must contain an entry for every key in
+// VALID_USE_CASE_SET. VALID_USE_CASE_SET is the authoritative source used by
+// the server for validation — if you add a new use-case, add it there first,
+// then add the corresponding UI metadata entry to ASSET_USE_CASES.
+export { VALID_USE_CASE_SET };
 
 export const ASSET_USE_CASES = [
   { key: "all",      label: "All",      icon: FolderOpen,  color: "text-muted-foreground",  bg: "bg-muted/40",        border: "border-border/40" },

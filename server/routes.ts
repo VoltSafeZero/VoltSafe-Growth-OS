@@ -116,6 +116,7 @@ import {
   meetingNoteParticipants,
 } from "@shared/schema";
 import { weatherPrefsSchema, WEATHER_PREFS_MAX_BYTES } from "@shared/weather-types";
+import { VALID_USE_CASE_SET } from "@shared/document-use-cases";
 import {
   getCalendarAuthUrl,
   exchangeCalendarCode,
@@ -6372,10 +6373,19 @@ export async function registerRoutes(
     const files = (req.files as Express.Multer.File[]) ?? [];
     if (files.length === 0) return res.status(400).json({ message: "No file uploaded" });
     const { objectType, objectId, category, title, notes, tags } = req.body;
+    const useCase: string | undefined = req.body.useCase;
     const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task", "tradeshow_event"];
     if (!objectType || !objectId || !allowedTypes.includes(objectType)) {
       for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
       return res.status(400).json({ message: "Valid objectType and objectId required" });
+    }
+    if (!useCase) {
+      for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
+      return res.status(400).json({ message: `useCase is required. Must be one of: ${[...VALID_USE_CASE_SET].join(", ")}` });
+    }
+    if (!VALID_USE_CASE_SET.has(useCase)) {
+      for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
+      return res.status(400).json({ message: `Invalid useCase '${useCase}'. Must be one of: ${[...VALID_USE_CASE_SET].join(", ")}` });
     }
     // Section-aware edit gate — viewer cannot upload to a record they can only read.
     {
@@ -6409,6 +6419,7 @@ export async function registerRoutes(
           uploadedBy: req.session.userId ?? null,
           uploadedByName: req.session.name ?? null,
           category: category ?? "general",
+          useCase: useCase,
           title: files.length === 1 ? (title ?? null) : null,
           notes: files.length === 1 ? (notes ?? null) : null,
           tags: files.length === 1 && tags ? (Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean)) : null,
@@ -6670,6 +6681,12 @@ export async function registerRoutes(
     if (!allowedTypes.includes(objectType)) {
       return res.status(400).json({ message: "Invalid objectType" });
     }
+    if (!useCase) {
+      return res.status(400).json({ message: `useCase is required. Must be one of: ${[...VALID_USE_CASE_SET].join(", ")}` });
+    }
+    if (!VALID_USE_CASE_SET.has(String(useCase))) {
+      return res.status(400).json({ message: `Invalid useCase '${useCase}'. Must be one of: ${[...VALID_USE_CASE_SET].join(", ")}` });
+    }
     try {
       const attachment = await storage.createAttachment({
         objectType,
@@ -6681,7 +6698,7 @@ export async function registerRoutes(
         uploadedBy: req.session.userId ?? null,
         uploadedByName: req.session.name ?? null,
         category: category ?? "general",
-        useCase: useCase ?? "general",
+        useCase: useCase,
         title: title ?? null,
         notes: notes ?? null,
         tags: tags ? (Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean)) : null,
