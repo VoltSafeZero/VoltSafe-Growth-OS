@@ -1,0 +1,350 @@
+STOP. DO NOT PUBLISH YET.
+
+Your report reveals a critical test-isolation and data-safety defect.
+
+The Mail UI fixes may be correct, but the automated tests are modifying shared application data:
+
+- mailbox-switching.test.js deactivated competing personal mailbox records.
+- A failed or incomplete teardown left production-like account ID 1 with is_active=false.
+- permissions tests are changing the password of viewer@voltsafe.com.
+- mail-permissions tests depend on whichever real mailbox happens to be active.
+- tests are using real account IDs such as 1 and 93.
+- test outcomes therefore depend on mutable shared data and can break actual mailboxes.
+
+This is unacceptable.
+
+No test may disable, edit, revoke, reconnect, delete, reassign, or otherwise mutate a real connected mailbox or real user account.
+
+Complete the following before publishing.
+
+==================================================
+1. IMMEDIATELY RESTORE APPLICATION DATA
+==================================================
+
+First determine whether you are connected to the development database or production database.
+
+Do not assume.
+
+For both environments, inspect all records for:
+
+- trevor@voltsafe.com
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+- sales@voltsafe.com
+- support@voltsafe.com
+- viewer@voltsafe.com
+
+Report for every matching email account:
+
+- environment
+- account ID
+- user ID
+- workspace ID
+- visibility type
+- is_active
+- sync_enabled
+- auth_status
+- disconnected_at
+- last incremental sync
+- last sync error
+- message count
+- thread count
+
+Restore any mailbox or user field altered by tests to its legitimate pre-test value.
+
+Specifically investigate account ID 1 and prove whether:
+
+- it is active in production;
+- it is active in development;
+- its OAuth is expired, revoked, or valid;
+- its is_active value was changed by a test;
+- it has been restored safely.
+
+Do not reconnect, revoke, delete, or rotate OAuth credentials without explicit approval.
+
+Do not alter production merely to make tests pass.
+
+==================================================
+2. REMOVE ALL REAL-DATA MUTATION FROM TESTS
+==================================================
+
+Audit every Mail, permissions, authentication, mailbox-switching, privacy, and tracking test for writes to existing application records.
+
+Search for:
+
+- UPDATE email_accounts
+- DELETE FROM email_accounts
+- is_active = false
+- sync_enabled = false
+- password resets
+- updateUser
+- updateAccount
+- toggle-star
+- Gmail API mutations
+- hard-coded account IDs
+- hard-coded user emails
+- assumptions about account ID 1, 4, 93, etc.
+
+Tests must not mutate existing records.
+
+Replace those patterns with isolated fixtures created specifically for the test.
+
+Each test must:
+
+1. create a unique test user;
+2. create unique mailbox fixture rows with generated email addresses;
+3. create only the minimum required messages and threads;
+4. reference generated fixture IDs rather than real IDs;
+5. run inside a transaction that rolls back, where technically possible;
+6. otherwise use try/finally cleanup that deletes only fixture rows;
+7. never alter an existing user, account, mailbox, password, OAuth token, or message;
+8. remain safe if the test process crashes halfway through;
+9. run repeatedly without changing production or shared development state.
+
+Use clearly identifiable fixture values such as:
+
+mailtest-<timestamp>-<random>@example.invalid
+
+Never use @voltsafe.com, trevor@hyalos.com, or a real Gmail address for a test fixture.
+
+==================================================
+3. ADD A HARD TEST-SAFETY GUARD
+==================================================
+
+Create a shared test-safety utility that refuses destructive test operations unless all of the following are true:
+
+- NODE_ENV === "test"
+- TEST_DATABASE_URL is present
+- the database is explicitly identified as a disposable test database
+- the target email ends in @example.invalid or another approved fixture domain
+- the target row was created by the current test run
+
+The guard must throw before any test attempts to modify:
+
+- a real email account;
+- a real user;
+- an OAuth token;
+- a real message/thread;
+- a real password.
+
+Add a database-level marker to fixture rows where appropriate, such as a generated fixture prefix or test_run_id.
+
+Do not add a broad production schema migration merely for tests unless necessary.
+
+==================================================
+4. FIX MAILBOX-SWITCHING TEST CORRECTLY
+==================================================
+
+Remove the current strategy that:
+
+“snapshots and deactivates competing personal accounts so the fake fixture wins LIMIT 1.”
+
+That strategy is fundamentally unsafe and also masks a production-code ambiguity.
+
+Instead:
+
+- create an isolated test user;
+- create only the fixture mailboxes required for that user;
+- explicitly pass or resolve the intended mailbox account ID;
+- verify account switching using those fixture IDs;
+- do not depend on ORDER BY id ASC LIMIT 1 selecting the desired account.
+
+Also audit getUserGmailAccount().
+
+If production code can accidentally select the wrong mailbox because it uses:
+
+ORDER BY id ASC
+LIMIT 1
+
+then fix the production resolver deterministically.
+
+The resolver should use the intended mailbox role, ownership, active/auth state, and explicit primary-account semantics—not whichever record has the smallest ID.
+
+Do not change resolver behaviour blindly. Document the intended precedence and test it.
+
+==================================================
+5. FIX PERMISSION TEST ISOLATION
+==================================================
+
+Do not reset viewer@voltsafe.com’s real password.
+
+Create a dedicated test viewer user with:
+
+- unique generated email;
+- known test password;
+- required read-only/viewer role;
+- no access outside test fixtures.
+
+Delete the fixture afterward.
+
+The test must be self-contained and must not inherit state from a previous test.
+
+A failed prior test must not affect the next suite.
+
+==================================================
+6. REMOVE REAL GMAIL DEPENDENCY FROM UNIT/INTEGRATION TESTS
+==================================================
+
+The tracking tests currently fail because they require valid Gmail OAuth for trevor@voltsafe.com.
+
+Do not make automated regression tests depend on a real user’s live OAuth token.
+
+Separate tests into:
+
+A. Deterministic automated tests
+- mock Gmail API calls;
+- use fixture mailbox accounts;
+- verify request construction, permissions, account selection, database changes, and failure handling;
+- run in CI without OAuth.
+
+B. Optional authenticated end-to-end smoke tests
+- explicitly marked and skipped unless dedicated E2E credentials are available;
+- never use a founder’s personal mailbox;
+- use a dedicated test Gmail account;
+- report SKIPPED, not PASSED, when credentials are unavailable.
+
+Do not call the full suite green while required tests are failing due to expired OAuth.
+
+==================================================
+7. VERIFY THE ACTUAL MAIL UI FIXES
+==================================================
+
+After the safety work, verify that the requested category fix still works.
+
+Every mailbox type must show exactly:
+
+Inbox
+- All
+- People
+- Newsletters
+- Notifications
+
+Verify for:
+
+- work mailbox;
+- private mailbox;
+- team mailbox.
+
+Confirm there is one shared INBOX_CATEGORY_TABS definition and one reusable rendering component or a provably identical shared rendering path.
+
+Confirm none of these appear as Inbox tabs:
+
+- Priority
+- Starred
+- Updates
+- Promotions
+- Social
+- Forums
+- Forums & Communities
+
+Confirm visible provider badges normalize as:
+
+- Promotions → Newsletters
+- Forums → Newsletters
+- Updates → Notifications
+- Social → Notifications
+
+==================================================
+8. VERIFY COUNTS AND FINITE LOADING
+==================================================
+
+For each fixture mailbox and each real production mailbox through read-only queries, verify:
+
+All unread
+=
+People unread
++
+Newsletters unread
++
+Notifications unread
+
+The delta must be exactly zero.
+
+Verify:
+
+- positive badge cannot produce a successful empty result;
+- category switches reset pagination;
+- mailbox switches reset accumulated rows;
+- stale requests cannot overwrite the active mailbox;
+- unread loading terminates after success, empty result, error, repeated cursor, zero-row page, or safety cap;
+- no infinite “Unread messages are still loading...” state remains.
+
+Use read-only production verification. Do not mutate production to perform these checks.
+
+==================================================
+9. RUN TESTS AGAINST A DISPOSABLE DATABASE
+==================================================
+
+Report the exact database used by every test command.
+
+The final test run must use:
+
+- TEST_DATABASE_URL;
+- a disposable or isolated test database;
+- no production database;
+- no shared development database containing real user/mailbox records.
+
+Before the test run, prove the database identity.
+
+After the test run, prove no production or development mailbox/user records changed.
+
+Run:
+
+- canonical-categories
+- inbox-sidebar-categories
+- inbox-category-badge
+- mailbox-switching
+- mailbox-privacy
+- mail-reconciliation
+- unread-filter-server-side
+- inbox-count-reconciliation
+- mail-permissions
+- permissions
+- tracking tests with mocked Gmail
+- full Mail test suite
+- npm run build
+
+Do not describe stale workflow failures as irrelevant. Restart the workflow and provide a fresh final run.
+
+==================================================
+10. REQUIRED COMPLETION REPORT
+==================================================
+
+Provide:
+
+- exact root cause of the test-state corruption;
+- all records found altered;
+- exact records restored;
+- proof production was not changed by tests;
+- proof development real accounts were restored;
+- test database identity;
+- exact fixture strategy;
+- exact resolver changes, if any;
+- exact files changed;
+- all test commands and results;
+- skipped tests and exact reasons;
+- build result;
+- commit SHA;
+- parent SHA;
+- git status --short;
+- pushed status;
+- deployment status.
+
+Do not publish automatically.
+
+End with one explicit verdict:
+
+READY TO PUBLISH
+
+or
+
+NOT READY TO PUBLISH
+
+The verdict can only be READY TO PUBLISH if:
+
+- no test mutates real users or mailboxes;
+- account ID 1 and all real mailboxes are confirmed correct;
+- tests use isolated fixtures;
+- Gmail-dependent tests are mocked or explicitly separated;
+- the complete fresh test run passes;
+- the Mail category UI remains correct.

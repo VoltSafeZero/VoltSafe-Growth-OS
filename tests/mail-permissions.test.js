@@ -7,86 +7,122 @@
  * accessible with view-only grants, and that owner/admin-only routes
  * (sync, disconnect, sync-toggle) reject non-owner non-admin callers.
  *
- * Run with: node tests/mail-permissions.test.js
- * Requires: server running at localhost:5000, viewer@voltsafe.com user exists,
- *           email_accounts.id=1 owned by trevor@voltsafe.com (master_admin).
+ * ISOLATION STRATEGY (safe — no real user or account mutation):
+ *   1. Creates a fixture viewer user   (email @example.invalid, known password).
+ *   2. Creates a fixture mailbox account owned by trevor (user_id=4, is_active=true)
+ *      with a fake email address @example.invalid.
+ *   3. Creates one fixture message under the fixture mailbox.
+ *   4. Grants the fixture viewer VIEW-only access to the fixture mailbox via
+ *      permissions.mail_team = { "<fixtureAccountId>": { view: true, edit: false } }.
+ *   5. Runs all assertions against fixture IDs.
+ *   6. Teardown (try/finally): deletes fixture message → fixture account →
+ *      fixture viewer user.  Safe to re-run.
  *
- * Setup is performed in-test (NO schema changes):
- *   - viewer@voltsafe.com password is reset to a known value (bcryptjs)
- *   - viewer.permissions.mail_team = { "1": { view: true, edit: false } }
- * Cleanup restores viewer.permissions.mail_team = {}.
+ * No real user password is ever changed.  No real email_account is ever modified.
+ *
+ * Run with: node tests/mail-permissions.test.js
+ * Requires: server running at localhost:5000.
  */
 
 import bcrypt from "bcryptjs";
-import pg from "pg";
+import pg     from "pg";
+import { fixtureEmail, assertTestEnvironment } from "./test-safety.cjs";
 
-const BASE = "http://localhost:5000";
-const VIEWER_EMAIL = "viewer@voltsafe.com";
-const VIEWER_PWD = "vstest_viewer_!1";
+assertTestEnvironment();
+
+const BASE        = "http://localhost:5000";
 const ADMIN_EMAIL = "trevor@voltsafe.com";
-const ADMIN_PWD = "alberni1444";
-const ACCOUNT_ID = 1; // trevor@voltsafe.com mailbox
+const ADMIN_PWD   = "alberni1444";
+const ADMIN_USER_ID  = 4;   // trevor — fixture mailbox is owned by trevor so owner-pass-through works
+const WORKSPACE_ID   = 1;
 
 let passed = 0;
 let failed = 0;
-const ok = (l) => { console.log(`  \u2713 ${l}`); passed++; };
-const bad = (l, d) => { console.error(`  \u2717 ${l}${d ? ` \u2014 ${d}` : ""}`); failed++; };
+const ok  = (l)    => { console.log(`  ✓ ${l}`);                              passed++; };
+const bad = (l, d) => { console.error(`  ✗ ${l}${d ? ` — ${d}` : ""}`);      failed++; };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function login(email, password) {
   const res = await fetch(`${BASE}/api/auth/login`, {
-    method: "POST",
+    method:  "POST",
     headers: { "Content-Type": "application/json", "Origin": BASE },
-    body: JSON.stringify({ email, password }),
+    body:    JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error(`Login failed for ${email}: ${res.status}`);
   const cookie = res.headers.get("set-cookie")?.match(/(connect\.sid=[^;]+)/)?.[1];
   if (!cookie) throw new Error(`No session cookie for ${email}`);
-  await sleep(400); // allow connect-pg-simple to commit session
+  await sleep(400);
   return cookie;
 }
 
 const authed = (cookie) => async (url, opts = {}) => fetch(`${BASE}${url}`, {
   ...opts,
-  // Origin is required by the CSRF middleware (rejectCrossOriginMutations). Including it
-  // here keeps CSRF enforcement intact on the server — we are merely sending what a
-  // same-origin browser would send automatically.
   headers: { "Content-Type": "application/json", Cookie: cookie, Origin: BASE, ...(opts.headers || {}) },
 });
 
 async function expect(label, p, ...statuses) {
   const res = await p;
   if (statuses.includes(res.status)) {
-    ok(`${label} \u2192 ${res.status}`);
+    ok(`${label} → ${res.status}`);
   } else {
     const body = await res.text().catch(() => "");
-    bad(`${label} \u2192 expected ${statuses.join("|")}, got ${res.status}`, body.slice(0, 140));
+    bad(`${label} → expected ${statuses.join("|")}, got ${res.status}`, body.slice(0, 140));
   }
 }
 
+/** Create all fixture rows. Returns ctx object for teardown. */
 async function setup(client) {
-  // Snapshot the viewer's current password + permissions so teardown can
-  // restore them exactly. This keeps the test isolated and repeatable —
-  // the sibling `permissions` test suite (and any others that depend on
-  // viewer@voltsafe.com) sees no observable side-effects after we run.
-  const snap = await client.query(
-    `SELECT password, permissions FROM users WHERE email = $1 LIMIT 1`,
-    [VIEWER_EMAIL]
-  );
-  if (snap.rowCount === 0) throw new Error(`Viewer user ${VIEWER_EMAIL} not found`);
-  const original = {
-    password: snap.rows[0].password,
-    permissions: snap.rows[0].permissions,
-  };
+  const FIXTURE_TAG = "mailperm-" + Date.now();
 
-  // 1) Set viewer password to a known value (bcryptjs hash, salt rounds = 10).
-  const hash = await bcrypt.hash(VIEWER_PWD, 10);
-  await client.query(
-    `UPDATE users SET password = $1, status = 'active', must_change_password = false WHERE email = $2`,
-    [hash, VIEWER_EMAIL]
+  // ── 1. Fixture viewer user ──────────────────────────────────────────────
+  const viewerEmail = fixtureEmail("mailperm", "viewer");
+  const viewerPwd   = "mailperm-viewer-" + Date.now();
+  const viewerHash  = await bcrypt.hash(viewerPwd, 10);
+
+  // Insert viewer without mail_team yet — we'll add it after we know the account ID.
+  const viewerRes = await client.query(
+    `INSERT INTO users
+       (name, email, password, role, status, must_change_password, permissions)
+     VALUES ($1, $2, $3, 'read-only', 'active', false,
+             '{"crm":"none","quoting":"none","support":"none","calendar":"none","projects":"none","knowledge":"none","mail_team":{},"partnerships":"none","calendar_team":[],"team_workload":"none","communications":"none"}'::jsonb)
+     RETURNING id`,
+    [`MailPerm Fixture Viewer ${FIXTURE_TAG}`, viewerEmail, viewerHash],
   );
-  // 2) Grant viewer VIEW-only access to mailbox account_id=1.
+  const viewerUserId = viewerRes.rows[0].id;
+
+  // ── 2. Fixture mailbox account under trevor (owner) ─────────────────────
+  // is_active=true, auth_status='active' so resolveAccount() accepts it and
+  // the owner pass-through test works without needing a real active account.
+  const acctEmail = fixtureEmail("mailperm", "acct");
+  const acctRes = await client.query(
+    `INSERT INTO email_accounts
+       (user_id, workspace_id, provider, email_address, display_name,
+        auth_status, is_shared, refresh_token, is_active)
+     VALUES ($1, $2, 'gmail', $3, 'MailPerm Fixture Mailbox',
+             'active', false, $4, true)
+     RETURNING id`,
+    [ADMIN_USER_ID, WORKSPACE_ID, acctEmail, `fake-refresh-mailperm-${FIXTURE_TAG}`],
+  );
+  const fixtureAccountId = acctRes.rows[0].id;
+
+  // ── 3. Fixture message in the fixture mailbox ───────────────────────────
+  const msgGmailId  = `mailperm-msg-${FIXTURE_TAG}`;
+  const msgThreadId = `mailperm-thr-${FIXTURE_TAG}`;
+  const msgRes = await client.query(
+    `INSERT INTO email_messages
+       (gmail_message_id, gmail_thread_id, subject, from_email, sent_at,
+        snippet, owner_user_id, source_account_id, direction, label_ids,
+        is_inbox, is_unread, is_starred, is_spam, is_trash, is_draft, is_sent)
+     VALUES ($1, $2, 'MailPerm Fixture Message', 'sender@example.invalid', NOW(),
+             'fixture message', $3, $4, 'inbound', '["INBOX"]',
+             true, false, false, false, false, false, false)
+     RETURNING id`,
+    [msgGmailId, msgThreadId, ADMIN_USER_ID, fixtureAccountId],
+  );
+  const fixtureMessageDbId = msgRes.rows[0].id;
+
+  // ── 4. Grant fixture viewer VIEW-only access to the fixture mailbox ─────
   await client.query(
     `UPDATE users
        SET permissions = jsonb_set(
@@ -95,20 +131,43 @@ async function setup(client) {
          $1::jsonb,
          true
        )
-       WHERE email = $2`,
-    [JSON.stringify({ [String(ACCOUNT_ID)]: { view: true, edit: false } }), VIEWER_EMAIL]
+     WHERE id = $2`,
+    [JSON.stringify({ [String(fixtureAccountId)]: { view: true, edit: false } }), viewerUserId],
   );
 
-  return original;
+  return {
+    FIXTURE_TAG,
+    viewerEmail,
+    viewerPwd,
+    viewerUserId,
+    fixtureAccountId,
+    fixtureMessageDbId,
+    fixtureThreadId: msgThreadId,
+    msgGmailId,
+  };
 }
 
-async function teardown(client, original) {
-  if (!original) return;
-  // Restore exact pre-test state.
-  await client.query(
-    `UPDATE users SET password = $1, permissions = $2 WHERE email = $3`,
-    [original.password, original.permissions, VIEWER_EMAIL]
-  );
+async function teardown(client, ctx) {
+  if (!ctx) return;
+  // Delete in FK dependency order: messages → email_accounts → users.
+  if (ctx.msgGmailId) {
+    await client.query(
+      `DELETE FROM email_messages WHERE gmail_message_id = $1`,
+      [ctx.msgGmailId],
+    ).catch((e) => console.warn("teardown msg:", e.message));
+  }
+  if (ctx.fixtureAccountId) {
+    await client.query(
+      `DELETE FROM email_accounts WHERE id = $1`,
+      [ctx.fixtureAccountId],
+    ).catch((e) => console.warn("teardown acct:", e.message));
+  }
+  if (ctx.viewerUserId) {
+    await client.query(
+      `DELETE FROM users WHERE id = $1`,
+      [ctx.viewerUserId],
+    ).catch((e) => console.warn("teardown viewer:", e.message));
+  }
 }
 
 async function run() {
@@ -118,192 +177,176 @@ async function run() {
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
 
+  let ctx = null;
   try {
-    await setup(client);
-    console.log(`Setup: viewer password reset, mail_team[${ACCOUNT_ID}] = view-only\n`);
+    ctx = await setup(client);
+    console.log(
+      `Setup: fixture viewer id=${ctx.viewerUserId} (${ctx.viewerEmail}), ` +
+      `fixture account id=${ctx.fixtureAccountId}, ` +
+      `fixture message db-id=${ctx.fixtureMessageDbId}\n`,
+    );
 
-    const viewerCookie = await login(VIEWER_EMAIL, VIEWER_PWD);
+    const viewerCookie = await login(ctx.viewerEmail, ctx.viewerPwd);
     const v = authed(viewerCookie);
 
-    // Resolve a real message + thread anchored to account 1 (so the thread-record
-    // anchor lookup actually triggers the edit-access check).
-    const msgRow = await client.query(
-      `SELECT id, gmail_thread_id FROM email_messages WHERE source_account_id = $1 LIMIT 1`,
-      [ACCOUNT_ID]
-    );
-    const realMsgId = msgRow.rows[0]?.id ?? 1;
-    const realThreadId = msgRow.rows[0]?.gmail_thread_id ?? "missing";
-
-    // For the owner pass-through check we need an ACTIVE account.
-    // Account 1 (trevor@voltsafe.com personal) has auth_status=expired and
-    // is_active=false, so resolveAccount(asAccountId=1) returns null → 403,
-    // which incorrectly looks like a permission failure.  Use the active
-    // shared account 93 (sales@voltsafe.com) which is also owned by user 4
-    // (trevor) and is always is_active=true.
-    const ACTIVE_ACCOUNT_ID = 93; // sales@voltsafe.com — active, user_id=4
-    const activeMsgRow = await client.query(
-      `SELECT id FROM email_messages WHERE source_account_id = $1 LIMIT 1`,
-      [ACTIVE_ACCOUNT_ID]
-    );
-    const activeMsgId = activeMsgRow.rows[0]?.id ?? realMsgId;
-
-    // ── 1. Eight guarded Gmail mutation routes — view-only must get 403 ──────
-    console.log("── view-only viewer \u2192 403 on 8 guarded mutation routes (acct=1) ──");
+    // ── 1. Eight guarded Gmail mutation routes — view-only must get 403 ────
+    console.log(`── view-only viewer → 403 on 8 guarded mutation routes (acct=${ctx.fixtureAccountId}) ──`);
 
     await expect(
       "PATCH /api/gmail/thread-record/:threadId  [edit-required]",
-      v(`/api/gmail/thread-record/${encodeURIComponent(realThreadId)}`, {
+      v(`/api/gmail/thread-record/${encodeURIComponent(ctx.fixtureThreadId)}`, {
         method: "PATCH",
-        body: JSON.stringify({ status: "snoozed" }),
+        body:   JSON.stringify({ status: "snoozed" }),
       }),
-      403
+      403,
     );
 
     await expect(
       "POST  /api/gmail/drafts                   [edit-required]",
-      v(`/api/gmail/drafts`, {
+      v("/api/gmail/drafts", {
         method: "POST",
-        body: JSON.stringify({ asAccountId: ACCOUNT_ID, to: "x@example.com", subject: "x", body: "x" }),
+        body:   JSON.stringify({ asAccountId: ctx.fixtureAccountId, to: "x@example.com", subject: "x", body: "x" }),
       }),
-      403
+      403,
     );
 
     await expect(
       "DEL   /api/gmail/drafts/:id               [edit-required]",
-      v(`/api/gmail/drafts/abc?asAccountId=${ACCOUNT_ID}`, { method: "DELETE" }),
-      403
+      v(`/api/gmail/drafts/abc?asAccountId=${ctx.fixtureAccountId}`, { method: "DELETE" }),
+      403,
     );
 
     await expect(
       "POST  /api/gmail/messages/:id/mark-read   [edit-required]",
-      v(`/api/gmail/messages/${realMsgId}/mark-read`, {
+      v(`/api/gmail/messages/${ctx.fixtureMessageDbId}/mark-read`, {
         method: "POST",
-        body: JSON.stringify({ asAccountId: ACCOUNT_ID }),
+        body:   JSON.stringify({ asAccountId: ctx.fixtureAccountId }),
       }),
-      403
+      403,
     );
 
     await expect(
       "POST  /api/gmail/messages/:id/toggle-star [edit-required]",
-      v(`/api/gmail/messages/${realMsgId}/toggle-star`, {
+      v(`/api/gmail/messages/${ctx.fixtureMessageDbId}/toggle-star`, {
         method: "POST",
-        body: JSON.stringify({ asAccountId: ACCOUNT_ID }),
+        body:   JSON.stringify({ asAccountId: ctx.fixtureAccountId }),
       }),
-      403
+      403,
     );
 
     await expect(
       "POST  /api/gmail/bulk-mark-read           [edit-required]",
-      v(`/api/gmail/bulk-mark-read`, {
+      v("/api/gmail/bulk-mark-read", {
         method: "POST",
-        body: JSON.stringify({ asAccountId: ACCOUNT_ID, messageIds: ["xyz"], markAs: "read" }),
+        body:   JSON.stringify({ asAccountId: ctx.fixtureAccountId, messageIds: ["xyz"], markAs: "read" }),
       }),
-      403
+      403,
     );
 
     await expect(
       "POST  /api/gmail/bulk-archive             [edit-required]",
-      v(`/api/gmail/bulk-archive`, {
+      v("/api/gmail/bulk-archive", {
         method: "POST",
-        body: JSON.stringify({ asAccountId: ACCOUNT_ID, threadIds: ["xyz"] }),
+        body:   JSON.stringify({ asAccountId: ctx.fixtureAccountId, threadIds: ["xyz"] }),
       }),
-      403
+      403,
     );
 
     await expect(
       "POST  /api/gmail/send                     [edit-required]",
-      v(`/api/gmail/send`, {
+      v("/api/gmail/send", {
         method: "POST",
-        body: JSON.stringify({ asAccountId: ACCOUNT_ID, to: "x@example.com", subject: "x", body: "x" }),
+        body:   JSON.stringify({ asAccountId: ctx.fixtureAccountId, to: "x@example.com", subject: "x", body: "x" }),
       }),
-      403
+      403,
     );
 
-    // ── 2. Read routes — view-only viewer should still get 200 ──────────────
-    console.log("\n── view-only viewer \u2192 200 on read routes ──");
-    await expect("GET  /api/gmail/accounts                  [read]", v(`/api/gmail/accounts`), 200);
+    // ── 2. Read routes — view-only viewer should still get 200 ──────────
+    console.log("\n── view-only viewer → 200 on read routes ──");
+    await expect("GET  /api/gmail/accounts                  [read]", v("/api/gmail/accounts"), 200);
     await expect(
-      "GET  /api/gmail/messages?asAccountId=1    [read]",
-      v(`/api/gmail/messages?asAccountId=${ACCOUNT_ID}&limit=5`),
-      200
+      `GET  /api/gmail/messages?asAccountId=${ctx.fixtureAccountId}    [read]`,
+      v(`/api/gmail/messages?asAccountId=${ctx.fixtureAccountId}&limit=5`),
+      200,
     );
     await expect(
-      "GET  /api/gmail/threads?asAccountId=1     [read]",
-      v(`/api/gmail/threads?asAccountId=${ACCOUNT_ID}&limit=5`),
-      200
+      `GET  /api/gmail/threads?asAccountId=${ctx.fixtureAccountId}     [read]`,
+      v(`/api/gmail/threads?asAccountId=${ctx.fixtureAccountId}&limit=5`),
+      200,
     );
 
-    // ── 3. Sync/watch admin/owner routes — viewer must be denied ────────────
-    console.log("\n── view-only viewer \u2192 403 on owner/admin sync + watch routes ──");
+    // ── 3. Sync/watch admin/owner routes — viewer must be denied ────────
+    console.log("\n── view-only viewer → 403 on owner/admin sync + watch routes ──");
     await expect(
-      "POST /api/gmail/accounts/1/resync        [owner|admin]",
-      v(`/api/gmail/accounts/${ACCOUNT_ID}/resync`, { method: "POST" }),
-      403
+      `POST /api/gmail/accounts/${ctx.fixtureAccountId}/resync        [owner|admin]`,
+      v(`/api/gmail/accounts/${ctx.fixtureAccountId}/resync`, { method: "POST" }),
+      403,
     );
     await expect(
-      "POST /api/gmail/accounts/1/sync-toggle   [owner|admin]",
-      v(`/api/gmail/accounts/${ACCOUNT_ID}/sync-toggle`, {
+      `POST /api/gmail/accounts/${ctx.fixtureAccountId}/sync-toggle   [owner|admin]`,
+      v(`/api/gmail/accounts/${ctx.fixtureAccountId}/sync-toggle`, {
         method: "POST",
-        body: JSON.stringify({ enabled: true }),
+        body:   JSON.stringify({ enabled: true }),
       }),
-      403
+      403,
     );
     await expect(
-      "POST /api/gmail/accounts/1/disconnect    [owner|admin]",
-      v(`/api/gmail/accounts/${ACCOUNT_ID}/disconnect`, { method: "POST" }),
-      403
+      `POST /api/gmail/accounts/${ctx.fixtureAccountId}/disconnect    [owner|admin]`,
+      v(`/api/gmail/accounts/${ctx.fixtureAccountId}/disconnect`, { method: "POST" }),
+      403,
     );
     await expect(
-      "GET  /api/gmail/accounts/1/access        [owner|admin]",
-      v(`/api/gmail/accounts/${ACCOUNT_ID}/access`),
-      403
+      `GET  /api/gmail/accounts/${ctx.fixtureAccountId}/access        [owner|admin]`,
+      v(`/api/gmail/accounts/${ctx.fixtureAccountId}/access`),
+      403,
     );
 
-    // ── 4. Owner/admin (Trevor) keeps expected access ───────────────────────
-    console.log("\n── owner/admin (trevor, master_admin) \u2192 expected access ──");
+    // ── 4. Owner/admin (Trevor) keeps expected access ──────────────────
+    console.log("\n── owner/admin (trevor, master_admin) → expected access ──");
     const adminCookie = await login(ADMIN_EMAIL, ADMIN_PWD);
     const a = authed(adminCookie);
 
-    await expect("GET  /api/gmail/accounts                  [admin read]", a(`/api/gmail/accounts`), 200);
+    await expect("GET  /api/gmail/accounts                  [admin read]", a("/api/gmail/accounts"), 200);
     await expect(
-      "GET  /api/gmail/accounts/1/access        [owner|admin]",
-      a(`/api/gmail/accounts/${ACCOUNT_ID}/access`),
-      200
+      `GET  /api/gmail/accounts/${ctx.fixtureAccountId}/access        [owner|admin]`,
+      a(`/api/gmail/accounts/${ctx.fixtureAccountId}/access`),
+      200,
     );
-    // Sync-toggle is idempotent and reversible — flip on (it's already on).
     await expect(
-      "POST /api/gmail/accounts/1/sync-toggle   [owner|admin]",
-      a(`/api/gmail/accounts/${ACCOUNT_ID}/sync-toggle`, {
+      `POST /api/gmail/accounts/${ctx.fixtureAccountId}/sync-toggle   [owner|admin]`,
+      a(`/api/gmail/accounts/${ctx.fixtureAccountId}/sync-toggle`, {
         method: "POST",
-        body: JSON.stringify({ enabled: true }),
+        body:   JSON.stringify({ enabled: true }),
       }),
-      200
+      200,
     );
-    // Mutations on the owned mailbox should pass the auth gate. We don't care
-    // whether the underlying Gmail call succeeds — anything that is NOT 403
-    // means the Phase 4 guard correctly allowed the owner through. 503 = Gmail
-    // upstream error, 400 = schema, 200/404 = handler ran.
-    const starRes = await a(`/api/gmail/messages/${activeMsgId}/toggle-star`, {
+
+    // Owner pass-through: admin/owner calling toggle-star on the fixture account.
+    // Anything that is NOT 403 means the Phase 4 guard correctly allowed the owner.
+    // 503 = Gmail upstream error (no real Gmail connected), 400 = schema, 200 = success.
+    const starRes = await a(`/api/gmail/messages/${ctx.fixtureMessageDbId}/toggle-star`, {
       method: "POST",
-      body: JSON.stringify({ asAccountId: ACTIVE_ACCOUNT_ID }),
+      body:   JSON.stringify({ asAccountId: ctx.fixtureAccountId }),
     });
     if (starRes.status === 403) {
-      bad(`POST /api/gmail/messages/:id/toggle-star [owner pass-through] \u2192 403 (guard wrongly denied owner)`);
+      bad("POST /api/gmail/messages/:id/toggle-star [owner pass-through] → 403 (guard wrongly denied owner)");
     } else {
-      ok(`POST /api/gmail/messages/:id/toggle-star [owner pass-through] \u2192 ${starRes.status} (not 403 = guard allowed owner)`);
+      ok(`POST /api/gmail/messages/:id/toggle-star [owner pass-through] → ${starRes.status} (not 403 = guard allowed owner)`);
     }
+
   } finally {
-    await teardown(client);
+    await teardown(client, ctx);
     await client.end();
+    console.log("\nTeardown complete.");
   }
 
   console.log(`\n${"=".repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed out of ${passed + failed} total`);
   if (failed > 0) {
-    console.error(`\n\u274C ${failed} test(s) FAILED`);
+    console.error(`\n❌ ${failed} test(s) FAILED`);
     process.exit(1);
   }
-  console.log(`\n\u2705 All ${passed} tests PASSED`);
+  console.log(`\n✅ All ${passed} tests PASSED`);
   process.exit(0);
 }
 

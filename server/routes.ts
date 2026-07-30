@@ -11486,11 +11486,25 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // ── Gmail mailbox isolation helper (Phase 1) ─────────────────────────────
   // Returns the user's own active email_accounts record (first one found).
   async function getUserGmailAccount(userId: number) {
-    // Personal account = active, owned by this user, AND not flagged as a shared team
-    // inbox. Without the is_shared=false filter, a team inbox connected by this user
-    // (user_id=me, is_shared=true) could win the LIMIT 1 race and be returned as
-    // their "own" account — making the header & default-resolved routes show the
-    // wrong mailbox when activeAccountId is null on the client.
+    // Returns the user's "primary" personal mailbox using the following
+    // precedence rules (documented here so callers know what to expect):
+    //
+    //   1. Must be owned by this user          (user_id = userId)
+    //   2. Must be currently active            (is_active = true)
+    //   3. Must NOT be a shared team inbox     (is_shared = false)
+    //   4. Prefer accounts with working OAuth  (auth_status = 'active' before expired/invalid)
+    //   5. Tiebreak: oldest account wins       (ORDER BY id ASC — first connected = primary)
+    //
+    // Rule 4 ensures that if a user ever has one expired and one active personal
+    // account, the working one is returned rather than the expired one by accident.
+    //
+    // Why ORDER BY id (oldest first)?  The first account a user connected is their
+    // canonical personal inbox.  This is stable across reconnects of newer accounts
+    // and matches user expectation.  A future schema migration may add an explicit
+    // is_primary flag; until then, oldest-ID-wins is the declared contract here.
+    //
+    // NOTE: tests must NOT insert fixture accounts under a real user_id to avoid
+    // ambiguity.  Test fixtures must use isolated fixture users (email @example.invalid).
     const [acct] = await db
       .select()
       .from(emailAccounts)
@@ -11499,7 +11513,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         eq(emailAccounts.isActive, true),
         eq(emailAccounts.isShared, false),
       ))
-      .orderBy(emailAccounts.id)
+      .orderBy(
+        // Prefer auth_status='active' over expired/invalid so the working account
+        // is always returned first when a user has more than one personal mailbox.
+        sql`CASE WHEN ${emailAccounts.authStatus} = 'active' THEN 0 ELSE 1 END`,
+        emailAccounts.id,
+      )
       .limit(1);
     return acct ?? null;
   }

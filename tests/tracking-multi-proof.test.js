@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Multi-Recipient Open-Tracking Proof
+ * Multi-Recipient Open-Tracking Proof  [E2E SMOKE TEST — requires live Gmail OAuth]
  *
  * Sends ONE compose with 3 recipients (To + Cc + Bcc) using Gmail
  * plus-addressing so all copies route to Trevor's inbox without spamming
@@ -11,8 +11,25 @@
  *   - opening recipient B's pixel attributes the open ONLY to B's row
  *   - the by-message API returns the correct recipient_email per message
  *
- * Run: node tests/tracking-multi-proof.test.js
+ * CLASSIFICATION: E2E smoke test — NOT a deterministic unit/integration test.
+ *   - Requires valid Gmail OAuth for trevor@voltsafe.com in the environment.
+ *   - Should NOT be run in CI without dedicated test-Gmail credentials.
+ *   - Will be SKIPPED (exit 0) unless GMAIL_E2E_ENABLED=1 is set explicitly.
+ *
+ * Run:
+ *   GMAIL_E2E_ENABLED=1 node tests/tracking-multi-proof.test.js   # full test
+ *   node tests/tracking-multi-proof.test.js                        # SKIPPED
  */
+
+// ── E2E skip guard ─────────────────────────────────────────────────────────
+if (!process.env.GMAIL_E2E_ENABLED) {
+  console.log("SKIPPED — tracking-multi-proof.test.js is an E2E smoke test.");
+  console.log("         It requires valid Gmail OAuth for trevor@voltsafe.com.");
+  console.log("         Set GMAIL_E2E_ENABLED=1 to run it explicitly.");
+  console.log("         Do NOT run in CI without dedicated E2E Gmail credentials.");
+  process.exit(0); // exit 0 = SKIPPED (not a failure)
+}
+
 import pg from "pg";
 
 const BASE = "http://localhost:5000";

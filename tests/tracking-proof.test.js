@@ -1,14 +1,30 @@
 #!/usr/bin/env node
 /**
- * End-to-end Open-Tracking Proof
+ * End-to-end Open-Tracking Proof   [E2E SMOKE TEST — requires live Gmail OAuth]
  *
  * Sends one real tracked HTML email from Cortex (Trevor's account) to Trevor's
  * own inbox, then exercises every link in the open-tracking chain and prints
  * raw evidence at every stage. Designed to be re-runnable; cleans up the DB
  * rows it creates (the actual Gmail message remains in Trevor's Sent folder).
  *
- * Run: node tests/tracking-proof.test.js
+ * CLASSIFICATION: E2E smoke test — NOT a deterministic unit/integration test.
+ *   - Requires valid Gmail OAuth for trevor@voltsafe.com in the environment.
+ *   - Should NOT be run in CI without dedicated test-Gmail credentials.
+ *   - Will be SKIPPED (exit 0) unless GMAIL_E2E_ENABLED=1 is set explicitly.
+ *
+ * Run:
+ *   GMAIL_E2E_ENABLED=1 node tests/tracking-proof.test.js   # runs the full test
+ *   node tests/tracking-proof.test.js                        # exits SKIPPED
  */
+
+// ── E2E skip guard ─────────────────────────────────────────────────────────
+if (!process.env.GMAIL_E2E_ENABLED) {
+  console.log("SKIPPED — tracking-proof.test.js is an E2E smoke test.");
+  console.log("         It requires valid Gmail OAuth for trevor@voltsafe.com.");
+  console.log("         Set GMAIL_E2E_ENABLED=1 to run it explicitly.");
+  console.log("         Do NOT run in CI without dedicated E2E Gmail credentials.");
+  process.exit(0); // exit 0 = SKIPPED (not a failure)
+}
 
 import pg from "pg";
 
