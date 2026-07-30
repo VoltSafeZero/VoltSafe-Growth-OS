@@ -1,0 +1,312 @@
+FINAL RELEASE GATE — AUTHENTICATED VOLTSAFE MAIL UI VERIFICATION
+
+Do not modify code unless the authenticated browser reveals a real defect.
+
+Current candidate commit:
+
+1f10f06a
+
+The test-safety remediation is accepted:
+
+- tests no longer mutate real users or mailboxes;
+- fixture users use @example.invalid;
+- mailbox resolver precedence is deterministic;
+- deterministic tests pass;
+- Gmail tracking tests are correctly separated as optional E2E smoke tests.
+
+The skipped tracking-proof tests are NOT release blockers for the Inbox category/sidebar correction. Keep them explicitly SKIPPED unless a dedicated Gmail E2E account is available. Do not reconnect or use Trevor’s real Gmail account merely to make those optional tests pass.
+
+The remaining release blocker is authenticated visual and behavioural verification.
+
+==================================================
+1. VERIFY CURRENT RELEASE STATE
+==================================================
+
+Report:
+
+- current HEAD
+- parent SHA
+- git status --short
+- origin/main SHA
+- whether commit 1f10f06a contains all Mail category fixes
+- whether production is still on an older commit
+
+Do not publish yet.
+
+==================================================
+2. USE AN AUTHENTICATED VOLTSAFE SESSION
+==================================================
+
+Open VoltSafe Mail while logged in as Trevor.
+
+Do not use the login page as evidence.
+
+Verify each logical mailbox:
+
+- trevor@voltsafe.com
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+- sales@voltsafe.com
+- support@voltsafe.com
+
+For every mailbox capture a screenshot showing the expanded Inbox navigation.
+
+It must display exactly:
+
+- All
+- People
+- Newsletters
+- Notifications
+
+It must not display:
+
+- Priority
+- Starred
+- Updates
+- Promotions
+- Social
+- Forums
+- Forums & Communities
+
+==================================================
+3. VERIFY EVERY CATEGORY
+==================================================
+
+For every mailbox click:
+
+- All
+- People
+- Newsletters
+- Notifications
+- Unread
+
+For each selection report:
+
+- selected mailbox
+- resolved account ID or account-ID set
+- selected category
+- request URL
+- query parameters
+- HTTP status
+- badge count
+- API conversation count
+- rendered conversation count
+- whether loading terminates
+- screenshot
+
+Required:
+
+- every request returns HTTP 200;
+- no positive badge produces “No messages found”;
+- no unread view spins indefinitely;
+- no rows from another mailbox remain after switching;
+- no Local mailbox query failed.
+
+==================================================
+4. VERIFY ALL VIEW GROUPING
+==================================================
+
+For each mailbox’s All view, confirm every applicable canonical section appears:
+
+- People
+- Newsletters
+- Notifications
+- Seen, only if Seen remains intentionally supported
+
+A category with a positive count must not be silently omitted.
+
+Capture screenshots for Trevor’s All view and at least one private and one team mailbox.
+
+==================================================
+5. VERIFY VISIBLE ROW LABELS
+==================================================
+
+Inspect message rows across:
+
+- All
+- People
+- Newsletters
+- Notifications
+- Unread
+- search results
+- an opened message
+
+Visible labels must normalize as:
+
+- Promotions → Newsletters
+- Forums → Newsletters
+- Updates → Notifications
+- Social → Notifications
+
+No legacy provider category label may appear anywhere in the UI.
+
+Do not change provider labels or database metadata.
+
+==================================================
+6. VERIFY FINITE LOADER STATES
+==================================================
+
+Reproduce the previously broken private mailbox states.
+
+For:
+
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+confirm that Unread reaches one of:
+
+- loaded with results
+- loaded empty
+- sync pending with a finite explanatory state
+- failed with Retry
+
+It must never remain indefinitely at:
+
+“Unread messages are still loading...”
+
+Record how long each request takes and whether further repeated requests continue after the UI settles.
+
+==================================================
+7. VERIFY COUNTS
+==================================================
+
+Using the same production snapshot/request scope, report for every mailbox:
+
+- All unread conversations
+- People unread conversations
+- Newsletters unread conversations
+- Notifications unread conversations
+- arithmetic delta
+
+Required:
+
+All = People + Newsletters + Notifications
+
+Delta must equal zero.
+
+Also report:
+
+- sidebar badge
+- API count
+- rendered count
+
+Explain any intentional pagination or collapsed-section difference. A positive count with a successful empty list is never acceptable.
+
+==================================================
+8. VERIFY PRIVATE MAILBOX VISIBILITY
+==================================================
+
+Confirm both private mailboxes remain visible after:
+
+- first page load
+- selecting each mailbox
+- switching to another mailbox and back
+- browser refresh
+- navigating away from Mail and returning
+
+Mailboxes:
+
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+Neither may disappear due to stale cache, active-account state or mailbox grouping.
+
+==================================================
+9. VERIFY TEAM MAILBOX RESOLUTION
+==================================================
+
+For Sales and Support, report the exact production account record or authorized account-ID set selected by the UI.
+
+Confirm:
+
+- only one logical Sales mailbox appears;
+- only one logical Support mailbox appears;
+- mirrored records are not double-counted;
+- badge and list use the same scope;
+- authorized team access remains intact.
+
+Do not delete or merge Sales or Support records.
+
+==================================================
+10. BROWSER NETWORK AND CONSOLE
+==================================================
+
+Capture evidence from the authenticated session.
+
+Network:
+
+- no Gmail message-list 500s
+- no repeated infinite unread requests
+- no legacy category tokens generated by visible navigation
+- correct account ID on every mailbox switch
+
+Console:
+
+- no uncaught exceptions
+- no local mailbox errors
+- no state-update loops
+- no missing-key or duplicate-key errors related to mailbox rendering
+
+==================================================
+11. FINAL TEST GATE
+==================================================
+
+Run the fresh deterministic suite again:
+
+- canonical-categories
+- inbox-sidebar-categories
+- inbox-category-badge
+- mailbox-switching
+- mailbox-privacy
+- mail-reconciliation
+- unread-filter-server-side
+- inbox-count-reconciliation
+- mail-permissions
+- permissions
+- mocked tracking tests
+- npm run build
+
+Optional Gmail live smoke tests may report:
+
+SKIPPED — dedicated E2E Gmail credentials unavailable
+
+They must not use Trevor’s account and do not block this Inbox release.
+
+==================================================
+12. FINAL VERDICT
+==================================================
+
+Return:
+
+Current HEAD:
+Origin/main:
+git status --short:
+
+Authenticated session used: YES/NO
+
+trevor@voltsafe.com verified: YES/NO
+trevor@hyalos.com verified: YES/NO
+burgesstrevor76@gmail.com verified: YES/NO
+sales@voltsafe.com verified: YES/NO
+support@voltsafe.com verified: YES/NO
+
+Every mailbox shows canonical categories: YES/NO
+Private mailboxes remain visible after refresh: YES/NO
+All category requests return 200: YES/NO
+Positive badge with empty list occurrences: 0 or count
+Endless loader occurrences: 0 or count
+Cross-mailbox leakage: 0 or count
+Legacy visible labels: 0 or count
+Count deltas: list each mailbox
+
+Authenticated screenshots captured: YES/NO
+Browser console clean: YES/NO
+Network requests clean: YES/NO
+
+Deterministic tests:
+Optional Gmail E2E tests:
+Build:
+
+Ready to publish: YES/NO
+
+Only return READY TO PUBLISH if authenticated browser verification succeeds for all five mailboxes.
