@@ -5622,6 +5622,24 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     refetchInterval: 30_000,
     retry: false,
   });
+
+  // Inactive (disconnected) accounts owned by this user — returned by a separate
+  // endpoint so they don't pollute the active-accounts list used everywhere else.
+  type InactiveAccount = {
+    id: number; userId: number; emailAddress: string;
+    displayName: string | null; visibilityType: string;
+    authStatus: string | null; disconnectedAt: string | null;
+  };
+  const inactiveAccountsQuery = useQuery<InactiveAccount[]>({
+    queryKey: ["/api/gmail/accounts/inactive"],
+    queryFn: async () => {
+      const res = await fetch("/api/gmail/accounts/inactive", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 60_000,
+    retry: false,
+  });
   // Resolve which account is "active" — selected shared/private account, or the user's primary
   // personal account for compose/send semantics. In unified ("all") mode the primary
   // company-managed account is preferred; private_personal accounts are personal mailboxes
@@ -5863,6 +5881,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Private inboxes: owned accounts flagged as private_personal (e.g. personal Gmail, Hyalos).
   // Each renders independently in the "Private Inboxes" sidebar section.
   const privateAccounts = (accountsQuery.data ?? []).filter((a) => a.isOwner && a.visibilityType === 'private_personal');
+  // Disconnected private inboxes — is_active=false, shown with an amber "Reconnect" prompt.
+  const inactivePrivateAccounts = (inactiveAccountsQuery.data ?? []).filter((a) => a.visibilityType === 'private_personal');
 
   // Helper to append asAccountId to URLSearchParams when viewing a shared account
   const appendAccountId = (params: URLSearchParams) => {
@@ -9054,8 +9074,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 Shows the user's own private_personal mailboxes (e.g. personal Gmail,
                 Hyalos). Each is independently selectable with full account-scoped
                 inbox loading. Distinct from "Team Inboxes" (shared) and the primary
-                personal account (company_managed). */}
-            {privateAccounts.length > 0 && (
+                personal account (company_managed).
+                Inactive (disconnected) accounts are shown below active ones with a
+                muted style and an amber "Reconnect" badge. */}
+            {(privateAccounts.length > 0 || inactivePrivateAccounts.length > 0) && (
               <>
                 <div className={`${densityClasses.sidebarSectionPt} pb-0.5 px-1`}>
                   <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Private Inboxes</span>
@@ -9143,6 +9165,34 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           </>}
                         </div>
                       )}
+                    </div>
+                  );
+                })}
+                {/* Disconnected / expired private mailboxes — shown with a muted style
+                    and an amber "Reconnect" badge. Clicking the row routes to OAuth. */}
+                {inactivePrivateAccounts.map((acct) => {
+                  const letter = (acct.displayName || acct.emailAddress)[0].toUpperCase();
+                  return (
+                    <div key={`inactive-${acct.id}`} data-testid={`private-inbox-disconnected-${acct.id}`}>
+                      <a
+                        href="/api/auth/gmail/connect"
+                        title={`${acct.emailAddress} — disconnected. Click to reconnect.`}
+                        data-testid={`btn-reconnect-private-${acct.id}`}
+                        className="flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors opacity-60 hover:opacity-80 hover:bg-muted/40 text-muted-foreground"
+                      >
+                        <span className="relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold bg-muted/60 text-muted-foreground/50">
+                          {letter}
+                          {/* Disconnected indicator dot */}
+                          <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-background bg-amber-500" title="Disconnected" />
+                        </span>
+                        <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
+                        <span
+                          className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0 rounded border font-medium bg-amber-500/15 text-amber-400 border-amber-500/30"
+                          data-testid={`badge-reconnect-${acct.id}`}
+                        >
+                          Reconnect
+                        </span>
+                      </a>
                     </div>
                   );
                 })}

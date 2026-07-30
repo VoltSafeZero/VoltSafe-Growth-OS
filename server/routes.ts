@@ -17367,6 +17367,37 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // Returns inactive (is_active = false) accounts owned by the current user.
+  // Used by the sidebar to show disconnected private mailboxes with a reconnect prompt
+  // instead of silently hiding them. Only returns the requesting user's own accounts
+  // (never shared/team accounts) so no cross-user data leaks.
+  app.get("/api/gmail/accounts/inactive", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const rows = await db
+        .select({
+          id: emailAccounts.id,
+          userId: emailAccounts.userId,
+          emailAddress: emailAccounts.emailAddress,
+          displayName: emailAccounts.displayName,
+          visibilityType: emailAccounts.visibilityType,
+          authStatus: emailAccounts.authStatus,
+          disconnectedAt: emailAccounts.disconnectedAt,
+        })
+        .from(emailAccounts)
+        .where(
+          and(
+            eq(emailAccounts.userId, userId),
+            eq(emailAccounts.isActive, false),
+            eq(emailAccounts.isShared, false),
+          ),
+        );
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Multi-mailbox Phase 1: per-account sync health summary, one row per accessible account.
   // Cheap single SQL — used by the inbox sidebar to render status dots and by the mailbox-health
   // page for the consolidated view. Read-only, additive, no live-sync side effects.
