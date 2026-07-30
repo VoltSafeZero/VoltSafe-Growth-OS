@@ -5930,19 +5930,21 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // as page 1, keeping cursor alignment correct and avoiding client-side-only filtering.
   const inboxCategoryQ = useMemo(() => {
     if (searchQuery) return searchQuery;
-    // Category tabs (people/newsletters/notifications) always query unread messages
-    // because their sidebar badge counts UNREAD threads. Baking is:unread here
-    // ensures the list matches the badge regardless of which CRM filter pill is active.
-    if (inboxCategory === "people")        return "in:people is:unread";
-    if (inboxCategory === "newsletters")   return "in:newsletters is:unread";
-    if (inboxCategory === "notifications") return "in:notifications is:unread";
+    // Returns the bare category token without an unread constraint.
+    // "is:unread" is appended at the call site only when crmFilter === "unread"
+    // so that People+All, Newsletters+All, etc. return ALL inbox messages for
+    // that category, while People+Unread, Newsletters+Unread, etc. scope to unread only.
+    if (inboxCategory === "people")        return "in:people";
+    if (inboxCategory === "newsletters")   return "in:newsletters";
+    if (inboxCategory === "notifications") return "in:notifications";
     return "in:inbox";
   }, [searchQuery, inboxCategory]);
 
   const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
     // Each (inboxCategory, crmFilter) pair gets its own cache partition.
-    // In unread mode, People+Unread sends "in:people is:unread" while All+Unread sends
-    // "in:inbox is:unread" — they are different server queries, so they need different keys.
+    // In unread mode, People+Unread sends "in:people is:unread" and All+Unread sends
+    // "in:inbox is:unread" (both via `${inboxCategoryQ} is:unread`) — different server
+    // queries, so they need different cache keys.
     queryKey: inboxQueryKey(searchQuery, activeAccountId, inboxCategory, crmFilter),
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -5952,12 +5954,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       // (99% read for a typical busy inbox), the client-side filter hides most of them, and
       // the user sees only a handful of unread rows even though hundreds exist in the DB.
       //
-      // Category tabs (people/newsletters/notifications) already include is:unread in
-      // inboxCategoryQ — their badges count unread threads and the list must match.
-      // When the Unread pill is active for the "all" tab, append is:unread to the base query.
+      // inboxCategoryQ is the bare category token ("in:inbox", "in:people", "in:newsletters",
+      // "in:notifications") without any unread constraint. "is:unread" is appended here only
+      // when the Unread pill is active so that All-mode category tabs (People+All, etc.) return
+      // ALL inbox messages for that category, not just unread ones.
       if (crmFilter === "unread") {
-        params.set("q", searchQuery ? `${searchQuery} is:unread` :
-          inboxCategory === "all" ? "in:inbox is:unread" : inboxCategoryQ);
+        params.set("q", searchQuery ? `${searchQuery} is:unread` : `${inboxCategoryQ} is:unread`);
       } else {
         params.set("q", inboxCategoryQ);
       }
@@ -6414,11 +6416,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       const params = new URLSearchParams();
       params.set("limit", "50");
       // Mirror the exact base query used by inboxQuery (page 1) so page 2+ stays in the
-      // same data partition.  Category tabs already include is:unread in inboxCategoryQ.
-      // For the "all" tab in unread mode, use the literal "in:inbox is:unread".
+      // same data partition.  inboxCategoryQ is the bare token; "is:unread" is appended
+      // only when crmFilter === "unread", keeping All-mode and Unread-mode in separate
+      // server-side partitions and ensuring page 1 / page 2 predicates are identical.
       const pageQ = crmFilter === "unread"
-        ? (searchQuery ? `${searchQuery} is:unread` :
-           inboxCategory === "all" ? "in:inbox is:unread" : inboxCategoryQ)
+        ? (searchQuery ? `${searchQuery} is:unread` : `${inboxCategoryQ} is:unread`)
         : (searchQuery || inboxCategoryQ);
       params.set("q", pageQ);
       params.set("pageToken", inboxNextToken);

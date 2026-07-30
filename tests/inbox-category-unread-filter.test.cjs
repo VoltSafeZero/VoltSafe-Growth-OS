@@ -2,15 +2,21 @@
  * inbox-category-unread-filter.test.cjs
  *
  * Regression test for: category sidebar tabs (Social/People/Updates/Promotions/Forums)
- * must send "is:unread" in their query so the list matches the badge count.
+ * must send "is:unread" in their query when the Unread pill is active so the list
+ * matches the badge count.
  *
- * Root cause: inboxCategoryQ for category tabs sent "in:social" (no is:unread).
- * Backend returned 50 newest Social messages (all read), while the badge counted
- * only UNREAD Social.  Result: Social badge=9, list showed "SEEN 1" (0 unread).
+ * Original root cause: inboxCategoryQ sent "in:social" (no is:unread); backend returned
+ * 50 newest Social messages (all read) while the badge counted only unread Social.
  *
- * Fix:
- *   1. inboxCategoryQ adds is:unread to all 5 category queries.
- *   2. loadMoreInbox uses inboxCategoryQ (not hardcoded "in:inbox") as its base.
+ * Current fix (required matrix):
+ *   inboxCategoryQ returns the BARE category token ("in:people", "in:newsletters",
+ *   "in:notifications", "in:inbox") — no is:unread baked in.
+ *   "is:unread" is appended at the call site via `${inboxCategoryQ} is:unread` ONLY
+ *   when crmFilter === "unread", so:
+ *     People + All:    in:people              (all inbox messages for that category)
+ *     People + Unread: in:people is:unread    (only unread, matches badge)
+ *   1. inboxCategoryQ returns bare tokens; is:unread added at call site.
+ *   2. loadMoreInbox uses `${inboxCategoryQ} is:unread` template (not hardcoded "in:inbox is:unread").
  *   3. Effect A resets cursor+extras when inboxCategory changes (prevents cursor leak).
  */
 
@@ -36,28 +42,41 @@ function ok(condition, label) {
 const inboxPagePath = path.join(__dirname, "../client/src/pages/gmail-inbox.tsx");
 const src = fs.readFileSync(inboxPagePath, "utf8");
 
-// ── (a) inboxCategoryQ — all active categories send is:unread ────────────────
+// ── (a) inboxCategoryQ — returns bare tokens; is:unread added at call site ────
 //
-// NOTE: The code was refactored to aggregate categories:
-//   "newsletters"   covers promotions + forums  → sends "in:inbox is:unread"
-//   "notifications" covers updates  + social    → sends "in:inbox is:unread"
-//   "people"                                    → sends "in:people is:unread"
-// Every non-"all" category still sends is:unread; the query is just broader
-// so client-side category filtering (getEmailCategory) can bucket the results.
+// Required matrix:
+//   People + All:          in:people           (bare token, no is:unread)
+//   People + Unread:       in:people is:unread (appended via `${inboxCategoryQ} is:unread`)
+//   Newsletters + All:     in:newsletters
+//   Newsletters + Unread:  in:newsletters is:unread
+//   Notifications + All:   in:notifications
+//   Notifications + Unread: in:notifications is:unread
+//
+// SECTION_FETCH_QUERIES (smart-section auto-loader) still embeds literal
+// per-category is:unread queries ("in:social is:unread" etc.) — those are
+// separate from inboxCategoryQ and are unaffected.
 
-console.log("\n(a) inboxCategoryQ — all category tabs include is:unread");
+console.log("\n(a) inboxCategoryQ — returns bare tokens (is:unread added at call site)");
+
+// Narrow slice around the memo to avoid matching SECTION_FETCH_QUERIES constants.
+const inboxCategoryQStart = src.indexOf("const inboxCategoryQ = useMemo");
+const inboxCategoryQEnd   = src.indexOf("}, [searchQuery, inboxCategory])", inboxCategoryQStart) + 50;
+const inboxCategoryQBlock = src.slice(inboxCategoryQStart, inboxCategoryQEnd);
 
 ok(
-  src.includes('return "in:people is:unread"'),
-  'inboxCategoryQ returns "in:people is:unread" for People tab'
+  inboxCategoryQBlock.includes(`return "in:people"`) &&
+    !inboxCategoryQBlock.includes(`return "in:people is:unread"`),
+  'inboxCategoryQ returns bare "in:people" for People tab (is:unread NOT baked in)'
 );
 ok(
-  src.includes('return "in:newsletters is:unread"'),
-  'inboxCategoryQ returns "in:newsletters is:unread" for Newsletters (promotions+forums) tab'
+  inboxCategoryQBlock.includes(`return "in:newsletters"`) &&
+    !inboxCategoryQBlock.includes(`return "in:newsletters is:unread"`),
+  'inboxCategoryQ returns bare "in:newsletters" for Newsletters tab (is:unread NOT baked in)'
 );
 ok(
-  src.includes('return "in:notifications is:unread"'),
-  'inboxCategoryQ returns "in:notifications is:unread" for Notifications (updates+social) tab'
+  inboxCategoryQBlock.includes(`return "in:notifications"`) &&
+    !inboxCategoryQBlock.includes(`return "in:notifications is:unread"`),
+  'inboxCategoryQ returns bare "in:notifications" for Notifications tab (is:unread NOT baked in)'
 );
 // SECTION_FETCH_QUERIES still issues per-category queries for smart-section fetches
 ok(
@@ -69,31 +88,26 @@ ok(
   'SECTION_FETCH_QUERIES includes is:unread for updates, promotions, and forums smart-section fetches'
 );
 
-// Old bare queries (without is:unread) must not be present in inboxCategoryQ.
-// Use narrow slice around the memo to avoid matching the SECTION_FETCH_QUERIES constants.
-const inboxCategoryQStart = src.indexOf("const inboxCategoryQ = useMemo");
-const inboxCategoryQEnd   = src.indexOf("}, [searchQuery, inboxCategory])", inboxCategoryQStart) + 50;
-const inboxCategoryQBlock = src.slice(inboxCategoryQStart, inboxCategoryQEnd);
-
+// inboxCategoryQ must NOT contain is:unread at all (it's bare tokens only)
 ok(
-  !inboxCategoryQBlock.includes('"in:social"') || inboxCategoryQBlock.includes('"in:social is:unread"'),
-  'inboxCategoryQ does NOT return bare "in:social" (must include is:unread)'
+  !inboxCategoryQBlock.includes(`"in:social"`),
+  'inboxCategoryQ does NOT reference "in:social" (social not a tab; covered by notifications)'
 );
 ok(
-  !inboxCategoryQBlock.includes('"in:people"') || inboxCategoryQBlock.includes('"in:people is:unread"'),
-  'inboxCategoryQ does NOT return bare "in:people" (must include is:unread)'
+  !inboxCategoryQBlock.includes('"in:people is:unread"'),
+  'inboxCategoryQ does NOT bake is:unread into "in:people"'
 );
 ok(
-  !inboxCategoryQBlock.includes('"in:updates"') || inboxCategoryQBlock.includes('"in:updates is:unread"'),
-  'inboxCategoryQ does NOT return bare "in:updates"'
+  !inboxCategoryQBlock.includes('"in:updates"') || inboxCategoryQBlock.includes('"in:updates is:unread"') === false,
+  'inboxCategoryQ does NOT reference bare "in:updates"'
 );
 ok(
-  !inboxCategoryQBlock.includes('"in:promotions"') || inboxCategoryQBlock.includes('"in:promotions is:unread"'),
-  'inboxCategoryQ does NOT return bare "in:promotions"'
+  !inboxCategoryQBlock.includes('"in:promotions"'),
+  'inboxCategoryQ does NOT reference "in:promotions"'
 );
 ok(
-  !inboxCategoryQBlock.includes('"in:forums"') || inboxCategoryQBlock.includes('"in:forums is:unread"'),
-  'inboxCategoryQ does NOT return bare "in:forums"'
+  !inboxCategoryQBlock.includes('"in:forums"'),
+  'inboxCategoryQ does NOT reference "in:forums"'
 );
 
 // The "all" inbox category must NOT add is:unread (it shows all mail)
@@ -122,10 +136,10 @@ ok(
   'loadMoreInbox references inboxCategoryQ (mirrors page 1 query for category tabs)'
 );
 
-// The unread pill path must still use "in:inbox is:unread" (not category-scoped)
+// The unread pill path uses `${inboxCategoryQ} is:unread` template (works for all tabs)
 ok(
-  loadMoreBlock.includes('"in:inbox is:unread"'),
-  'loadMoreInbox uses "in:inbox is:unread" for crmFilter==="unread" path'
+  loadMoreBlock.includes("`${inboxCategoryQ} is:unread`"),
+  'loadMoreInbox uses `${inboxCategoryQ} is:unread` template for crmFilter==="unread" path'
 );
 
 // Must set "q" param (not removed)

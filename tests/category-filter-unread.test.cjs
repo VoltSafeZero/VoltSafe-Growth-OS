@@ -2,11 +2,23 @@
 // Regression tests — Category-filter + Unread mode + Loading-state machine
 //
 // Covers the three-part surgical fix:
-//  1. inboxCategoryQ: category tabs include is:unread so badge ∩ list predicates match
-//  2. inboxQuery / loadMoreInbox: page 1 and page 2+ use the same category-scoped query
+//  1. inboxCategoryQ: bare category token WITHOUT is:unread so People+All / Newsletters+All
+//     etc. return ALL inbox messages, not just unread ones.
+//  2. inboxQuery / loadMoreInbox: page 1 and page 2+ use `${inboxCategoryQ} is:unread`
+//     when crmFilter==="unread" so every tab/mode combination generates the correct query.
 //  3. listState machine: mutually exclusive render states prevent contradictory UI
 //
 // All tests are source-grep / static-analysis only (no running server needed).
+//
+// Required request matrix:
+//   All + All:             in:inbox
+//   All + Unread:          in:inbox is:unread
+//   People + All:          in:people
+//   People + Unread:       in:people is:unread
+//   Newsletters + All:     in:newsletters
+//   Newsletters + Unread:  in:newsletters is:unread
+//   Notifications + All:   in:notifications
+//   Notifications + Unread: in:notifications is:unread
 
 const fs = require("fs");
 const path = require("path");
@@ -41,27 +53,105 @@ const inboxQueryKeySrc = fs.readFileSync(
   "utf8"
 );
 
+// ─── 0. Eight-combination request matrix ─────────────────────────────────────
+// Static analysis: verify inboxCategoryQ and the unread-mode branch together
+// produce the correct query string for all 8 (tab, crmFilter) combinations.
+
+console.log("\n── 0. Eight-combination request matrix ──");
+
+// All + All: inboxCategoryQ returns "in:inbox"; crmFilter !== "unread" → sends "in:inbox"
+check(
+  'All + All sends "in:inbox"',
+  inboxSrc.includes(`return "in:inbox"`) &&
+    inboxSrc.includes(`params.set("q", inboxCategoryQ)`)
+);
+
+// All + Unread: `${inboxCategoryQ} is:unread` where inboxCategoryQ="in:inbox" → "in:inbox is:unread"
+check(
+  'All + Unread sends "${inboxCategoryQ} is:unread" (resolves to "in:inbox is:unread")',
+  inboxSrc.includes("`${inboxCategoryQ} is:unread`")
+);
+
+// People + All: inboxCategoryQ returns "in:people"; no is:unread in All mode
+check(
+  'People + All sends "in:people" (no is:unread)',
+  inboxSrc.includes(`return "in:people"`) &&
+    !inboxSrc.includes(`return "in:people is:unread"`)
+);
+
+// People + Unread: `${inboxCategoryQ} is:unread` where inboxCategoryQ="in:people"
+check(
+  'People + Unread sends "in:people is:unread" via template (no literal baked-in)',
+  inboxSrc.includes("`${inboxCategoryQ} is:unread`") &&
+    inboxSrc.includes(`return "in:people"`)
+);
+
+// Newsletters + All: bare token, no is:unread
+check(
+  'Newsletters + All sends "in:newsletters" (no is:unread)',
+  inboxSrc.includes(`return "in:newsletters"`) &&
+    !inboxSrc.includes(`return "in:newsletters is:unread"`)
+);
+
+// Newsletters + Unread: via template
+check(
+  'Newsletters + Unread sends "in:newsletters is:unread" via template',
+  inboxSrc.includes("`${inboxCategoryQ} is:unread`") &&
+    inboxSrc.includes(`return "in:newsletters"`)
+);
+
+// Notifications + All: bare token
+check(
+  'Notifications + All sends "in:notifications" (no is:unread)',
+  inboxSrc.includes(`return "in:notifications"`) &&
+    !inboxSrc.includes(`return "in:notifications is:unread"`)
+);
+
+// Notifications + Unread: via template
+check(
+  'Notifications + Unread sends "in:notifications is:unread" via template',
+  inboxSrc.includes("`${inboxCategoryQ} is:unread`") &&
+    inboxSrc.includes(`return "in:notifications"`)
+);
+
+// Confirm is:unread is NOT baked into the bare token for any category tab
+check(
+  'No category tab bakes is:unread into inboxCategoryQ (all bare tokens)',
+  !inboxSrc.includes(`return "in:people is:unread"`) &&
+    !inboxSrc.includes(`return "in:newsletters is:unread"`) &&
+    !inboxSrc.includes(`return "in:notifications is:unread"`)
+);
+
+// Confirm the old special-case branch is gone — no `inboxCategory === "all" ? "in:inbox is:unread"`
+check(
+  'Old special-case `inboxCategory === "all" ? "in:inbox is:unread"` branch is gone',
+  !inboxSrc.includes(`inboxCategory === "all" ? "in:inbox is:unread"`)
+);
+
 // ─── 1. inboxCategoryQ — query token generation ───────────────────────────────
 
 console.log("\n── 1. inboxCategoryQ — category query token generation ──");
 
 check(
-  "People tab returns \"in:people is:unread\"",
-  inboxSrc.includes(`return "in:people is:unread"`)
+  'People tab returns bare "in:people" (no forced is:unread)',
+  inboxSrc.includes(`return "in:people"`) &&
+    !inboxSrc.includes(`return "in:people is:unread"`)
 );
 
 check(
-  "Newsletters tab returns \"in:newsletters is:unread\"",
-  inboxSrc.includes(`return "in:newsletters is:unread"`)
+  'Newsletters tab returns bare "in:newsletters" (no forced is:unread)',
+  inboxSrc.includes(`return "in:newsletters"`) &&
+    !inboxSrc.includes(`return "in:newsletters is:unread"`)
 );
 
 check(
-  "Notifications tab returns \"in:notifications is:unread\"",
-  inboxSrc.includes(`return "in:notifications is:unread"`)
+  'Notifications tab returns bare "in:notifications" (no forced is:unread)',
+  inboxSrc.includes(`return "in:notifications"`) &&
+    !inboxSrc.includes(`return "in:notifications is:unread"`)
 );
 
 check(
-  "All tab returns \"in:inbox\" (no forced is:unread)",
+  'All tab returns "in:inbox" (no forced is:unread)',
   inboxSrc.includes(`return "in:inbox";`) &&
     !inboxSrc.includes(`return "in:inbox is:unread"`)
 );
@@ -71,14 +161,15 @@ check(
 console.log("\n── 2. inboxQuery page-1 request generation ──");
 
 check(
-  "People + Unread sends inboxCategoryQ (which is \"in:people is:unread\")",
-  // In unread mode for non-all category tabs, inboxCategoryQ is used directly
-  inboxSrc.includes(`inboxCategory === "all" ? "in:inbox is:unread" : inboxCategoryQ`)
+  "Unread mode uses `${inboxCategoryQ} is:unread` template (works for all tabs)",
+  inboxSrc.includes("`${inboxCategoryQ} is:unread`")
 );
 
 check(
-  "All + Unread sends literal \"in:inbox is:unread\"",
-  inboxSrc.includes(`"in:inbox is:unread"`)
+  "All + Unread resolves to in:inbox is:unread via template (inboxCategoryQ=in:inbox)",
+  // The template `${inboxCategoryQ} is:unread` where inboxCategoryQ="in:inbox"
+  // produces "in:inbox is:unread" at runtime. Verify the template exists.
+  inboxSrc.includes("`${inboxCategoryQ} is:unread`")
 );
 
 check(
@@ -95,13 +186,14 @@ check(
 
 console.log("\n── 3. loadMoreInbox (page 2+) mirrors page-1 query ──");
 
-// Count occurrences to verify both page 1 and page 2+ use the same pattern
-const categoryAllPattern = `inboxCategory === "all" ? "in:inbox is:unread" : inboxCategoryQ`;
-const occurrences = (inboxSrc.match(new RegExp(categoryAllPattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length;
+// Both inboxQuery (page 1) and loadMoreInbox (page 2+) use `${inboxCategoryQ} is:unread`
+const templatePattern = "`${inboxCategoryQ} is:unread`";
+const templateOccurrences = (inboxSrc.split(templatePattern).length - 1);
+// At least 2 code-site occurrences (page 1 + page 2); a 3rd may appear in comments.
 check(
-  "Both inboxQuery and loadMoreInbox use the same category-aware unread query (2 occurrences)",
-  occurrences === 2,
-  `found ${occurrences} occurrence(s)`
+  "Both inboxQuery and loadMoreInbox use `${inboxCategoryQ} is:unread` template (≥2 occurrences)",
+  templateOccurrences >= 2,
+  `found ${templateOccurrences} occurrence(s)`
 );
 
 check(
@@ -169,8 +261,6 @@ check(
 
 check(
   "loaded_empty requires !loadingMoreInbox (guarded by listState before checking badge)",
-  // The machine returns "initial_loading" when loadingMoreInbox is true with 0 rows,
-  // so loaded_empty can only be reached after loadingMoreInbox is false.
   inboxSrc.includes(`if (isLoading || loadingMoreInbox) return "initial_loading"`)
 );
 
@@ -206,8 +296,6 @@ check(
 
 check(
   "No messages found cannot appear while auto_loading_unread (loaded_empty gate)",
-  // auto_loading_unread requires loadingMoreInbox=true, which causes listState to be
-  // auto_loading_unread (not loaded_empty), so the empty state block is never entered.
   inboxSrc.includes(`listState === "loaded_empty" || listState === "exhausted_with_discrepancy"`) &&
     inboxSrc.includes(`if (crmFilter === "unread" && loadingMoreInbox) return "auto_loading_unread"`)
 );
@@ -221,8 +309,6 @@ check(
 
 check(
   "PART C never shows in loaded_empty or exhausted_with_discrepancy (gated out)",
-  // The PART C guard explicitly lists only 3 states; loaded_empty/exhausted_with_discrepancy
-  // are absent, so PART C cannot render alongside "No messages found".
   inboxSrc.includes(
     `listState === "loaded_results" || listState === "auto_loading_unread" || listState === "loading_next_page"`
   )
@@ -276,7 +362,6 @@ console.log("\n── 9. Category + Unread rendering — group isolation ──"
 
 check(
   "categorizedInbox filters by inboxCategory (no bypass in unread mode)",
-  // Post-fix: the bypass `crmFilter === "unread" ? inboxMain :` is removed
   !inboxSrc.includes(`crmFilter === "unread"\n    ? inboxMain`) &&
     !inboxSrc.includes(`crmFilter === "unread" ? inboxMain`)
 );
