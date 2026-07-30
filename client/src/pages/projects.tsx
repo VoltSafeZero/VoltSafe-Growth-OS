@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { NotesPanel } from "@/components/notes-panel";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -33,6 +34,8 @@ type Project = {
   id: number; name: string; type: string; status: string; phase?: string;
   description?: string; accountId?: number; ownerUserId?: number;
   budget?: number; currency?: string; startDate?: string; endDate?: string;
+  // server returns snake_case from raw SQL SELECT p.*
+  start_date?: string; end_date?: string; owner_user_id?: number; account_id?: number;
   certification_status?: string; overall_risk?: string; launch_blocker?: boolean;
   cert_target_completion_date?: string; certification_program?: string; product_name?: string;
   next_action_due_date?: string;
@@ -1820,6 +1823,82 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
   );
 }
 
+// ── Project Drilldown Sheet ───────────────────────────────────────────────────
+type DrilldownMetric = "active_projects" | "overdue_projects" | "projects_missing_owner";
+
+const DRILLDOWN_META: Record<DrilldownMetric, { title: string; description: string; params: Record<string, string> }> = {
+  active_projects:        { title: "Active Projects",           description: "All projects currently in active status.",                params: { status: "active" } },
+  overdue_projects:       { title: "Overdue Projects",          description: "Projects past their end date that are not yet complete.", params: { overdue: "true" } },
+  projects_missing_owner: { title: "Projects Without an Owner", description: "Active projects with no assigned owner.",                 params: { missingOwner: "true" } },
+};
+
+function ProjectDrilldownSheet({ metric, onClose }: { metric: DrilldownMetric | null; onClose: () => void }) {
+  const meta = metric ? DRILLDOWN_META[metric] : null;
+  const { data: projects = [], isLoading } = useQuery<Project[]>({
+    queryKey: ["/api/projects/drilldown", metric],
+    enabled: !!metric,
+    queryFn: async () => {
+      if (!metric) return [];
+      const params = new URLSearchParams(DRILLDOWN_META[metric].params);
+      const r = await fetch(`/api/projects?${params}`, { credentials: "include" });
+      return r.json();
+    },
+  });
+
+  return (
+    <Sheet open={!!metric} onOpenChange={open => { if (!open) onClose(); }}>
+      <SheetContent className="w-full sm:max-w-lg flex flex-col gap-0 p-0">
+        <SheetHeader className="px-6 py-5 border-b border-border/40">
+          <SheetTitle className="text-base">{meta?.title ?? ""}</SheetTitle>
+          <SheetDescription className="text-xs text-muted-foreground">{meta?.description ?? ""}</SheetDescription>
+        </SheetHeader>
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+          {isLoading ? (
+            [...Array(4)].map((_, i) => <Skeleton key={i} className="h-14" />)
+          ) : projects.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <CheckCircle2 className="h-10 w-10 text-muted-foreground/30 mb-3" />
+              <p className="text-sm text-muted-foreground">No projects in this category</p>
+            </div>
+          ) : (
+            projects.map(p => {
+              const tc = getTypeConfig(p.type);
+              const TypeIcon = tc.icon;
+              // server returns snake_case from raw SQL
+              const pEnd: string | undefined = p.end_date ?? p.endDate;
+              const endDays = daysUntil(pEnd);
+              return (
+                <div key={p.id} className="flex items-start gap-3 rounded-lg border border-border/40 px-3 py-2.5 hover:border-border transition-colors">
+                  <span className={`mt-0.5 h-6 w-6 flex items-center justify-center rounded-md shrink-0 ${tc.bg}`}>
+                    <TypeIcon className={`h-3.5 w-3.5 ${tc.color}`} />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{p.name}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${STATUS_COLORS[p.status] ?? "bg-muted/20 text-muted-foreground border-border/40"}`}>{p.status}</span>
+                      <span className="text-[10px] text-muted-foreground">{tc.label}</span>
+                      {pEnd && (
+                        <span className={`text-[10px] ${endDays !== null && endDays < 0 ? "text-red-400" : "text-muted-foreground"}`}>
+                          {endDays !== null && endDays < 0 ? `${Math.abs(endDays)}d overdue` : `Due ${fmtDate(pEnd)}`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+        {!isLoading && projects.length > 0 && (
+          <div className="px-6 py-3 border-t border-border/30 text-[11px] text-muted-foreground">
+            {projects.length} project{projects.length !== 1 ? "s" : ""}
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 // ── Phase 2 cert quick-filter definitions ─────────────────────────────────────
 const CERT_QUICK_FILTERS = [
@@ -1837,7 +1916,14 @@ export default function ProjectsPage() {
   const [certFilter, setCertFilter] = useState("");  // Phase 2
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<Project | null>(null);
+  const [drilldownMetric, setDrilldownMetric] = useState<DrilldownMetric | null>(null);
   const { toast } = useToast();
+
+  const { data: projectSummary } = useQuery<{ active: number; overdue: number; missing_owner: number }>({
+    queryKey: ["/api/projects/summary"],
+    queryFn: () => fetch("/api/projects/summary", { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 60000,
+  });
 
   const { data: projectsData, isLoading } = useQuery<Project[]>({
     queryKey: ["/api/projects", { type: typeFilter, status: statusFilter, certFilter }],
@@ -1884,9 +1970,32 @@ export default function ProjectsPage() {
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Projects</h1>
             <p className="text-muted-foreground text-sm mt-0.5">Coordinated workstreams and internal initiatives · {allProjects.length} total</p>
           </div>
-          <Button className="bg-primary text-primary-foreground shrink-0" onClick={() => setCreateOpen(true)} data-testid="button-create-project">
-            <Plus className="h-4 w-4 mr-2" /> New Project
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Drilldown stat pills */}
+            {projectSummary && projectSummary.overdue > 0 && (
+              <button
+                onClick={() => setDrilldownMetric("overdue_projects")}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-orange-500/30 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-colors"
+                data-testid="stat-pill-overdue"
+              >
+                <AlertTriangle className="h-3 w-3" />
+                {projectSummary.overdue} overdue
+              </button>
+            )}
+            {projectSummary && projectSummary.missing_owner > 0 && (
+              <button
+                onClick={() => setDrilldownMetric("projects_missing_owner")}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition-colors"
+                data-testid="stat-pill-missing-owner"
+              >
+                <Users className="h-3 w-3" />
+                {projectSummary.missing_owner} no owner
+              </button>
+            )}
+            <Button className="bg-primary text-primary-foreground shrink-0" onClick={() => setCreateOpen(true)} data-testid="button-create-project">
+              <Plus className="h-4 w-4 mr-2" /> New Project
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -1895,7 +2004,11 @@ export default function ProjectsPage() {
 
       <div className="px-6 py-4 border-b border-border/30">
         <div className="flex flex-wrap gap-1.5 mb-3">
-          <button onClick={() => { setTypeFilter("all"); setCertFilter(""); }} className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${typeFilter === "all" && !certFilter ? "bg-primary/20 text-primary border-primary/30" : "border-border/50 text-muted-foreground hover:border-border"}`} data-testid="filter-type-all">
+          <button
+            onClick={() => { setTypeFilter("all"); setCertFilter(""); setDrilldownMetric("active_projects"); }}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${typeFilter === "all" && !certFilter ? "bg-primary/20 text-primary border-primary/30" : "border-border/50 text-muted-foreground hover:border-border"}`}
+            data-testid="filter-type-all"
+          >
             All Types ({allProjects.length})
           </button>
           {PROJECT_TYPES.map(t => (
@@ -1968,6 +2081,11 @@ export default function ProjectsPage() {
           onDelete={() => deleteMutation.mutate(selected.id)}
         />
       )}
+
+      <ProjectDrilldownSheet
+        metric={drilldownMetric}
+        onClose={() => setDrilldownMetric(null)}
+      />
     </div>
   );
 }

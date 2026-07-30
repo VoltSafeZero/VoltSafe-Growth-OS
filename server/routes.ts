@@ -19639,11 +19639,20 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.get("/api/projects", requirePermission("projects", "view"), async (req, res) => {
     try {
-      const { type, status, accountId, certFilter } = req.query as Record<string, string>;
+      const { type, status, accountId, certFilter, overdue, missingOwner } = req.query as Record<string, string>;
       const wheres: string[] = [];
       if (type) wheres.push(`p.type = '${type.replace(/'/g, "''")}'`);
       if (status) wheres.push(`p.status = '${status.replace(/'/g, "''")}'`);
       if (accountId) wheres.push(`p.account_id = ${parseInt(accountId)}`);
+      // Drilldown quick filters
+      if (overdue === "true") {
+        wheres.push(`p.end_date < NOW()`);
+        wheres.push(`p.status NOT IN ('completed','cancelled')`);
+      }
+      if (missingOwner === "true") {
+        wheres.push(`p.owner_user_id IS NULL`);
+        wheres.push(`p.status NOT IN ('completed','cancelled')`);
+      }
       // Cert-specific quick filters (Phase 2)
       if (certFilter) {
         wheres.push(`p.type = 'certification'`);
@@ -19666,6 +19675,23 @@ export function registerConfluenceRoutes(app: Express) {
         ORDER BY p.created_at DESC
       `));
       res.json((rows as any).rows ?? []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/projects/summary (drilldown stat counts) — BEFORE /:id ────────────
+  app.get("/api/projects/summary", requirePermission("projects", "view"), async (req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE p.status = 'active')::int AS active,
+          COUNT(*) FILTER (WHERE p.end_date < NOW() AND p.status NOT IN ('completed','cancelled'))::int AS overdue,
+          COUNT(*) FILTER (WHERE p.owner_user_id IS NULL AND p.status NOT IN ('completed','cancelled'))::int AS missing_owner
+        FROM projects p
+      `));
+      const s = ((rows as any).rows ?? [])[0] ?? { active: 0, overdue: 0, missing_owner: 0 };
+      res.json({ active: s.active ?? 0, overdue: s.overdue ?? 0, missing_owner: s.missing_owner ?? 0 });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
