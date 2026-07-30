@@ -1884,6 +1884,20 @@ export async function migrateCampaignTrackingTables(): Promise<void> {
         AND  c.account_id IS NOT NULL
     `);
 
+    // Reconcile stale non-NULL account_id rows where the contact has since been
+    // re-assigned to a different account (e.g. a lead converts).
+    // IS DISTINCT FROM handles the NULL ≠ NULL edge case safely.
+    // Safe to re-run — only touches rows whose stamped value no longer matches
+    // the contact's current account_id.
+    await db.execute(sql`
+      UPDATE campaign_recipients cr
+      SET    account_id = c.account_id
+      FROM   contacts c
+      WHERE  cr.contact_id = c.id
+        AND  c.account_id IS NOT NULL
+        AND  cr.account_id IS DISTINCT FROM c.account_id
+    `);
+
     console.log("[migration] campaign_recipients + campaign_events tables ready.");
   } catch (err) {
     console.error("[migration] migrateCampaignTrackingTables error (non-fatal):", err);

@@ -21,7 +21,7 @@
  */
 
 import { db } from "../db";
-import { eq, and, gte, inArray } from "drizzle-orm";
+import { eq, and, gte, inArray, isNull } from "drizzle-orm";
 import {
   contacts,
   activities,
@@ -306,45 +306,57 @@ async function scoreCampaignEngagement(
   try {
     const since = windowStart(windowDays);
 
-    // Primary path: recipients linked directly by account_id
-    let recipients = await db
+    // Resolve current contacts for this account. This is the source of truth
+    // for account membership — if a contact was re-assigned to a different
+    // account after the campaign was sent, the old stamped account_id on
+    // campaign_recipients would attribute the engagement to the wrong account.
+    const accountContacts = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.accountId, accountId));
+
+    const contactIds = accountContacts.map((c) => c.id);
+
+    // Path A: recipients whose contact currently belongs to this account.
+    // Uses contacts.account_id at query time — correct even after reassignment.
+    const contactRecipients =
+      contactIds.length > 0
+        ? await db
+            .select({ id: campaignRecipients.id })
+            .from(campaignRecipients)
+            .where(
+              and(
+                inArray(campaignRecipients.contactId, contactIds),
+                gte(campaignRecipients.createdAt, since),
+              ),
+            )
+        : [];
+
+    // Path B: email-only recipients (contact_id IS NULL) stamped with this
+    // account_id at send time. There is no contact record to re-assign, so
+    // the stamped value is the only truth available.
+    const emailOnlyRecipients = await db
       .select({ id: campaignRecipients.id })
       .from(campaignRecipients)
       .where(
         and(
           eq(campaignRecipients.accountId, accountId),
+          isNull(campaignRecipients.contactId),
           gte(campaignRecipients.createdAt, since),
         ),
       );
 
-    // Fallback: recipients linked by contact_id when account_id was not set
-    // on the row at send time (contact-only campaign sends).
-    if (recipients.length === 0) {
-      const accountContacts = await db
-        .select({ id: contacts.id })
-        .from(contacts)
-        .where(eq(contacts.accountId, accountId));
+    // Merge and deduplicate recipient ids from both paths.
+    const recipientIdSet = new Set<number>([
+      ...contactRecipients.map((r) => r.id),
+      ...emailOnlyRecipients.map((r) => r.id),
+    ]);
 
-      const contactIds = accountContacts.map((c) => c.id);
-
-      if (contactIds.length > 0) {
-        recipients = await db
-          .select({ id: campaignRecipients.id })
-          .from(campaignRecipients)
-          .where(
-            and(
-              inArray(campaignRecipients.contactId, contactIds),
-              gte(campaignRecipients.createdAt, since),
-            ),
-          );
-      }
-    }
-
-    if (recipients.length === 0) {
+    if (recipientIdSet.size === 0) {
       return { value: 0, rawPoints: 0, available: true };
     }
 
-    const recipientIds = recipients.map((r) => r.id);
+    const recipientIds = Array.from(recipientIdSet);
 
     const events = await db
       .select({ eventType: campaignEvents.eventType })
