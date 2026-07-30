@@ -79,6 +79,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useShareAccess } from "./inbox-actions-store";
@@ -274,6 +280,7 @@ function EmailActionsToolbarImpl({
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [cortexOpen, setCortexOpen] = useState(false);
   const [domainWatchOpen, setDomainWatchOpen] = useState(false);
+  const [allActionsOpen, setAllActionsOpen] = useState(false);
 
   // Derived sender domain for Domain Watch actions
   const senderDomain = senderEmail.includes("@")
@@ -1045,7 +1052,7 @@ function EmailActionsToolbarImpl({
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={() => toast({ title: "All actions panel coming soon" })}
+                  onClick={() => setAllActionsOpen(true)}
                   data-testid="more-all"
                 >
                   <ListChecks className="h-3.5 w-3.5 mr-2" /> All Actions
@@ -1232,6 +1239,291 @@ function EmailActionsToolbarImpl({
           onNavigateManage={() => setLocation("/feed-cortex")}
         />
       )}
+
+      {/* ── All Actions sheet ─────────────────────────────── */}
+      <Sheet open={allActionsOpen} onOpenChange={setAllActionsOpen}>
+        <SheetContent side="right" className="w-80 sm:w-96 p-0 flex flex-col">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b border-border/40">
+            <SheetTitle className="text-sm font-semibold flex items-center gap-2">
+              <ListChecks className="h-4 w-4 text-muted-foreground" />
+              All Actions
+            </SheetTitle>
+            {focusedMessage?.subject && (
+              <p className="text-[11px] text-muted-foreground/70 truncate mt-0.5">
+                {focusedMessage.subject}
+              </p>
+            )}
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto py-2 space-y-0.5">
+
+            {/* Reply & Compose */}
+            <div className="px-3 pt-2 pb-1">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 px-2 mb-1">Reply &amp; Compose</p>
+              {canReply && (
+                <button
+                  type="button"
+                  onClick={() => { handlers.onReply(); setAllActionsOpen(false); }}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+                >
+                  <Reply className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <div className="font-medium text-[13px]">Reply</div>
+                    <div className="text-[11px] text-muted-foreground/60">Compose a reply to this thread</div>
+                  </div>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { handlers.onSendAgain(); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <Send className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">Send Again</div>
+                  <div className="text-[11px] text-muted-foreground/60">Re-open compose with this message</div>
+                </div>
+              </button>
+            </div>
+
+            <div className="mx-3 border-t border-border/30" />
+
+            {/* Organize */}
+            <div className="px-3 pt-2 pb-1">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 px-2 mb-1">Organize</p>
+              <button
+                type="button"
+                onClick={() => { handlers.onMarkDone(); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <Check className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">Mark Done</div>
+                  <div className="text-[11px] text-muted-foreground/60">Archive and mark this thread as handled</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => { handlers.onTogglePin(); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <Pin className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">{isPinned ? "Unpin Thread" : "Pin Thread"}</div>
+                  <div className="text-[11px] text-muted-foreground/60">{isPinned ? "Remove from pinned" : "Keep at the top of your inbox"}</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => { handlers.onSetAside(); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <ArrowDownLeft className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">{isSetAside ? "Bring Back" : "Set Aside"}</div>
+                  <div className="text-[11px] text-muted-foreground/60">{isSetAside ? "Return thread to inbox" : "Move to the set-aside tray"}</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => { handlers.onMarkUnread(); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <Circle className="h-4 w-4 text-blue-400 flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">Mark as Unread</div>
+                  <div className="text-[11px] text-muted-foreground/60">Flag to revisit later</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => { handlers.onMove(); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <FolderInput className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">Move to Folder</div>
+                  <div className="text-[11px] text-muted-foreground/60">Archive and move out of inbox</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSnoozeOpen(true); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">Snooze</div>
+                  <div className="text-[11px] text-muted-foreground/60">Remind me about this later</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => { handlers.onTrash(); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-red-500/5 hover:text-red-500 text-left transition-colors text-sm group/trash"
+              >
+                <Trash2 className="h-4 w-4 text-muted-foreground group-hover/trash:text-red-500 flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">Delete</div>
+                  <div className="text-[11px] text-muted-foreground/60 group-hover/trash:text-red-400/60">Move to trash</div>
+                </div>
+              </button>
+            </div>
+
+            <div className="mx-3 border-t border-border/30" />
+
+            {/* Cortex */}
+            <div className="px-3 pt-2 pb-1">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 px-2 mb-1">Cortex</p>
+              <button
+                type="button"
+                onClick={() => { setCortexOpen(true); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-cyan-500/10 hover:text-cyan-400 text-left transition-colors text-sm group/cortex-all"
+              >
+                <Brain className="h-4 w-4 text-cyan-500/70 group-hover/cortex-all:text-cyan-400 flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px] flex items-center gap-1.5">
+                    Save to Cortex
+                    {isSavedToCortex && <span className="text-[10px] text-cyan-400 font-normal">· saved</span>}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground/60">Flag as marine industry intelligence</div>
+                </div>
+              </button>
+              {senderDomain && !isOutbound && canManageCortexDomains && (
+                <button
+                  type="button"
+                  onClick={() => { setDomainWatchOpen(true); setAllActionsOpen(false); }}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-cyan-500/10 hover:text-cyan-400 text-left transition-colors text-sm group/dw"
+                >
+                  <Globe className="h-4 w-4 text-muted-foreground group-hover/dw:text-cyan-400 flex-shrink-0" />
+                  <div>
+                    <div className="font-medium text-[13px] flex items-center gap-1.5">
+                      Watch Domain
+                      {isDomainWatched && <span className="text-[10px] text-emerald-400 font-normal">· active</span>}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground/60 truncate">Auto-ingest from {senderDomain}</div>
+                  </div>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { setLocation("/feed-cortex"); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <ShieldCheck className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">Manage Cortex Rules</div>
+                  <div className="text-[11px] text-muted-foreground/60">View and edit all ingestion rules</div>
+                </div>
+              </button>
+            </div>
+
+            <div className="mx-3 border-t border-border/30" />
+
+            {/* Filter & Block */}
+            {!isSpamView && (
+              <>
+                <div className="px-3 pt-2 pb-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 px-2 mb-1">Filter &amp; Block</p>
+                  <button
+                    type="button"
+                    onClick={() => { handlers.onMarkSpam(); setAllActionsOpen(false); }}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+                  >
+                    <AlertOctagon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <div className="font-medium text-[13px]">Mark as Spam</div>
+                      <div className="text-[11px] text-muted-foreground/60">Move to spam and train filter</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { handlers.onBlock(); setAllActionsOpen(false); }}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-red-500/5 hover:text-red-500 text-left transition-colors text-sm group/block"
+                  >
+                    <Ban className="h-4 w-4 text-muted-foreground group-hover/block:text-red-500 flex-shrink-0" />
+                    <div>
+                      <div className="font-medium text-[13px]">{isBlocked ? "Sender Blocked" : "Block Sender"}</div>
+                      <div className="text-[11px] text-muted-foreground/60 group-hover/block:text-red-400/60 truncate">
+                        {senderEmail || "Block this address"}
+                      </div>
+                    </div>
+                  </button>
+                </div>
+                <div className="mx-3 border-t border-border/30" />
+              </>
+            )}
+            {isSpamView && handlers.onNotSpam && (
+              <>
+                <div className="px-3 pt-2 pb-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 px-2 mb-1">Spam Actions</p>
+                  <button
+                    type="button"
+                    onClick={() => { handlers.onNotSpam!(); setAllActionsOpen(false); }}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+                  >
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                    <div>
+                      <div className="font-medium text-[13px]">Not Spam</div>
+                      <div className="text-[11px] text-muted-foreground/60">Move back to inbox</div>
+                    </div>
+                  </button>
+                </div>
+                <div className="mx-3 border-t border-border/30" />
+              </>
+            )}
+
+            {/* Export */}
+            <div className="px-3 pt-2 pb-1">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 px-2 mb-1">Export</p>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!focusedMessage) return;
+                  const md = `# ${focusedMessage.subject || "(no subject)"}\n\n${focusedMessage.snippet || ""}`;
+                  try {
+                    await navigator.clipboard.writeText(md);
+                    toast({ title: "Copied as Markdown" });
+                  } catch {
+                    toast({ title: "Clipboard unavailable", variant: "destructive" });
+                  }
+                  setAllActionsOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <Copy className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">Copy as Markdown</div>
+                  <div className="text-[11px] text-muted-foreground/60">Copy subject + snippet to clipboard</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.print(); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <Printer className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">Print</div>
+                  <div className="text-[11px] text-muted-foreground/60">Print this email view</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => { toast({ title: "Export coming soon" }); setAllActionsOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/60 text-left transition-colors text-sm"
+              >
+                <Upload className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-[13px]">Export to…</div>
+                  <div className="text-[11px] text-muted-foreground/60">PDF, CSV, and more — coming soon</div>
+                </div>
+              </button>
+            </div>
+
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Save to Cortex modal */}
       {focusedMessage && (
