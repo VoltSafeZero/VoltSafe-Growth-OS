@@ -17378,10 +17378,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  // Returns inactive (is_active = false) accounts owned by the current user.
+  // Returns inactive (is_active = false) private personal accounts owned by the current user.
   // Used by the sidebar to show disconnected private mailboxes with a reconnect prompt
-  // instead of silently hiding them. Only returns the requesting user's own accounts
-  // (never shared/team accounts) so no cross-user data leaks.
+  // instead of silently hiding them. Only returns private_personal accounts (never
+  // company_managed or team_shared) owned by the requesting user, so no cross-user data
+  // leaks and shared/team inboxes are never surfaced via this endpoint.
   app.get("/api/gmail/accounts/inactive", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId;
@@ -17401,6 +17402,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             eq(emailAccounts.userId, userId),
             eq(emailAccounts.isActive, false),
             eq(emailAccounts.isShared, false),
+            eq(emailAccounts.visibilityType, "private_personal"),
           ),
         );
       res.json(rows);
