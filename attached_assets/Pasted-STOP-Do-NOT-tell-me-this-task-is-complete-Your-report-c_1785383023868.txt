@@ -1,0 +1,263 @@
+STOP.
+
+Do NOT tell me this task is complete.
+
+Your report conflicts with the screenshots I just provided.
+
+The screenshots are the source of truth.
+
+There are still multiple regressions that prove the implementation is NOT behaving correctly.
+
+I want you to stop assuming the fixes worked and instead perform a complete authenticated end-to-end verification of the LIVE application.
+
+==================================================
+THE FOLLOWING BUGS STILL EXIST
+==================================================
+
+1. Private mailboxes still do not behave the same as company mailboxes.
+
+trevor@hyalos.com
+burgesstrevor76@gmail.com
+
+must BOTH display:
+
+Inbox
+  All
+  People
+  Newsletters
+  Notifications
+
+Instead they show inconsistent navigation, missing categories, loading loops, or empty states.
+
+--------------------------------------------------
+
+2. Unread loading still hangs forever.
+
+Examples:
+
+"Unread messages are still loading..."
+
+This is NOT acceptable.
+
+Every unread query must terminate.
+
+Possible valid outcomes are:
+
+- messages displayed
+- zero unread
+- sync pending
+- retry
+
+Infinite loading is a bug.
+
+--------------------------------------------------
+
+3. Badge counts do not match displayed results.
+
+Examples shown:
+
+Unread = 6
+No messages shown
+
+Newsletters = 1
+No messages found
+
+This proves the badge query and message query are still using different logic.
+
+Those queries must become identical.
+
+--------------------------------------------------
+
+4. Different mailbox types still use different rendering paths.
+
+The behaviour differs between:
+
+- work mailbox
+- private mailbox
+- team mailbox
+
+There must only be ONE canonical inbox implementation.
+
+--------------------------------------------------
+
+5. All category views are still inconsistent.
+
+Sometimes:
+
+People works.
+
+Newsletters empty.
+
+Notifications empty.
+
+Unread hangs.
+
+The same mailbox changes behaviour between views.
+
+That indicates stale cache state, incorrect query keys, or mismatched API predicates.
+
+--------------------------------------------------
+
+6. Your report says:
+
+"Everything verified."
+
+The screenshots prove that statement is false.
+
+Do not make completion claims until the LIVE authenticated browser behaves correctly.
+
+==================================================
+YOUR TASK
+==================================================
+
+Perform a REAL browser verification.
+
+Do NOT rely on:
+
+- build success
+- unit tests
+- grep
+- TypeScript compile
+- code inspection
+
+Open the application.
+
+Log in.
+
+Use the actual UI.
+
+Verify every mailbox.
+
+==================================================
+VERIFY ALL OF THESE
+==================================================
+
+trevor@voltsafe.com
+
+All
+People
+Newsletters
+Notifications
+Unread
+
+trevor@hyalos.com
+
+All
+People
+Newsletters
+Notifications
+Unread
+
+burgesstrevor76@gmail.com
+
+All
+People
+Newsletters
+Notifications
+Unread
+
+sales@voltsafe.com
+
+All
+People
+Newsletters
+Notifications
+Unread
+
+support@voltsafe.com
+
+All
+People
+Newsletters
+Notifications
+Unread
+
+==================================================
+FOR EVERY VIEW RECORD
+==================================================
+
+Sidebar category list
+
+Badge count
+
+Network request
+
+Query parameters
+
+Account ID used
+
+Category token
+
+Unread flag
+
+Rows returned
+
+Rows rendered
+
+Whether loading terminated
+
+Whether counts reconcile
+
+==================================================
+INVESTIGATE ROOT CAUSE
+==================================================
+
+Find the ACTUAL reason the screenshots still show failures.
+
+Possible causes include (but are not limited to):
+
+- stale React Query cache
+
+- incorrect query keys
+
+- account switching race
+
+- pagination cursor not reset
+
+- category normalization mismatch
+
+- count API using different SQL
+
+- list API using legacy SQL
+
+- unread endpoint using different predicates
+
+- loader waiting for impossible totals
+
+- duplicate account resolution
+
+- incorrect mailbox scope
+
+- provider labels not normalized
+
+Do not stop after finding the first bug.
+
+Continue until every screenshot is explained.
+
+==================================================
+DO NOT CLOSE THIS TASK UNTIL
+==================================================
+
+✓ every mailbox behaves identically
+
+✓ private mailboxes show the same category navigation as work mailboxes
+
+✓ unread never spins forever
+
+✓ badge counts equal rendered conversations
+
+✓ Newsletters with badge >0 always renders results
+
+✓ Notifications with badge >0 always renders results
+
+✓ All equals the sum of the canonical categories
+
+✓ category switching never produces stale data
+
+✓ mailbox switching never produces stale data
+
+✓ authenticated screenshots prove every fix
+
+If even ONE screenshot still behaves incorrectly, continue debugging.
+
+Do not respond with "fixed" unless the live authenticated browser proves every issue has been resolved.
