@@ -500,10 +500,98 @@ export async function confirmBooking(
 
   if (!link) return null;
 
-  // 4. Calculate times
+  // 4. Server-side slot validation
+  //
+  // The public endpoint deliberately requires no authentication, so we MUST
+  // validate all scheduling constraints here — the browser UI enforcing them
+  // is not sufficient because a token holder can craft arbitrary POST bodies.
   const startTime = new Date(data.slotStart);
   const endTime   = new Date(startTime.getTime() + link.slotMinutes * 60_000);
   const now       = new Date();
+
+  // 4a. Slot must not be in the past
+  if (startTime <= now) {
+    console.warn(`[booking] rejected past slot: token=${token} slotStart=${data.slotStart}`);
+    throw Object.assign(new Error("Requested slot is in the past."), { code: "SLOT_INVALID" });
+  }
+
+  // 4b. Minimum notice check
+  const minNoticeMs = link.minNoticeHours * 60 * 60_000;
+  if (startTime.getTime() < now.getTime() + minNoticeMs) {
+    console.warn(
+      `[booking] rejected too-soon slot: token=${token} slotStart=${data.slotStart} ` +
+      `minNoticeHours=${link.minNoticeHours}`,
+    );
+    throw Object.assign(
+      new Error(`Requested slot does not satisfy the minimum notice of ${link.minNoticeHours} hour(s).`),
+      { code: "SLOT_INVALID" },
+    );
+  }
+
+  // 4c. Booking horizon check (advanceDays)
+  const maxAdvanceMs = link.advanceDays * 24 * 60 * 60_000;
+  if (startTime.getTime() > now.getTime() + maxAdvanceMs) {
+    console.warn(
+      `[booking] rejected too-far slot: token=${token} slotStart=${data.slotStart} ` +
+      `advanceDays=${link.advanceDays}`,
+    );
+    throw Object.assign(
+      new Error(`Requested slot is beyond the ${link.advanceDays}-day booking horizon.`),
+      { code: "SLOT_INVALID" },
+    );
+  }
+
+  // 4d. Availability window check
+  //
+  // The link stores availability as { dow: number (0=Sun–6=Sat), start: "HH:MM", end: "HH:MM" }[].
+  // We verify the slot falls inside at least one matching window, evaluated in
+  // the link's declared timezone so the owner's local-time rules are honoured.
+  const availability = (link.availability as { dow: number; start: string; end: string }[]) ?? [];
+  if (availability.length > 0) {
+    const tz = link.timeZone || "UTC";
+
+    // Extract components in the link's timezone using Intl
+    const localParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      weekday: "short",   // "Sun", "Mon", …
+      hour:    "2-digit",
+      minute:  "2-digit",
+      hour12:  false,
+    }).formatToParts(startTime);
+
+    const endLocalParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hour:    "2-digit",
+      minute:  "2-digit",
+      hour12:  false,
+    }).formatToParts(endTime);
+
+    const weekdayAbbr = localParts.find((p) => p.type === "weekday")?.value ?? "";
+    const WEEKDAY_MAP: Record<string, number> = {
+      Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+    };
+    const localDow = WEEKDAY_MAP[weekdayAbbr] ?? -1;
+
+    // Slot time as "HH:MM" string (zero-padded) in the link's timezone
+    const padded = (n: string) => n.padStart(2, "0");
+    const slotStartStr = `${padded(localParts.find((p) => p.type === "hour")?.value ?? "00")}:${padded(localParts.find((p) => p.type === "minute")?.value ?? "00")}`;
+    const slotEndStr   = `${padded(endLocalParts.find((p) => p.type === "hour")?.value ?? "00")}:${padded(endLocalParts.find((p) => p.type === "minute")?.value ?? "00")}`;
+
+    const windowMatch = availability.some(
+      (w) => w.dow === localDow && slotStartStr >= w.start && slotEndStr <= w.end,
+    );
+
+    if (!windowMatch) {
+      console.warn(
+        `[booking] rejected out-of-window slot: token=${token} slotStart=${data.slotStart} ` +
+        `localDow=${localDow} slotStartStr=${slotStartStr} slotEndStr=${slotEndStr} tz=${tz}`,
+      );
+      throw Object.assign(
+        new Error("Requested slot falls outside the link owner's published availability."),
+        { code: "SLOT_INVALID" },
+      );
+    }
+  }
 
   // 5. ATOMIC RESERVATION (Phase A.3 — concurrent-confirm race fix)
   //
