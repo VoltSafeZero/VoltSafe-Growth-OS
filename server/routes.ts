@@ -16669,6 +16669,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       return res.status(500).json({ message: "Account lookup failed: " + (_e?.message ?? "unknown error") });
     }
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected. Connect your Gmail to send emails." });
+    // Inactive-account guard: resolveAccount grants owners read access to inactive accounts
+    // (for historical-message browsing), but SENDING requires a live OAuth token.
+    // Fail here with an explicit reconnect hint instead of letting the Gmail API throw a
+    // cryptic 401 deep in the send pipeline.
+    if (resolved.acct && resolved.acct.isActive === false) {
+      return res.status(403).json({
+        message: "This mailbox is disconnected. Reconnect it to send mail.",
+        reconnectRequired: true,
+        accountId: resolved.acct.id,
+      });
+    }
     // Phase 4: SENDING email is the highest-impact mutation — require edit access.
     // View-only shared-mailbox grants cannot send under any circumstance.
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;

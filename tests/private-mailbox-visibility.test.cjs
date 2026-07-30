@@ -58,11 +58,12 @@ check(
   `found ${mapUsages}`,
 );
 
-// InboxCategoryNav is used at 4 call sites
+// InboxCategoryNav is used at 5 call sites:
+// personal + fallback + active-private + all-inboxes + team
 const navUsages = [...inboxSrc.matchAll(/<InboxCategoryNav\b/g)].length;
 check(
-  `<InboxCategoryNav> used at exactly 4 call sites`,
-  navUsages === 4,
+  `<InboxCategoryNav> used at exactly 5 call sites`,
+  navUsages === 5,
   `found ${navUsages}`,
 );
 
@@ -84,11 +85,11 @@ check(
   inboxSrc.includes("nav-inbox-cat-${key}${testIdSuffix}"),
 );
 
-// All four usage sites appear (personal, fallback, private, team)
+// All five usage sites appear (personal, fallback, active-private, all-inboxes, team)
 const navSuffix0 = [...inboxSrc.matchAll(/<InboxCategoryNav[^>]*onSelect/g)].length;
 check(
-  `All 4 InboxCategoryNav usages have onSelect prop`,
-  navSuffix0 === 4,
+  `All 5 InboxCategoryNav usages have onSelect prop`,
+  navSuffix0 === 5,
   `found ${navSuffix0}`,
 );
 
