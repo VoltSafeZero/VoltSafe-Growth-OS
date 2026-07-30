@@ -1,0 +1,641 @@
+URGENT VOLTSAFE MAIL REGRESSION HOTFIX + RELATIONSHIP INTELLIGENCE FIX
+
+This is NOT a planning task.
+
+Do NOT stop after investigation.
+
+Perform the full forensic audit, implement the fixes, run all tests, verify with authenticated UI, and provide a complete release report.
+
+==========================================================
+BACKGROUND
+==========================================================
+
+Two regressions currently exist:
+
+1. Removing the Priority feature caused VoltSafe Mail to regress to an old Smart Inbox implementation.
+
+The intended final design is:
+
+Inbox
+ ├── All
+ ├── People
+ ├── Newsletters
+ └── Notifications
+
+Only those three primary categories must exist beneath All.
+
+The current build has incorrectly reverted to an older taxonomy showing:
+
+• Updates
+• Promotions
+• Social
+• Forums & Communities
+
+This regression must be completely eliminated.
+
+--------------------------------------------
+
+2. Relationship Intelligence Warmness Score recalculation is failing.
+
+Clicking:
+
+Admin
+→ My Mailboxes
+→ Relationship Intelligence
+→ Recompute
+
+returns HTTP 500.
+
+The error shows the INSERT...SELECT statement for contact_relationships is failing.
+
+This must be fully diagnosed and corrected.
+
+==========================================================
+PART 1 — RELATIONSHIP INTELLIGENCE 500
+==========================================================
+
+Perform a full forensic investigation.
+
+Do NOT guess.
+
+Determine the exact SQL error.
+
+Investigate:
+
+• server route
+• service layer
+• SQL
+• schema
+• migrations
+• indexes
+• constraints
+• UPSERT
+• JSON aggregation
+• computed columns
+• aliases
+• GROUP BY
+• INSERT target list
+• ON CONFLICT clause
+• trigger interaction
+• nullable columns
+• duplicated aliases
+• owner filtering
+• warmness calculation
+
+Capture:
+
+• exact exception
+• stack trace
+• SQLSTATE
+• failing SQL
+• parameters
+• line number
+• root cause
+
+Fix the underlying problem.
+
+Do NOT hide exceptions.
+
+Return meaningful server logs.
+
+==========================================================
+PART 2 — RESTORE CANONICAL SMART INBOX
+==========================================================
+
+Restore the canonical Smart Inbox.
+
+Final structure must be:
+
+Inbox
+ ├── All
+ ├── People
+ ├── Newsletters
+ └── Notifications
+
+Nothing else.
+
+The following must NEVER appear again:
+
+• Priority
+• Starred
+• Updates
+• Promotions
+• Social
+• Forums & Communities
+• Priority Highlights
+
+==========================================================
+PART 3 — PRESERVE STAR DATA
+==========================================================
+
+This is NON-DESTRUCTIVE.
+
+Do NOT:
+
+• delete stars
+• modify is_starred
+• modify Gmail STARRED labels
+• remove backend toggle endpoint
+• migrate star data
+
+Only remove UI access.
+
+Historical stars must remain intact.
+
+==========================================================
+PART 4 — FIND THE EXACT REGRESSION
+==========================================================
+
+Audit git history.
+
+Identify:
+
+• first bad commit
+• merge
+• cherry-pick
+• reset
+• conflict resolution
+
+that restored the obsolete category system.
+
+List:
+
+• commit SHA
+• author
+• date
+• changed files
+• exact lines
+
+==========================================================
+PART 5 — RESTORE CATEGORY MODEL
+==========================================================
+
+The canonical categories are:
+
+people
+newsletters
+notifications
+
+Legacy Gmail categories must map to:
+
+People
+
+• people
+
+Newsletters
+
+• newsletters
+• promotions
+• forums
+
+Notifications
+
+• notifications
+• updates
+• social
+
+There must be one shared classification helper used by:
+
+• sidebar
+• Smart Inbox
+• counts
+• breadcrumbs
+• filters
+• API
+• grouping
+
+Do not duplicate logic.
+
+==========================================================
+PART 6 — SIDEBAR
+==========================================================
+
+Every mailbox must render:
+
+Inbox
+ ├── All
+ ├── People
+ ├── Newsletters
+ └── Notifications
+
+This includes:
+
+• Trevor mailbox
+• hyalos mailbox
+• Gmail mailbox
+• Sales
+• Support
+• future mailboxes
+
+No exceptions.
+
+==========================================================
+PART 7 — SMART INBOX
+==========================================================
+
+Render only:
+
+People
+
+Newsletters
+
+Notifications
+
+Seen (only if intentionally part of the design)
+
+Never render:
+
+Updates
+
+Promotions
+
+Social
+
+Forums
+
+Priority
+
+A message may appear in only one primary category.
+
+==========================================================
+PART 8 — CATEGORY COUNTS
+==========================================================
+
+Use canonical count fields only.
+
+People
+
+Newsletters
+
+Notifications
+
+Verify:
+
+All unread
+=
+People
++
+Newsletters
++
+Notifications
+
+No duplication.
+
+No hidden Priority counts.
+
+==========================================================
+PART 9 — QUERY TOKENS
+==========================================================
+
+Support:
+
+in:people
+
+in:newsletters
+
+in:notifications
+
+Legacy query tokens may remain accepted but MUST normalize immediately.
+
+No visible legacy categories.
+
+==========================================================
+PART 10 — USER PREFERENCES
+==========================================================
+
+Audit:
+
+localStorage
+
+sessionStorage
+
+React Query cache
+
+server preferences
+
+URL state
+
+Automatically migrate:
+
+priority
+→ all
+
+promotions
+→ newsletters
+
+forums
+→ newsletters
+
+updates
+→ notifications
+
+social
+→ notifications
+
+User must never need to clear browser cache.
+
+==========================================================
+PART 11 — CACHE INVALIDATION
+==========================================================
+
+Invalidate:
+
+mailbox list
+
+category counts
+
+selected category
+
+pagination
+
+group cache
+
+breadcrumb cache
+
+React Query cache
+
+Ensure stale legacy categories cannot reappear.
+
+==========================================================
+PART 12 — PRIVATE MAILBOX INVESTIGATION
+==========================================================
+
+Investigate why:
+
+trevor@hyalos.com
+
+burgesstrevor76@gmail.com
+
+sometimes disappear from the left navigation even though:
+
+• active
+• syncing
+• configured
+
+Audit:
+
+mailbox loading
+
+visibility filters
+
+permissions
+
+sorting
+
+React keys
+
+collapsed state
+
+cached mailbox list
+
+mailbox query
+
+render conditions
+
+Identify the exact root cause.
+
+Fix it.
+
+==========================================================
+PART 13 — DUPLICATE MAILBOX AUDIT
+==========================================================
+
+Investigate production mailbox records.
+
+Determine whether:
+
+duplicate Sales mailboxes
+
+duplicate Support mailboxes
+
+represent:
+
+A)
+
+expected shared/team mailboxes
+
+OR
+
+B)
+
+accidental duplicate mailbox records.
+
+Document findings.
+
+Investigate revoked duplicate Trevor mailbox.
+
+If:
+
+revoked
+
+sync disabled
+
+unused
+
+orphaned
+
+recommend deletion.
+
+Do NOT automatically delete.
+
+Produce recommendation only.
+
+==========================================================
+PART 14 — REGRESSION TESTS
+==========================================================
+
+Create or update tests covering:
+
+✓ Sidebar only contains:
+
+All
+
+People
+
+Newsletters
+
+Notifications
+
+✓ Priority absent
+
+✓ Updates absent
+
+✓ Promotions absent
+
+✓ Social absent
+
+✓ Forums absent
+
+✓ Smart Inbox groups
+
+✓ Counts
+
+✓ Query tokens
+
+✓ Preference migration
+
+✓ Cache invalidation
+
+✓ Mailbox switching
+
+✓ Private mailbox visibility
+
+✓ Team mailbox visibility
+
+✓ Warmness recompute
+
+✓ SQL recompute
+
+✓ Duplicate mailbox handling
+
+✓ Revoked mailbox exclusion
+
+==========================================================
+PART 15 — AUTHENTICATED UI VERIFICATION
+==========================================================
+
+Capture authenticated screenshots proving:
+
+Trevor mailbox
+
+Hyalos mailbox
+
+Gmail mailbox
+
+Sales mailbox
+
+Support mailbox
+
+all render:
+
+All
+
+People
+
+Newsletters
+
+Notifications
+
+Verify:
+
+No Priority
+
+No legacy categories
+
+No endless loader
+
+No Local mailbox query failed
+
+No console errors
+
+Relationship Intelligence recompute succeeds.
+
+==========================================================
+PART 16 — BUILD + PRODUCTION VERIFICATION
+==========================================================
+
+Run:
+
+npm run build
+
+Run all Mail test suites.
+
+Verify:
+
+HTTP 200
+
+No SQL errors
+
+No mailbox query failures
+
+No warmness recompute failures
+
+No duplicate rendering
+
+No cross-mailbox leakage
+
+==========================================================
+FINAL REPORT
+==========================================================
+
+Include:
+
+Root cause #1 (Warmness)
+
+Root cause #2 (Inbox regression)
+
+Root cause #3 (Private mailbox disappearance)
+
+Root cause #4 (Duplicate mailbox audit)
+
+Files changed
+
+Server changes
+
+Client changes
+
+Database changes
+
+Migration changes
+
+Cache changes
+
+Preference migration
+
+Tests added
+
+Tests updated
+
+Authenticated screenshots
+
+Build status
+
+Test status
+
+Commit SHA
+
+Parent SHA
+
+git status --short
+
+Ready to publish
+
+==========================================================
+DEFINITION OF DONE
+==========================================================
+
+Complete only when ALL of the following are true:
+
+✓ Relationship Intelligence recompute succeeds with HTTP 200.
+
+✓ Warmness recalculation completes successfully.
+
+✓ Inbox navigation universally shows only:
+
+All
+
+People
+
+Newsletters
+
+Notifications
+
+✓ Priority remains removed.
+
+✓ Legacy categories never appear.
+
+✓ Historical star data is preserved.
+
+✓ Private mailboxes always appear.
+
+✓ Duplicate mailbox audit completed.
+
+✓ All mailbox types behave identically.
+
+✓ All tests pass.
+
+✓ npm build passes.
+
+✓ Authenticated UI verification succeeds.
+
+✓ Production is ready for publish.
