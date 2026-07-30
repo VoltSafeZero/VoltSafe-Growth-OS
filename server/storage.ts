@@ -541,6 +541,35 @@ export class DatabaseStorage implements IStorage {
     return { data: data as (Lead & { commStatus?: string })[], total: Number(countResult[0].count), page, totalPages: Math.ceil(Number(countResult[0].count) / limit) };
   }
 
+  async getLeadCommStatus(leadId: number): Promise<string> {
+    const result = await db.execute(sql.raw(`
+      SELECT CASE
+        WHEN EXISTS (
+          SELECT 1 FROM email_threads et
+          WHERE (et.primary_lead_id = ${leadId}
+                 OR et.primary_contact_id IN (
+                   SELECT lc.contact_id FROM lead_contacts lc
+                   WHERE lc.lead_id = ${leadId}
+                 ))
+            AND GREATEST(
+                  COALESCE(et.last_inbound_at, et.created_at),
+                  COALESCE(et.last_outbound_at, et.created_at)
+                ) >= NOW() - INTERVAL '30 days'
+        ) THEN 'recently_contacted'
+        WHEN EXISTS (
+          SELECT 1 FROM email_threads et
+          WHERE et.primary_lead_id = ${leadId}
+             OR et.primary_contact_id IN (
+               SELECT lc.contact_id FROM lead_contacts lc
+               WHERE lc.lead_id = ${leadId}
+             )
+        ) THEN 'stale'
+        ELSE 'never_contacted'
+      END AS comm_status
+    `));
+    return (result.rows?.[0] as any)?.comm_status ?? "never_contacted";
+  }
+
   async getLeadStates(): Promise<string[]> {
     const result = await db.selectDistinct({ state: leads.state }).from(leads).where(sql`${leads.state} IS NOT NULL`).orderBy(asc(leads.state));
     return result.map((r) => r.state!).filter(Boolean);

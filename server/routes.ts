@@ -2232,9 +2232,11 @@ export async function registerRoutes(
   });
 
   app.get("/api/leads/:id", requirePermission("crm", "view"), async (req, res) => {
-    const lead = await storage.getLead(Number(req.params.id));
+    const lid = Number(req.params.id);
+    const lead = await storage.getLead(lid);
     if (!lead) return res.status(404).json({ message: "Lead not found" });
-    res.json(lead);
+    const commStatus = await storage.getLeadCommStatus(lid);
+    res.json({ ...lead, commStatus });
   });
 
   app.post("/api/leads", requirePermission("crm", "edit"), async (req, res) => {
@@ -2279,7 +2281,8 @@ export async function registerRoutes(
         createdBy: userId,
       });
     }
-    res.json(result);
+    const commStatus = await storage.getLeadCommStatus(lid);
+    res.json({ ...result, commStatus });
     import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", lid, "fields")).catch(() => {});
     // Auto-geocode if address changed and lead still has no coords
     if (!existing.marinaId && !result?.leadLat && (body.city || body.streetAddress || body.state || body.zipCode)) {
