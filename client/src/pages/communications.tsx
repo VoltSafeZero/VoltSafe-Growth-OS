@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, List, FileEdit, Send, Users, Megaphone } from "lucide-react";
+import { Plus, Send, Users, Megaphone, AlertCircle } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
 import type { CommunicationList, CampaignDraft } from "@shared/schema";
 
@@ -22,9 +22,28 @@ const campaignStatusColors: Record<string, string> = {
   logged: "bg-purple-500/10 text-purple-400 border-purple-500/20",
 };
 
+/** Parse a freetext block of emails (comma, semicolon, or newline separated).
+ *  Returns unique, lowercased, non-empty email strings. */
+function parseEmailsFromText(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  // Split on commas, semicolons, whitespace (including newlines)
+  const parts = raw.split(/[\s,;]+/);
+  for (const part of parts) {
+    // Strip angle-bracket wrappers like <foo@bar.com>
+    const email = part.replace(/^<|>$/g, "").trim().toLowerCase();
+    if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !seen.has(email)) {
+      seen.add(email);
+      out.push(email);
+    }
+  }
+  return out;
+}
+
 export default function CommunicationsPage() {
   const [createListOpen, setCreateListOpen] = useState(false);
   const [createCampaignOpen, setCreateCampaignOpen] = useState(false);
+  const [sendDialogCampaign, setSendDialogCampaign] = useState<CampaignDraft | null>(null);
   const { toast } = useToast();
 
   const { data: listsData } = useQuery<CommunicationList[]>({
@@ -61,6 +80,7 @@ export default function CommunicationsPage() {
     onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to create campaign", variant: "destructive" }); },
   });
 
+  // Kept for non-send status mutations (e.g. archive, schedule) — NOT used for "Mark as Sent".
   const updateCampaignMutation = useMutation({
     mutationFn: async ({ id, ...d }: { id: number; [key: string]: unknown }) => {
       const res = await apiRequest("PUT", `/api/campaigns/${id}`, d);
@@ -166,7 +186,12 @@ export default function CommunicationsPage() {
                       <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell">{new Date(campaign.createdAt).toLocaleDateString()}</td>
                       <td className="p-3 sm:p-4 text-right">
                         {campaign.status === "draft" && (
-                          <Button variant="ghost" size="sm" onClick={() => updateCampaignMutation.mutate({ id: campaign.id, status: "sent", sentAt: new Date().toISOString() })} data-testid={`button-mark-sent-${campaign.id}`}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSendDialogCampaign(campaign)}
+                            data-testid={`button-mark-sent-${campaign.id}`}
+                          >
                             <Send className="h-4 w-4 mr-1" /> <span className="hidden sm:inline">Mark</span> Sent
                           </Button>
                         )}
@@ -182,9 +207,135 @@ export default function CommunicationsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Send Campaign dialog — opened when a draft's "Mark Sent" button is clicked */}
+      <SendCampaignDialog
+        campaign={sendDialogCampaign}
+        onClose={() => setSendDialogCampaign(null)}
+        onSent={() => {
+          setSendDialogCampaign(null);
+          queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+        }}
+      />
     </div>
   );
 }
+
+// ── Send Campaign Dialog ─────────────────────────────────────────────────────
+
+interface SendCampaignDialogProps {
+  campaign: CampaignDraft | null;
+  onClose: () => void;
+  onSent: () => void;
+}
+
+function SendCampaignDialog({ campaign, onClose, onSent }: SendCampaignDialogProps) {
+  const [emailsRaw, setEmailsRaw] = useState("");
+  const { toast } = useToast();
+
+  const sendMutation = useMutation({
+    mutationFn: async ({ id, recipients }: { id: number; recipients: { email: string }[] }) => {
+      const res = await apiRequest("POST", `/api/campaigns/${id}/send`, { recipients });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as any)?.message || `HTTP ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      const missing = data?.accountIdMissing ?? 0;
+      toast({
+        title: "Campaign marked as sent",
+        description: `${data?.inserted ?? 0} recipient${data?.inserted === 1 ? "" : "s"} recorded${missing > 0 ? ` (${missing} contact${missing === 1 ? "" : "s"} had no account linked)` : ""}.`,
+      });
+      setEmailsRaw("");
+      onSent();
+    },
+    onError: (err: any) => {
+      toast({ title: "Send failed", description: err?.message || "Could not mark campaign as sent", variant: "destructive" });
+    },
+  });
+
+  const parsedEmails = parseEmailsFromText(emailsRaw);
+  const isOpen = campaign !== null;
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!campaign) return;
+    if (parsedEmails.length === 0) {
+      toast({ title: "No valid emails", description: "Enter at least one valid email address.", variant: "destructive" });
+      return;
+    }
+    sendMutation.mutate({
+      id: campaign.id,
+      recipients: parsedEmails.map(email => ({ email })),
+    });
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) { setEmailsRaw(""); onClose(); } }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Mark Campaign as Sent</DialogTitle>
+        </DialogHeader>
+        {campaign && (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
+              <span className="text-muted-foreground">Campaign: </span>
+              <span className="font-medium">{campaign.subject}</span>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="send-recipients">
+                Recipients
+                <span className="text-muted-foreground font-normal ml-1 text-xs">(one per line, or comma/semicolon separated)</span>
+              </Label>
+              <Textarea
+                id="send-recipients"
+                value={emailsRaw}
+                onChange={(e) => setEmailsRaw(e.target.value)}
+                rows={6}
+                placeholder={"alice@example.com\nbob@example.com\ncarol@example.com"}
+                data-testid="input-send-recipients"
+              />
+              {emailsRaw.trim() && (
+                <p className="text-xs text-muted-foreground">
+                  {parsedEmails.length > 0
+                    ? <>{parsedEmails.length} valid email{parsedEmails.length === 1 ? "" : "s"} found</>
+                    : <span className="flex items-center gap-1 text-destructive"><AlertCircle className="h-3 w-3" /> No valid emails detected</span>
+                  }
+                </p>
+              )}
+            </div>
+
+            {campaign.listIds && (
+              <p className="text-xs text-muted-foreground bg-muted/40 rounded px-2 py-1.5">
+                This campaign is linked to list IDs: <span className="font-mono">{campaign.listIds}</span>. Paste the member emails above.
+              </p>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <Button type="button" variant="outline" onClick={() => { setEmailsRaw(""); onClose(); }} disabled={sendMutation.isPending}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-primary text-primary-foreground"
+                disabled={sendMutation.isPending || parsedEmails.length === 0}
+                data-testid="button-confirm-send"
+              >
+                <Send className="h-4 w-4 mr-1.5" />
+                {sendMutation.isPending ? "Sending…" : `Mark Sent (${parsedEmails.length})`}
+              </Button>
+            </div>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Supporting forms ─────────────────────────────────────────────────────────
 
 function CreateListForm({ onSubmit, isPending }: { onSubmit: (d: Record<string, unknown>) => void; isPending: boolean }) {
   const [form, setForm] = useState({ name: "", source: "manual", description: "", externalId: "", memberCount: "" });
