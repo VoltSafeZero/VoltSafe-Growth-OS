@@ -1,7 +1,11 @@
 #!/usr/bin/env node
+import pg from "pg";
+const { Pool } = pg;
 /**
- * Regression test — Task 134
+ * Regression test — Task 134 / Task 143
  * Confirm commStatus dots never go blank after filtering the leads list.
+ * C7 (Task 143): lead linked to a stale thread ONLY via lead_contacts
+ *                (primary_lead_id is NULL) must appear in commStatus=stale.
  *
  * C1. GET /api/leads (no filter) — every row in `data` carries a `commStatus`
  *     field whose value is one of: recently_contacted | stale | never_contacted
@@ -167,6 +171,98 @@ async function main() {
           bad(`stacked filter — ${missing.length}/${data.length} rows missing/invalid commStatus`, sample);
         }
       }
+    }
+  }
+  console.log();
+
+  // ─── C7: lead linked ONLY via lead_contacts (no primary_lead_id) ─────────
+  // Seeds: lead (primary_lead_id=NULL on thread) + contact + lead_contacts row
+  //        + stale email_thread (last_inbound_at 60 days ago, no primary_lead_id)
+  // Asserts GET /api/leads?commStatus=stale returns the seeded lead.
+  console.log("── C7: stale via lead_contacts path only (no primary_lead_id) ──");
+  {
+    const dbPool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const TS = Date.now();
+    let seededLeadId = null;
+    let seededContactId = null;
+    let seededAccountId = null;
+    let seededThreadId = null;
+    try {
+      // 1. Insert a unique lead with no direct thread link yet
+      const leadRes = await dbPool.query(`
+        INSERT INTO leads (company, contact_name, contact_email, status, created_at, updated_at)
+        VALUES ($1, $2, $3, 'prospect', NOW(), NOW())
+        RETURNING id
+      `, [`C7-Lead-${TS}`, `C7 Contact ${TS}`, `c7-lead-${TS}@test-c7.example`]);
+      seededLeadId = leadRes.rows[0].id;
+
+      // 2. Insert a throw-away account (contacts.account_id is NOT NULL)
+      const accountRes = await dbPool.query(`
+        INSERT INTO accounts (name, created_at, updated_at)
+        VALUES ($1, NOW(), NOW())
+        RETURNING id
+      `, [`C7-Account-${TS}`]);
+      seededAccountId = accountRes.rows[0].id;
+
+      // 3. Insert a unique contact linked to the throw-away account
+      const contactRes = await dbPool.query(`
+        INSERT INTO contacts (name, first_name, last_name, email, account_id, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        RETURNING id
+      `, [`C7 Contact${TS}`, `C7`, `Contact${TS}`, `c7-contact-${TS}@test-c7.example`, seededAccountId]);
+      seededContactId = contactRes.rows[0].id;
+
+      // 4. Link contact → lead via lead_contacts (this is the ONLY path)
+      await dbPool.query(`
+        INSERT INTO lead_contacts (lead_id, contact_id, role, created_at)
+        VALUES ($1, $2, NULL, NOW())
+      `, [seededLeadId, seededContactId]);
+
+      // 4. Insert a stale email_thread: primary_contact_id = contact, primary_lead_id = NULL
+      //    last_inbound_at 60 days ago ensures it is stale (not recently_contacted)
+      const threadRes = await dbPool.query(`
+        INSERT INTO email_threads
+          (gmail_thread_id, primary_contact_id, primary_lead_id,
+           last_inbound_at, last_outbound_at, created_at, updated_at)
+        VALUES ($1, $2, NULL,
+                NOW() - INTERVAL '60 days',
+                NULL,
+                NOW() - INTERVAL '60 days',
+                NOW() - INTERVAL '60 days')
+        RETURNING id
+      `, [`c7-thread-${TS}`, seededContactId]);
+      seededThreadId = threadRes.rows[0].id;
+
+      // 5. Fetch commStatus=stale and confirm the seeded lead appears
+      const r = await api(cookie, `/api/leads?commStatus=stale&limit=200`);
+      if (!r.ok) {
+        bad("C7: GET /api/leads?commStatus=stale returns 200", `status=${r.status}`);
+      } else {
+        const { data } = await r.json();
+        if (!Array.isArray(data)) {
+          bad("C7: data is an array", typeof data);
+        } else {
+          const found = data.find(row => row.id === seededLeadId);
+          if (found) {
+            ok(`C7: seeded lead (id=${seededLeadId}) appears in commStatus=stale results`);
+            if (found.commStatus === "stale") {
+              ok(`C7: returned row has commStatus === 'stale'`);
+            } else {
+              bad(`C7: returned row commStatus`, `expected 'stale', got '${found.commStatus}'`);
+            }
+          } else {
+            bad(`C7: seeded lead (id=${seededLeadId}) not found in stale results`, `total rows returned: ${data.length}`);
+          }
+        }
+      }
+    } finally {
+      // Cleanup in reverse-insertion order
+      if (seededThreadId)  await dbPool.query(`DELETE FROM email_threads WHERE id = $1`, [seededThreadId]);
+      if (seededLeadId)    await dbPool.query(`DELETE FROM lead_contacts WHERE lead_id = $1`, [seededLeadId]);
+      if (seededContactId) await dbPool.query(`DELETE FROM contacts WHERE id = $1`, [seededContactId]);
+      if (seededAccountId) await dbPool.query(`DELETE FROM accounts WHERE id = $1`, [seededAccountId]);
+      if (seededLeadId)    await dbPool.query(`DELETE FROM leads WHERE id = $1`, [seededLeadId]);
+      await dbPool.end();
     }
   }
   console.log();
