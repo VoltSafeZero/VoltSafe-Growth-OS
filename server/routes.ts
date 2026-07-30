@@ -6510,6 +6510,41 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/documents/stats/stale-breakdown", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const gate = await requireSectionView(userId, "crm");
+      if (!gate.ok) return res.status(403).json({ message: "Not authorized" });
+      const result = await db.execute(sql`
+        SELECT
+          COALESCE(use_case, 'general') AS use_case,
+          COALESCE(category, 'general') AS category,
+          COUNT(*)::int                 AS count
+        FROM attachments
+        WHERE created_at <= NOW() - INTERVAL '180 days'
+        GROUP BY COALESCE(use_case, 'general'), COALESCE(category, 'general')
+        ORDER BY COUNT(*) DESC
+      `);
+      // Also aggregate by use_case only
+      const byUseCase: Record<string, number> = {};
+      const byCategory: Record<string, number> = {};
+      for (const r of result.rows as any[]) {
+        byUseCase[r.use_case]  = (byUseCase[r.use_case]  ?? 0) + Number(r.count);
+        byCategory[r.category] = (byCategory[r.category] ?? 0) + Number(r.count);
+      }
+      res.json({
+        byUseCase: Object.entries(byUseCase)
+          .map(([key, count]) => ({ key, count }))
+          .sort((a, b) => b.count - a.count),
+        byCategory: Object.entries(byCategory)
+          .map(([key, count]) => ({ key, count }))
+          .sort((a, b) => b.count - a.count),
+      });
+    } catch (e) {
+      res.status(500).json({ message: "Failed to load stale breakdown" });
+    }
+  });
+
   app.post("/api/documents/link", requireAuth, async (req, res) => {
     const { objectType, objectId, url, title, category, notes, tags } = req.body;
     if (!url || !objectType || !objectId) {

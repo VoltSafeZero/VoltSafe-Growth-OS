@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -15,11 +16,9 @@ import {
   ShieldCheck, Package, Wrench, Camera, Receipt, RefreshCcw, FlaskConical,
   FileSignature, Ruler, Paperclip, X, ExternalLink, FolderOpen, File,
   FileImage, FileVideo, ChevronRight, Star, Lock, Users, Megaphone,
-  TrendingUp, Layers, ShieldAlert, UserX, AlertTriangle,
+  TrendingUp, Layers, ShieldAlert, UserX, AlertTriangle, Clock,
 } from "lucide-react";
 import type { Attachment } from "@shared/schema";
-
-// ── Use-Case (primary filter chips) ──────────────────────────────────────────
 
 export const ASSET_USE_CASES = [
   { key: "all",      label: "All",      icon: FolderOpen,  color: "text-muted-foreground",  bg: "bg-muted/40",        border: "border-border/40" },
@@ -633,6 +632,8 @@ function DocumentRow({ doc, selected, onClick }: { doc: DocRow; selected: boolea
   );
 }
 
+type StaleBreakdownItem = { key: string; count: number };
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const NO_OWNER_ALERT_THRESHOLD = 10;
@@ -645,6 +646,7 @@ export default function DocumentsPage() {
   const [objectTypeFilter, setObjectTypeFilter] = useState("all");
   const [noOwnerFilter, setNoOwnerFilter] = useState(false);
   const [noOwnerBannerDismissed, setNoOwnerBannerDismissed] = useState(false);
+  const [staleSheetOpen, setStaleSheetOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [selectedDoc, setSelectedDoc] = useState<DocRow | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -744,45 +746,57 @@ export default function DocumentsPage() {
         {/* Stats strip */}
         <div className="flex items-center gap-6 mt-4 flex-wrap">
           {[
-            { label: "Total Assets", value: total, clickable: false },
-            { label: "Sales", value: statSales, clickable: false },
-            { label: "Restricted", value: statRestricted, clickable: false },
-            { label: "Favorites", value: statFavorites, clickable: false },
-            { label: "Recent (30d)", value: statsData?.recent ?? "—", clickable: false },
-            { label: "Stale (6mo+)", value: statsData?.stale ?? "—", clickable: false },
-            { label: "No Owner", value: statsData?.noOwner ?? "—", clickable: true },
-          ].map(s => {
-            const isNoOwner = s.label === "No Owner";
-            const isActive = isNoOwner && noOwnerFilter;
-            return (
-              <div
-                key={s.label}
-                onClick={s.clickable ? () => { setNoOwnerFilter(v => !v); setPage(0); } : undefined}
-                className={s.clickable ? `cursor-pointer group` : undefined}
-                data-testid={isNoOwner ? "stat-no-owner-btn" : undefined}
-              >
-                <p
-                  className={`text-lg font-bold transition-colors ${
-                    isActive
-                      ? "text-amber-400"
-                      : isNoOwner && noOwnerCount > 0
-                        ? "text-amber-400/80 group-hover:text-amber-400"
-                        : ""
-                  }`}
-                  data-testid={`stat-${s.label.toLowerCase().replace(/[\s()]+/g, "-").replace(/-+$/g, "")}`}
-                >
-                  {s.value}
-                </p>
-                <p className={`text-[10px] uppercase tracking-wide flex items-center gap-1 ${
-                  isActive ? "text-amber-400" : "text-muted-foreground"
-                }`}>
-                  {isNoOwner && <UserX className="h-2.5 w-2.5" />}
-                  {s.label}
-                  {isActive && <span className="text-[9px] font-semibold ml-0.5">(filtered)</span>}
-                </p>
-              </div>
-            );
-          })}
+            { label: "Total Assets", value: total },
+            { label: "Sales", value: statSales },
+            { label: "Restricted", value: statRestricted },
+            { label: "Favorites", value: statFavorites },
+            { label: "Recent (30d)", value: statsData?.recent ?? "—" },
+          ].map(s => (
+            <div key={s.label}>
+              <p className="text-lg font-bold" data-testid={`stat-${s.label.toLowerCase().replace(/[\s()]+/g, "-").replace(/-+$/g, "")}`}>{s.value}</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</p>
+            </div>
+          ))}
+          {/* Stale stat — clickable to open breakdown sheet */}
+          <button
+            onClick={() => setStaleSheetOpen(true)}
+            className="text-left group"
+            data-testid="stat-stale-6mo"
+          >
+            <p className="text-lg font-bold group-hover:text-amber-400 transition-colors" data-testid="stat-stale-6mo-">
+              {statsData?.stale ?? "—"}
+            </p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide group-hover:text-amber-400/70 transition-colors flex items-center gap-1">
+              Stale (6mo+)
+              <Clock className="h-2.5 w-2.5 opacity-60" />
+            </p>
+          </button>
+          {/* No Owner stat — clickable to toggle filter */}
+          <div
+            onClick={() => { setNoOwnerFilter(v => !v); setPage(0); }}
+            className="cursor-pointer group"
+            data-testid="stat-no-owner-btn"
+          >
+            <p
+              className={`text-lg font-bold transition-colors ${
+                noOwnerFilter
+                  ? "text-amber-400"
+                  : noOwnerCount > 0
+                    ? "text-amber-400/80 group-hover:text-amber-400"
+                    : ""
+              }`}
+              data-testid="stat-no-owner"
+            >
+              {statsData?.noOwner ?? "—"}
+            </p>
+            <p className={`text-[10px] uppercase tracking-wide flex items-center gap-1 ${
+              noOwnerFilter ? "text-amber-400" : "text-muted-foreground"
+            }`}>
+              <UserX className="h-2.5 w-2.5" />
+              No Owner
+              {noOwnerFilter && <span className="text-[9px] font-semibold ml-0.5">(filtered)</span>}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -921,6 +935,106 @@ export default function DocumentsPage() {
 
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
       <LinkModal open={linkOpen} onClose={() => setLinkOpen(false)} />
+      <StaleBreakdownSheet open={staleSheetOpen} onClose={() => setStaleSheetOpen(false)} />
     </div>
+  );
+}
+
+type StaleBreakdownData = { byUseCase: StaleBreakdownItem[]; byCategory: StaleBreakdownItem[] };
+
+function StaleBreakdownSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { data, isLoading } = useQuery<StaleBreakdownData>({
+    queryKey: ["/api/documents/stats/stale-breakdown"],
+    queryFn: async () => {
+      const res = await fetch("/api/documents/stats/stale-breakdown", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  function BreakdownBar({ item, max, labelFn }: { item: StaleBreakdownItem; max: number; labelFn: (key: string) => string }) {
+    const pct = max > 0 ? Math.round((item.count / max) * 100) : 0;
+    return (
+      <div className="flex items-center gap-3 py-1.5">
+        <span className="text-xs text-muted-foreground w-32 shrink-0 truncate">{labelFn(item.key)}</span>
+        <div className="flex-1 h-2 bg-muted/40 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-amber-500/70 rounded-full transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <span className="text-xs font-semibold w-6 text-right shrink-0">{item.count}</span>
+      </div>
+    );
+  }
+
+  const maxUseCase = data?.byUseCase[0]?.count ?? 1;
+  const maxCategory = data?.byCategory[0]?.count ?? 1;
+
+  return (
+    <Sheet open={open} onOpenChange={v => !v && onClose()}>
+      <SheetContent side="right" className="w-full sm:max-w-md flex flex-col gap-0 p-0" data-testid="sheet-stale-breakdown">
+        <SheetHeader className="px-6 py-4 border-b border-border/30">
+          <SheetTitle className="flex items-center gap-2 text-base">
+            <Clock className="h-4 w-4 text-amber-400" />
+            Stale Docs — 6 mo+ Breakdown
+          </SheetTitle>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Shows which use cases and categories have the most outdated content so you can prioritize cleanup.
+          </p>
+        </SheetHeader>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-8">
+          {isLoading ? (
+            <div className="space-y-2">
+              {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}
+            </div>
+          ) : !data || (data.byUseCase.length === 0 && data.byCategory.length === 0) ? (
+            <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
+              <Clock className="h-8 w-8 opacity-30" />
+              <p className="text-sm">No stale docs found</p>
+              <p className="text-xs opacity-60">All assets were added within the last 6 months</p>
+            </div>
+          ) : (
+            <>
+              {/* By Use Case */}
+              {data.byUseCase.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">By Use Case</h3>
+                  <div className="space-y-0.5">
+                    {data.byUseCase.map(item => (
+                      <BreakdownBar
+                        key={item.key}
+                        item={item}
+                        max={maxUseCase}
+                        labelFn={k => getUseCaseMeta(k).label}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* By Category */}
+              {data.byCategory.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">By Category</h3>
+                  <div className="space-y-0.5">
+                    {data.byCategory.map(item => (
+                      <BreakdownBar
+                        key={item.key}
+                        item={item}
+                        max={maxCategory}
+                        labelFn={k => getCategoryMeta(k).label}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
