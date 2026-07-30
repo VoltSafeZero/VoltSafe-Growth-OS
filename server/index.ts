@@ -339,6 +339,19 @@ app.use((req, res, next) => {
 
       startHourlySyncScheduler();
       startHelpCenterRefreshScheduler();
+
+      // Heat-score background refresh — keeps account engagement scores current
+      // without waiting for page reloads or the 10-minute on-demand TTL.
+      // migrateAccountHeatScores() has already run above, so the table is guaranteed
+      // to exist by the time this interval first fires.
+      const HEAT_SCORE_INTERVAL_MS = 20 * 60 * 1000; // 20 minutes
+      setInterval(() => {
+        import("./services/revenue-intelligence")
+          .then(({ refreshAccountHeatScores }) => refreshAccountHeatScores(true))
+          .catch((err) => console.error("[heat-score-scheduler] refresh failed:", err?.message || err));
+      }, HEAT_SCORE_INTERVAL_MS);
+      log("Heat-score refresh scheduler started (every 20 min)");
+
       // Phase 2A: Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
       const { startWatchRenewalScheduler } = await import("./services/gmail-watch");
       startWatchRenewalScheduler();
