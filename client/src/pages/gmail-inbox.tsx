@@ -389,11 +389,13 @@ function AccountSourceBadge({ accounts, sourceAccountId, messageId }: {
   );
 }
 
+// Maps raw Gmail CATEGORY_* label keys to the canonical VoltSafe taxonomy names
+// (People / Newsletters / Notifications). Shown as pill badges on message rows.
 const CATEGORY_BADGE_CONFIG: Record<string, { label: string; className: string }> = {
-  CATEGORY_UPDATES:    { label: "Updates",    className: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
-  CATEGORY_PROMOTIONS: { label: "Promotions", className: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
-  CATEGORY_SOCIAL:     { label: "Social",     className: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
-  CATEGORY_FORUMS:     { label: "Forums",     className: "bg-orange-500/15 text-orange-300 border-orange-500/30" },
+  CATEGORY_UPDATES:    { label: "Notifications", className: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
+  CATEGORY_PROMOTIONS: { label: "Newsletters",   className: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+  CATEGORY_SOCIAL:     { label: "Notifications", className: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
+  CATEGORY_FORUMS:     { label: "Newsletters",   className: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
 };
 
 function getCategoryLabel(labelIds: string[]): string | null {
@@ -8998,6 +9000,29 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
                             {serverInboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{serverInboxUnreadCount}</span>}
                           </button>
+                          {/* ── Category subcategories nested under Inbox (same as team mailboxes) ── */}
+                          {tab === "inbox" && (
+                            <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
+                              {([
+                                { key: "all" as const,           label: "All",           Icon: Inbox,     badge: 0 },
+                                { key: "people" as const,        label: "People",        Icon: User,      badge: sidebarCategoryBadges.people },
+                                { key: "newsletters" as const,   label: "Newsletters",   Icon: Newspaper, badge: sidebarCategoryBadges.newsletters },
+                                { key: "notifications" as const, label: "Notifications", Icon: Bell,      badge: sidebarCategoryBadges.notifications },
+                              ]).map(({ key, label, Icon, badge }) => {
+                                const isActive = inboxCategory === key;
+                                return (
+                                  <button key={key}
+                                    onClick={() => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                                    data-testid={`nav-inbox-cat-${key}-${acct.id}`}
+                                    className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
+                                    <Icon className="h-3 w-3 flex-shrink-0" />
+                                    <span className="flex-1 text-left">{label}</span>
+                                    {badge > 0 && <span className={`text-[10px] px-1 rounded-full min-w-4 text-center font-medium ${isActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{badge}</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                           <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-sent-private-${acct.id}`}
                             className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                             <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
@@ -10217,10 +10242,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <p className="font-medium">No pinned conversations</p>
                   <p className="text-[11px] mt-1">Right-click any thread and choose Pin to keep it here.</p>
                 </div>
-              ) : crmFilter === "unread" && serverInboxUnreadCount > 0 ? (
-                // Safety guard: server says unread messages exist but none have rendered yet.
-                // This can happen on first load or after a context switch before the query
-                // settles. Show a loading state instead of the misleading "No messages found."
+              ) : crmFilter === "unread" && serverInboxUnreadCount > 0 && (inboxQuery.isLoading || inboxQuery.isFetching) ? (
+                // Safety guard: server says unread messages exist but the query is still
+                // in-flight. Show a loading state instead of the misleading "No messages found."
+                // IMPORTANT: only shown while the query is ACTIVELY fetching — once it settles,
+                // trust the empty result even if the server count says otherwise (stale count).
                 <div className="p-6 text-center text-sm text-muted-foreground">
                   <Loader2 className="h-8 w-8 mx-auto mb-2 opacity-40 animate-spin" />
                   <p className="font-medium">Unread messages are still loading…</p>

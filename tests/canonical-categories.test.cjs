@@ -147,26 +147,26 @@ check(
   !tabKeys.includes("forums")
 );
 
-// Exactly 2 sidebar arrays × 4 keys (all, people, newsletters, notifications)
+// 3 sidebar sections × 4 keys: personal, private, team (all, people, newsletters, notifications)
 const allKeys   = tabKeys.filter(k => k === "all").length;
 const peopleKeys = tabKeys.filter(k => k === "people").length;
 const nlKeys    = tabKeys.filter(k => k === "newsletters").length;
 const notifKeys = tabKeys.filter(k => k === "notifications").length;
 check(
-  'Both sidebar arrays render "all" key (count = 2)',
-  allKeys === 2
+  'All 3 sidebar sections render "all" key (count = 3)',
+  allKeys === 3
 );
 check(
-  'Both sidebar arrays render "people" key (count = 2)',
-  peopleKeys === 2
+  'All 3 sidebar sections render "people" key (count = 3)',
+  peopleKeys === 3
 );
 check(
-  'Both sidebar arrays render "newsletters" key (count = 2)',
-  nlKeys === 2
+  'All 3 sidebar sections render "newsletters" key (count = 3)',
+  nlKeys === 3
 );
 check(
-  'Both sidebar arrays render "notifications" key (count = 2)',
-  notifKeys === 2
+  'All 3 sidebar sections render "notifications" key (count = 3)',
+  notifKeys === 3
 );
 
 console.log("\n── sidebarCategoryBadges ─────────────────────────────────────────────");
