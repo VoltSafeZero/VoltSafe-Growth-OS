@@ -3653,6 +3653,25 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/accounts/:id/heat-score
+  // Returns a structured 0-100 heat score computed from four typed Drizzle ORM
+  // dimensions (email engagement, campaign engagement, activity recency,
+  // opportunity momentum).  Each dimension carries an `available` flag so callers
+  // know when a table was missing at startup rather than getting a silent zero.
+  app.get("/api/accounts/:id/heat-score", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const { computeAccountHeatScore } = await import("./services/account-heat-score");
+      const accountId = Number(req.params.id);
+      if (!accountId || isNaN(accountId)) return res.status(400).json({ message: "Invalid account ID" });
+      const windowDays = req.query.windowDays ? Math.min(Number(req.query.windowDays) || 90, 365) : 90;
+      const score = await computeAccountHeatScore(accountId, windowDays);
+      res.json(score);
+    } catch (err: any) {
+      console.error("[heat-score] route error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/accounts/:id/infrastructure", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const profile = await storage.getInfrastructureProfile(Number(req.params.id));
     res.json(profile || null);

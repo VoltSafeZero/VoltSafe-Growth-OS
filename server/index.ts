@@ -8,6 +8,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startHourlySyncScheduler } from "./services/gmail-sync";
 import { startHelpCenterRefreshScheduler } from "./services/help-center-refresh";
+import { validateHeatScoreSchema } from "./services/account-heat-score";
 import { storage } from "./storage";
 
 // Mirror every lead/marina into Organizations on boot (idempotent, fire-and-forget)
@@ -219,7 +220,7 @@ app.use((req, res, next) => {
 (async () => {
   // Run schema migrations FIRST before any route setup queries the DB
   try {
-    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema, migrateCrmAiSummarySchema, migrateScheduledEmailColumns, migrateShorePowerColumn, migrateLeadWebsiteColumn, migrateSpamTrustedSenders, migrateCleanInternalAutoLinkRules, migrateTaskContactId, migrateEmailSignaturesSchema, migrateSignatureCtaSchema, migrateEmailRecipientsSchema, migrateInternalEngagementSchema, migrateSignatureCtaAssetColumns, migrateCtaFileData, migrateCtaOriginalName, migrateDerivedLabelColumns, migrateBlockedSenders } = await import("./seed-production");
+    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema, migrateCrmAiSummarySchema, migrateScheduledEmailColumns, migrateShorePowerColumn, migrateLeadWebsiteColumn, migrateSpamTrustedSenders, migrateCleanInternalAutoLinkRules, migrateTaskContactId, migrateEmailSignaturesSchema, migrateSignatureCtaSchema, migrateEmailRecipientsSchema, migrateInternalEngagementSchema, migrateSignatureCtaAssetColumns, migrateCtaFileData, migrateCtaOriginalName, migrateDerivedLabelColumns, migrateBlockedSenders, migrateCampaignTrackingTables } = await import("./seed-production");
     await migrateUserSchema();
     await migrateEmailSchema();
     await migrateCalendarSchema();
@@ -262,6 +263,7 @@ app.use((req, res, next) => {
       console.error("[startup] derived label backfill background error:", err)
     );
     await migrateBlockedSenders();
+    await migrateCampaignTrackingTables();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }
@@ -269,6 +271,13 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
   registerJiraRoutes(app);
   registerConfluenceRoutes(app);
+
+  // Validate that all tables required by the heat-score service exist in the
+  // live DB.  A missing table logs a clear error and disables that dimension
+  // rather than letting it silently return zeros.
+  validateHeatScoreSchema().catch((err) =>
+    console.error("[startup] heat-score schema validation failed:", err),
+  );
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

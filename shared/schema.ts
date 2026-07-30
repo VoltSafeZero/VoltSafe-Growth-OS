@@ -2741,3 +2741,41 @@ export const emailSignatures = pgTable("email_signatures", {
 export const insertEmailSignatureSchema = createInsertSchema(emailSignatures).omit({ id: true, createdAt: true, updatedAt: true });
 export type EmailSignature = typeof emailSignatures.$inferSelect;
 export type InsertEmailSignature = z.infer<typeof insertEmailSignatureSchema>;
+
+// ── Campaign delivery tracking ────────────────────────────────────────────────
+// campaign_recipients: one row per (campaign × contact/email) delivery
+// campaign_events:     one row per engagement event (open / click / reply / etc.)
+// account-heat-score.ts uses Drizzle typed queries against these tables so any
+// column rename here is caught at compile time, not silently at runtime.
+
+export const campaignRecipients = pgTable("campaign_recipients", {
+  id: serial("id").primaryKey(),
+  campaignDraftId: integer("campaign_draft_id").notNull().references(() => campaignDrafts.id, { onDelete: "cascade" }),
+  contactId: integer("contact_id"),
+  accountId: integer("account_id"),
+  email: text("email").notNull(),
+  status: text("status").notNull().default("pending"),  // pending | sent | bounced | unsubscribed
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const campaignEvents = pgTable("campaign_events", {
+  id: serial("id").primaryKey(),
+  campaignDraftId: integer("campaign_draft_id").notNull().references(() => campaignDrafts.id, { onDelete: "cascade" }),
+  recipientId: integer("recipient_id").notNull().references(() => campaignRecipients.id, { onDelete: "cascade" }),
+  contactId: integer("contact_id"),
+  accountId: integer("account_id"),
+  eventType: text("event_type").notNull(),  // open | click | reply | unsubscribe | bounce
+  url: text("url"),
+  ipHash: text("ip_hash"),
+  isBot: boolean("is_bot").notNull().default(false),
+  occurredAt: timestamp("occurred_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertCampaignRecipientSchema = createInsertSchema(campaignRecipients).omit({ id: true, createdAt: true });
+export const insertCampaignEventSchema = createInsertSchema(campaignEvents).omit({ id: true, createdAt: true });
+export type CampaignRecipient = typeof campaignRecipients.$inferSelect;
+export type InsertCampaignRecipient = z.infer<typeof insertCampaignRecipientSchema>;
+export type CampaignEvent = typeof campaignEvents.$inferSelect;
+export type InsertCampaignEvent = z.infer<typeof insertCampaignEventSchema>;
