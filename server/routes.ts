@@ -6424,10 +6424,11 @@ export async function registerRoutes(
     if (attachment.uploadedBy !== null && !isAdmin && !isOwner) {
       return res.status(403).json({ message: "Not authorized" });
     }
-    const { category, title, notes, tags } = req.body;
+    const { category, useCase, title, notes, tags } = req.body;
     const oldCategory = attachment.category;
     const updated = await storage.updateAttachment(attachment.id, {
       ...(category !== undefined ? { category } : {}),
+      ...(useCase !== undefined ? { useCase } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(notes !== undefined ? { notes } : {}),
       ...(tags !== undefined ? { tags: Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean) } : {}),
