@@ -5349,7 +5349,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     queryKey: ["/api/inbox/triage-summary", activeAccountId],
     queryFn: async () => {
       const res = await fetch(`/api/inbox/triage-summary${triageAccountParam}`, { credentials: "include" });
-      if (!res.ok) return { awaitingReply: 0, hot: 0, unlinked: 0 };
+      if (!res.ok) {
+        if (res.status === 401) setSessionExpired(true);
+        return { awaitingReply: 0, hot: 0, unlinked: 0 };
+      }
       return res.json();
     },
     refetchInterval: 15_000,
@@ -5359,7 +5362,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     queryKey: ["/api/inbox/triage-thread-ids", activeAccountId],
     queryFn: async () => {
       const res = await fetch(`/api/inbox/triage-thread-ids${triageAccountParam}`, { credentials: "include" });
-      if (!res.ok) return { awaitingReply: [], hot: [], unlinked: [] };
+      if (!res.ok) {
+        if (res.status === 401) setSessionExpired(true);
+        return { awaitingReply: [], hot: [], unlinked: [] };
+      }
       return res.json();
     },
     enabled: ["needs-reply", "awaiting-reply", "hot", "unlinked"].includes(crmFilter),
@@ -6506,7 +6512,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (threadAccountId) params.set("asAccountId", String(threadAccountId));
       const qs = params.toString() ? `?${params}` : "";
       const res = await fetch(`/api/gmail/threads/${selectedThreadId}${qs}`, { credentials: "include" });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({ message: `HTTP ${res.status}` }))).message);
+      if (!res.ok) {
+        if (res.status === 401) setSessionExpired(true);
+        throw new Error((await res.json().catch(() => ({ message: `HTTP ${res.status}` }))).message);
+      }
       return res.json();
     },
     // In unified mode (activeAccountId is "all" OR null) the correct asAccountId comes from
