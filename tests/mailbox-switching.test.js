@@ -58,14 +58,11 @@ const authed = (cookie) => async (url, opts = {}) => fetch(`${BASE}${url}`, {
 
 async function setup(client) {
   // 1) Create a self-contained fake "personal" account (is_shared=false,
-  //    is_active=true).  All real personal accounts for user 4 have
-  //    is_active=false (expired OAuth), so the server's getUserGmailAccount()
-  //    — which queries WHERE is_shared=false AND is_active=true — would
-  //    otherwise return null and the "no asAccountId" path would yield nothing.
-  //    By inserting a fresh active non-shared account here, we guarantee the
-  //    server resolves it as the default personal account for the duration of
-  //    the test, making the assertions deterministic regardless of the OAuth
-  //    state of real accounts in the environment.
+  //    is_active=true).  getUserGmailAccount() orders by id ASC LIMIT 1, so any
+  //    real non-shared active account with a lower id would win the race and the
+  //    "no asAccountId" path would return that account's messages instead of the
+  //    fixture's.  We snapshot-and-deactivate all existing competing accounts
+  //    so the fixture account is the only active personal account during the test.
   const personalIns = await client.query(
     `INSERT INTO email_accounts
        (user_id, provider, email_address, display_name, auth_status, is_shared, refresh_token, is_active)
@@ -74,6 +71,18 @@ async function setup(client) {
     [ADMIN_USER_ID, FAKE_PERSONAL_EMAIL]
   );
   const personalAccountId = personalIns.rows[0].id;
+
+  // Deactivate all other non-shared active accounts for user 4 so they don't
+  // win the getUserGmailAccount() LIMIT 1 race ahead of the fixture account.
+  // We restore them in teardown() for full isolation.
+  const deactivated = await client.query(
+    `UPDATE email_accounts
+     SET is_active = false
+     WHERE user_id = $1 AND is_shared = false AND is_active = true AND id != $2
+     RETURNING id`,
+    [ADMIN_USER_ID, personalAccountId]
+  );
+  const deactivatedIds = deactivated.rows.map(r => r.id);
 
   // 2) Create a fake "team inbox" owned by trevor (user_id=4, is_shared=true).
   const teamIns = await client.query(
@@ -114,7 +123,7 @@ async function setup(client) {
      `MBSWITCH TEAM ${FIXTURE_TAG}`, ADMIN_USER_ID, teamAccountId]
   );
 
-  return { personalAccountId, teamAccountId };
+  return { personalAccountId, teamAccountId, deactivatedIds };
 }
 
 async function teardown(client, ctx) {
@@ -124,6 +133,13 @@ async function teardown(client, ctx) {
   }
   if (ctx?.personalAccountId) {
     await client.query(`DELETE FROM email_accounts WHERE id = $1`, [ctx.personalAccountId]);
+  }
+  // Restore any accounts that were deactivated during setup
+  if (ctx?.deactivatedIds?.length) {
+    await client.query(
+      `UPDATE email_accounts SET is_active = true WHERE id = ANY($1::int[])`,
+      [ctx.deactivatedIds]
+    );
   }
 }
 
