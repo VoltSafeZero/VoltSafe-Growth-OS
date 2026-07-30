@@ -443,6 +443,19 @@ function getEmailCategory(labelIds: string[]): "people" | "newsletters" | "notif
   return "people";
 }
 
+// ─── Canonical inbox category tab config ─────────────────────────────────────
+// Single source of truth for the All / People / Newsletters / Notifications
+// sub-nav used by every mailbox sidebar section (personal, private, team).
+// Badge values are NOT stored here — computed from sidebarCategoryBadges at
+// render time, since they depend on live query state.
+// NOTE: adding or removing an entry here automatically updates every section.
+const INBOX_CATEGORY_TABS = [
+  { key: "all"           as InboxCategory, label: "All",           Icon: Inbox     },
+  { key: "people"        as InboxCategory, label: "People",        Icon: User      },
+  { key: "newsletters"   as InboxCategory, label: "Newsletters",   Icon: Newspaper },
+  { key: "notifications" as InboxCategory, label: "Notifications", Icon: Bell      },
+];
+
 
 
 function escHtml(s: string): string {
@@ -8900,12 +8913,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     {/* ── Category subcategories nested under Inbox ──────────── */}
                     {tab === "inbox" && (
                       <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
-                        {([
-                          { key: "all" as const,           label: "All",           Icon: Inbox,     badge: 0 },
-                          { key: "people" as const,        label: "People",        Icon: User,      badge: sidebarCategoryBadges.people },
-                          { key: "newsletters" as const,   label: "Newsletters",   Icon: Newspaper, badge: sidebarCategoryBadges.newsletters },
-                          { key: "notifications" as const, label: "Notifications", Icon: Bell,      badge: sidebarCategoryBadges.notifications },
-                        ]).map(({ key, label, Icon, badge }) => {
+                        {INBOX_CATEGORY_TABS.map(({ key, label, Icon }) => {
+                          const badge = key === "people" ? sidebarCategoryBadges.people
+                                      : key === "newsletters" ? sidebarCategoryBadges.newsletters
+                                      : key === "notifications" ? sidebarCategoryBadges.notifications
+                                      : 0;
                           const isActive = inboxCategory === key;
                           return (
                             <button key={key}
@@ -9049,12 +9061,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           {/* ── Category subcategories nested under Inbox (same as team mailboxes) ── */}
                           {tab === "inbox" && (
                             <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
-                              {([
-                                { key: "all" as const,           label: "All",           Icon: Inbox,     badge: 0 },
-                                { key: "people" as const,        label: "People",        Icon: User,      badge: sidebarCategoryBadges.people },
-                                { key: "newsletters" as const,   label: "Newsletters",   Icon: Newspaper, badge: sidebarCategoryBadges.newsletters },
-                                { key: "notifications" as const, label: "Notifications", Icon: Bell,      badge: sidebarCategoryBadges.notifications },
-                              ]).map(({ key, label, Icon, badge }) => {
+                              {INBOX_CATEGORY_TABS.map(({ key, label, Icon }) => {
+                                const badge = key === "people" ? sidebarCategoryBadges.people
+                                            : key === "newsletters" ? sidebarCategoryBadges.newsletters
+                                            : key === "notifications" ? sidebarCategoryBadges.notifications
+                                            : 0;
                                 const isActive = inboxCategory === key;
                                 return (
                                   <button key={key}
@@ -9062,8 +9073,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                                     data-testid={`nav-inbox-cat-${key}-${acct.id}`}
                                     className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
                                     <Icon className="h-3 w-3 flex-shrink-0" />
-                                    <span className="flex-1 text-left">{label}</span>
-                                    {badge > 0 && <span className={`text-[10px] px-1 rounded-full min-w-4 text-center font-medium ${isActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{badge}</span>}
+                                    <span className="flex-1 text-left truncate">{label}</span>
+                                    {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge}</span>}
                                   </button>
                                 );
                               })}
@@ -9156,12 +9167,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           {/* ── Category subcategories nested under Inbox ──────────── */}
                           {tab === "inbox" && (
                             <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
-                              {([
-                                { key: "all" as const,           label: "All",           Icon: Inbox,     badge: 0 },
-                                { key: "people" as const,        label: "People",        Icon: User,      badge: sidebarCategoryBadges.people },
-                                { key: "newsletters" as const,   label: "Newsletters",   Icon: Newspaper, badge: sidebarCategoryBadges.newsletters },
-                                { key: "notifications" as const, label: "Notifications", Icon: Bell,      badge: sidebarCategoryBadges.notifications },
-                              ]).map(({ key, label, Icon, badge }) => {
+                              {INBOX_CATEGORY_TABS.map(({ key, label, Icon }) => {
+                                const badge = key === "people" ? sidebarCategoryBadges.people
+                                            : key === "newsletters" ? sidebarCategoryBadges.newsletters
+                                            : key === "notifications" ? sidebarCategoryBadges.notifications
+                                            : 0;
                                 const isActive = inboxCategory === key;
                                 return (
                                   <button key={key}
@@ -9980,7 +9990,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               </div>
             )}
 
-            {/* ── Category tab rendering (Updates / Promotions / Social / Forums) ── */}
+            {/* ── Legacy category tab view (isCategoryTab=false — inboxCategory system supersedes) ── */}
             {isCategoryTab && (
               categoryQuery.isLoading ? (
                 <div className="p-3 space-y-2">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="space-y-1 p-2"><Skeleton className="h-3.5 w-2/3" /><Skeleton className="h-3 w-full" /></div>)}</div>
@@ -10501,14 +10511,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             labelIds={msg.labelIds}
                             messageId={msg.id}
                             onFilter={(catKey) => {
-                              const tabMap: Record<string, string> = {
-                                CATEGORY_UPDATES: "updates",
-                                CATEGORY_PROMOTIONS: "promotions",
-                                CATEGORY_SOCIAL: "social",
-                                CATEGORY_FORUMS: "forums",
+                              // Route CATEGORY_* labels to the canonical inboxCategory system.
+                              // Updates/Social → Notifications; Promotions/Forums → Newsletters.
+                              const catMap: Record<string, InboxCategory> = {
+                                CATEGORY_UPDATES:    "notifications",
+                                CATEGORY_PROMOTIONS: "newsletters",
+                                CATEGORY_SOCIAL:     "notifications",
+                                CATEGORY_FORUMS:     "newsletters",
                               };
-                              const dest = tabMap[catKey];
-                              if (dest) setTab(dest as Parameters<typeof setTab>[0]);
+                              const dest = catMap[catKey];
+                              if (dest) { setTab("inbox"); setInboxCategory(dest); setSelectedMessageId(null); setSelectedThreadId(null); }
                             }}
                           />
                         )}

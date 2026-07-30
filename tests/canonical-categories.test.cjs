@@ -118,8 +118,10 @@ check(
 
 console.log("\n── Sidebar tab arrays ─────────────────────────────────────────────────");
 
-// Count occurrences of canonical category keys in the tab arrays
-const tabArrayBlocks = [...inboxSrc.matchAll(/key:\s*"(all|people|newsletters|notifications|updates|promotions|social|forums|forums)"\s*as const/g)];
+// After the INBOX_CATEGORY_TABS refactor, keys are defined ONCE in the shared
+// constant (using `as InboxCategory`) and referenced via .map() in all 3 sidebar
+// sections — count = 1 per key, plus INBOX_CATEGORY_TABS.map used 3 times.
+const tabArrayBlocks = [...inboxSrc.matchAll(/key:\s*"(all|people|newsletters|notifications|updates|promotions|social|forums)"\s+as\s+(?:const|InboxCategory)/g)];
 const tabKeys = tabArrayBlocks.map(m => m[1]);
 
 check(
@@ -147,26 +149,32 @@ check(
   !tabKeys.includes("forums")
 );
 
-// 3 sidebar sections × 4 keys: personal, private, team (all, people, newsletters, notifications)
-const allKeys   = tabKeys.filter(k => k === "all").length;
+// Shared INBOX_CATEGORY_TABS constant defines each key exactly once.
+// The 3 sidebar sections reference it via INBOX_CATEGORY_TABS.map — no inline copies.
+const allKeys    = tabKeys.filter(k => k === "all").length;
 const peopleKeys = tabKeys.filter(k => k === "people").length;
-const nlKeys    = tabKeys.filter(k => k === "newsletters").length;
-const notifKeys = tabKeys.filter(k => k === "notifications").length;
+const nlKeys     = tabKeys.filter(k => k === "newsletters").length;
+const notifKeys  = tabKeys.filter(k => k === "notifications").length;
 check(
-  'All 3 sidebar sections render "all" key (count = 3)',
-  allKeys === 3
+  'Shared INBOX_CATEGORY_TABS constant defines "all" key exactly once (count = 1)',
+  allKeys === 1
 );
 check(
-  'All 3 sidebar sections render "people" key (count = 3)',
-  peopleKeys === 3
+  'Shared INBOX_CATEGORY_TABS constant defines "people" key exactly once (count = 1)',
+  peopleKeys === 1
 );
 check(
-  'All 3 sidebar sections render "newsletters" key (count = 3)',
-  nlKeys === 3
+  'Shared INBOX_CATEGORY_TABS constant defines "newsletters" key exactly once (count = 1)',
+  nlKeys === 1
 );
 check(
-  'All 3 sidebar sections render "notifications" key (count = 3)',
-  notifKeys === 3
+  'Shared INBOX_CATEGORY_TABS constant defines "notifications" key exactly once (count = 1)',
+  notifKeys === 1
+);
+// Verify all 3 sidebar sections consume the constant
+check(
+  'INBOX_CATEGORY_TABS.map used exactly 3 times (personal + private + team)',
+  [...inboxSrc.matchAll(/INBOX_CATEGORY_TABS\.map/g)].length === 3
 );
 
 console.log("\n── sidebarCategoryBadges ─────────────────────────────────────────────");
