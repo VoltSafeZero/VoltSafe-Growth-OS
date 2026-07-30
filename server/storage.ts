@@ -501,14 +501,19 @@ export class DatabaseStorage implements IStorage {
         : sql`CAST(NULLIF(REGEXP_REPLACE(${leads.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) ASC NULLS LAST`)
       : sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(leads.createdAt);
 
-    const commStatusExpr = sql<string>`
+    // Use sql.raw for the correlated column reference `leads.id` so that drizzle
+    // emits it as a SQL identifier (not a bound $N parameter).  When ${leads.id}
+    // is interpolated inside a sql`` template tag, drizzle binds it as a query
+    // parameter at build time rather than rendering a column reference, which
+    // causes every row to return 'never_contacted' regardless of actual threads.
+    const commStatusExpr = sql.raw<string>(`
       CASE
         WHEN EXISTS (
           SELECT 1 FROM email_threads et
-          WHERE (et.primary_lead_id = ${leads.id}
+          WHERE (et.primary_lead_id = leads.id
                  OR et.primary_contact_id IN (
                    SELECT lc.contact_id FROM lead_contacts lc
-                   WHERE lc.lead_id = ${leads.id}
+                   WHERE lc.lead_id = leads.id
                  ))
             AND GREATEST(
                   COALESCE(et.last_inbound_at, et.created_at),
@@ -517,15 +522,15 @@ export class DatabaseStorage implements IStorage {
         ) THEN 'recently_contacted'
         WHEN EXISTS (
           SELECT 1 FROM email_threads et
-          WHERE et.primary_lead_id = ${leads.id}
+          WHERE et.primary_lead_id = leads.id
              OR et.primary_contact_id IN (
                SELECT lc.contact_id FROM lead_contacts lc
-               WHERE lc.lead_id = ${leads.id}
+               WHERE lc.lead_id = leads.id
              )
         ) THEN 'stale'
         ELSE 'never_contacted'
       END
-    `;
+    `);
 
     const [data, countResult] = await Promise.all([
       db.select({ ...getTableColumns(leads), commStatus: commStatusExpr })
@@ -825,39 +830,55 @@ export class DatabaseStorage implements IStorage {
     if (options?.commStatus && options.commStatus !== "all") {
       const cs = options.commStatus;
 
-      // Correlated subqueries use ${accounts.id} so Drizzle binds the column
-      // reference correctly — sql.raw() with a plain string does not resolve
-      // the correlated table reference inside and().
-      const anyThread = sql`
-        EXISTS (
+      // Use sql`` tagged template with no ${} interpolations — sql.raw() is
+      // silently dropped by drizzle's and() when mixed with other sql``
+      // conditions, and ${accounts.id} drizzle column refs bind as query
+      // parameters rather than column identifiers in this context.
+      if (cs === "recently_contacted") {
+        conditions.push(sql`EXISTS (
           SELECT 1 FROM email_threads et
-          WHERE et.primary_account_id = ${accounts.id}
-             OR et.primary_contact_id IN (
-                  SELECT ac.contact_id FROM account_contacts ac
-                  WHERE ac.account_id = ${accounts.id}
-                )
-        )`;
-
-      const recentThread = sql`
-        EXISTS (
-          SELECT 1 FROM email_threads et
-          WHERE (et.primary_account_id = ${accounts.id}
+          WHERE (et.primary_account_id = accounts.id
                  OR et.primary_contact_id IN (
                       SELECT ac.contact_id FROM account_contacts ac
-                      WHERE ac.account_id = ${accounts.id}
+                      WHERE ac.account_id = accounts.id
                     ))
             AND GREATEST(
                   COALESCE(et.last_inbound_at, et.created_at),
                   COALESCE(et.last_outbound_at, et.created_at)
                 ) >= NOW() - INTERVAL '30 days'
-        )`;
-
-      if (cs === "recently_contacted") {
-        conditions.push(recentThread);
+        )`);
       } else if (cs === "stale") {
-        conditions.push(sql`${anyThread} AND NOT (${recentThread})`);
+        conditions.push(sql`(
+          EXISTS (
+            SELECT 1 FROM email_threads et
+            WHERE et.primary_account_id = accounts.id
+               OR et.primary_contact_id IN (
+                    SELECT ac.contact_id FROM account_contacts ac
+                    WHERE ac.account_id = accounts.id
+                  )
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM email_threads et
+            WHERE (et.primary_account_id = accounts.id
+                   OR et.primary_contact_id IN (
+                        SELECT ac.contact_id FROM account_contacts ac
+                        WHERE ac.account_id = accounts.id
+                      ))
+              AND GREATEST(
+                    COALESCE(et.last_inbound_at, et.created_at),
+                    COALESCE(et.last_outbound_at, et.created_at)
+                  ) >= NOW() - INTERVAL '30 days'
+          )
+        )`);
       } else if (cs === "never_contacted") {
-        conditions.push(sql`NOT (${anyThread})`);
+        conditions.push(sql`NOT EXISTS (
+          SELECT 1 FROM email_threads et
+          WHERE et.primary_account_id = accounts.id
+             OR et.primary_contact_id IN (
+                  SELECT ac.contact_id FROM account_contacts ac
+                  WHERE ac.account_id = accounts.id
+                )
+        )`);
       }
     }
 
@@ -1372,6 +1393,7 @@ export class DatabaseStorage implements IStorage {
       recentActivities: recentActs,
     };
   }
+
   async getPartnerships(options?: { category?: string; search?: string; industryType?: string }): Promise<Partnership[]> {
     const conditions: SQL[] = [eq(partnerships.migrationStatus, "legacy")];
     if (options?.category) conditions.push(eq(partnerships.category, options.category));
@@ -1381,18 +1403,22 @@ export class DatabaseStorage implements IStorage {
     }
     return db.select().from(partnerships).where(and(...conditions)).orderBy(desc(partnerships.createdAt));
   }
+
   async getPartnership(id: number): Promise<Partnership | undefined> {
     const [p] = await db.select().from(partnerships).where(eq(partnerships.id, id));
     return p;
   }
+
   async createPartnership(data: InsertPartnership): Promise<Partnership> {
     const [p] = await db.insert(partnerships).values(data).returning();
     return p;
   }
+
   async updatePartnership(id: number, data: Partial<InsertPartnership>): Promise<Partnership | undefined> {
     const [p] = await db.update(partnerships).set({ ...data, updatedAt: new Date() }).where(eq(partnerships.id, id)).returning();
     return p;
   }
+
   async deletePartnership(id: number): Promise<boolean> {
     const [p] = await db.delete(partnerships).where(eq(partnerships.id, id)).returning();
     return !!p;
@@ -1402,18 +1428,22 @@ export class DatabaseStorage implements IStorage {
     const where = options?.search ? ilike(ecosystemOrganizations.name, `%${options.search}%`) : undefined;
     return db.select().from(ecosystemOrganizations).where(where).orderBy(desc(ecosystemOrganizations.createdAt));
   }
+
   async getEcosystemOrganization(id: number): Promise<EcosystemOrganization | undefined> {
     const [o] = await db.select().from(ecosystemOrganizations).where(eq(ecosystemOrganizations.id, id));
     return o;
   }
+
   async createEcosystemOrganization(data: InsertEcosystemOrganization): Promise<EcosystemOrganization> {
     const [o] = await db.insert(ecosystemOrganizations).values(data).returning();
     return o;
   }
+
   async updateEcosystemOrganization(id: number, data: Partial<InsertEcosystemOrganization>): Promise<EcosystemOrganization | undefined> {
     const [o] = await db.update(ecosystemOrganizations).set({ ...data, updatedAt: new Date() }).where(eq(ecosystemOrganizations.id, id)).returning();
     return o;
   }
+
   async deleteEcosystemOrganization(id: number): Promise<boolean> {
     const [o] = await db.delete(ecosystemOrganizations).where(eq(ecosystemOrganizations.id, id)).returning();
     return !!o;
@@ -1426,18 +1456,22 @@ export class DatabaseStorage implements IStorage {
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     return db.select().from(ecosystemPeople).where(where).orderBy(desc(ecosystemPeople.createdAt));
   }
+
   async getEcosystemPerson(id: number): Promise<EcosystemPerson | undefined> {
     const [p] = await db.select().from(ecosystemPeople).where(eq(ecosystemPeople.id, id));
     return p;
   }
+
   async createEcosystemPerson(data: InsertEcosystemPerson): Promise<EcosystemPerson> {
     const [p] = await db.insert(ecosystemPeople).values(data).returning();
     return p;
   }
+
   async updateEcosystemPerson(id: number, data: Partial<InsertEcosystemPerson>): Promise<EcosystemPerson | undefined> {
     const [p] = await db.update(ecosystemPeople).set({ ...data, updatedAt: new Date() }).where(eq(ecosystemPeople.id, id)).returning();
     return p;
   }
+
   async deleteEcosystemPerson(id: number): Promise<boolean> {
     const [p] = await db.delete(ecosystemPeople).where(eq(ecosystemPeople.id, id)).returning();
     return !!p;
@@ -1462,18 +1496,22 @@ export class DatabaseStorage implements IStorage {
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     return db.select().from(ecosystemRelationships).where(where).orderBy(desc(ecosystemRelationships.createdAt));
   }
+
   async getEcosystemRelationship(id: number): Promise<EcosystemRelationship | undefined> {
     const [r] = await db.select().from(ecosystemRelationships).where(eq(ecosystemRelationships.id, id));
     return r;
   }
+
   async createEcosystemRelationship(data: InsertEcosystemRelationship): Promise<EcosystemRelationship> {
     const [r] = await db.insert(ecosystemRelationships).values(data).returning();
     return r;
   }
+
   async updateEcosystemRelationship(id: number, data: Partial<InsertEcosystemRelationship>): Promise<EcosystemRelationship | undefined> {
     const [r] = await db.update(ecosystemRelationships).set({ ...data, updatedAt: new Date() }).where(eq(ecosystemRelationships.id, id)).returning();
     return r;
   }
+
   async deleteEcosystemRelationship(id: number): Promise<boolean> {
     const [r] = await db.delete(ecosystemRelationships).where(eq(ecosystemRelationships.id, id)).returning();
     return !!r;
@@ -1483,18 +1521,22 @@ export class DatabaseStorage implements IStorage {
     const where = options?.search ? ilike(ecosystemEvents.name, `%${options.search}%`) : undefined;
     return db.select().from(ecosystemEvents).where(where).orderBy(desc(ecosystemEvents.createdAt));
   }
+
   async getEcosystemEvent(id: number): Promise<EcosystemEvent | undefined> {
     const [e] = await db.select().from(ecosystemEvents).where(eq(ecosystemEvents.id, id));
     return e;
   }
+
   async createEcosystemEvent(data: InsertEcosystemEvent): Promise<EcosystemEvent> {
     const [e] = await db.insert(ecosystemEvents).values(data).returning();
     return e;
   }
+
   async updateEcosystemEvent(id: number, data: Partial<InsertEcosystemEvent>): Promise<EcosystemEvent | undefined> {
     const [e] = await db.update(ecosystemEvents).set({ ...data, updatedAt: new Date() }).where(eq(ecosystemEvents.id, id)).returning();
     return e;
   }
+
   async deleteEcosystemEvent(id: number): Promise<boolean> {
     const [e] = await db.delete(ecosystemEvents).where(eq(ecosystemEvents.id, id)).returning();
     return !!e;
@@ -1504,18 +1546,22 @@ export class DatabaseStorage implements IStorage {
     const where = options?.search ? ilike(ecosystemRegions.name, `%${options.search}%`) : undefined;
     return db.select().from(ecosystemRegions).where(where).orderBy(asc(ecosystemRegions.name));
   }
+
   async getEcosystemRegion(id: number): Promise<EcosystemRegion | undefined> {
     const [r] = await db.select().from(ecosystemRegions).where(eq(ecosystemRegions.id, id));
     return r;
   }
+
   async createEcosystemRegion(data: InsertEcosystemRegion): Promise<EcosystemRegion> {
     const [r] = await db.insert(ecosystemRegions).values(data).returning();
     return r;
   }
+
   async updateEcosystemRegion(id: number, data: Partial<InsertEcosystemRegion>): Promise<EcosystemRegion | undefined> {
     const [r] = await db.update(ecosystemRegions).set({ ...data, updatedAt: new Date() }).where(eq(ecosystemRegions.id, id)).returning();
     return r;
   }
+
   async deleteEcosystemRegion(id: number): Promise<boolean> {
     const [r] = await db.delete(ecosystemRegions).where(eq(ecosystemRegions.id, id)).returning();
     return !!r;
@@ -1530,18 +1576,22 @@ export class DatabaseStorage implements IStorage {
       ))
       .orderBy(asc(calendarEvents.startTime));
   }
+
   async getCalendarEvent(id: number): Promise<CalendarEvent | undefined> {
     const [r] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, id));
     return r;
   }
+
   async createCalendarEvent(data: InsertCalendarEvent): Promise<CalendarEvent> {
     const [r] = await db.insert(calendarEvents).values(data).returning();
     return r;
   }
+
   async updateCalendarEvent(id: number, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined> {
     const [r] = await db.update(calendarEvents).set({ ...data, updatedAt: new Date() }).where(eq(calendarEvents.id, id)).returning();
     return r;
   }
+
   async deleteCalendarEvent(id: number): Promise<boolean> {
     const [r] = await db.delete(calendarEvents).where(eq(calendarEvents.id, id)).returning();
     return !!r;
