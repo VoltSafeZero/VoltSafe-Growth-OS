@@ -1,0 +1,347 @@
+STOP — DO NOT CLOSE OR PUBLISH THIS TASK YET.
+
+Your latest report does not prove the VoltSafe Mail regressions are resolved.
+
+You stated:
+
+- “All fixes are live.”
+- “App is serving correctly.”
+- “All fixes are visible.”
+
+But the only browser evidence was the unauthenticated login screen. That does not verify any Inbox behaviour.
+
+You also said there were four screenshot bugs, but your completion report describes only three fixes:
+
+1. Missing private mailbox subtabs
+2. Infinite unread spinner
+3. Legacy row badges
+
+You did not provide a verified resolution for the count/list mismatch and incomplete All view shown in the screenshots.
+
+Perform the following authenticated verification and continue fixing any failures. Do not provide another planning-only or source-inspection report.
+
+==================================================
+1. VERIFY THE CURRENT GIT AND DEPLOYMENT STATE
+==================================================
+
+Report:
+
+- current HEAD SHA
+- parent SHA
+- git status --short
+- exact files changed
+- whether changes were committed
+- whether pushed to origin/main
+- whether production was published
+- production deployment/build ID
+- exact deployed SHA
+
+Do not call dev-server hot reload “live production.”
+
+==================================================
+2. AUTHENTICATED BROWSER VERIFICATION
+==================================================
+
+Use an authenticated VoltSafe Mail session.
+
+Verify each mailbox:
+
+- trevor@voltsafe.com
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+- sales@voltsafe.com
+- support@voltsafe.com
+
+For every mailbox, confirm the Inbox sidebar displays exactly:
+
+- All
+- People
+- Newsletters
+- Notifications
+
+Confirm none of these appear:
+
+- Priority
+- Starred
+- Updates
+- Promotions
+- Social
+- Forums
+- Forums & Communities
+
+Capture screenshots for all five mailboxes.
+
+==================================================
+3. VERIFY EVERY CATEGORY AND FILTER
+==================================================
+
+For every mailbox, click and verify:
+
+- All
+- People
+- Newsletters
+- Notifications
+- Unread
+
+For every selection capture:
+
+- selected mailbox email
+- resolved production account ID
+- category badge count
+- unread chip count
+- request URL
+- query parameters
+- HTTP status
+- API returned conversation count
+- rendered conversation count
+- next cursor
+- whether loading terminates
+- screenshot
+
+A positive category badge must never render “No messages found.”
+
+A positive unread chip must never remain indefinitely on:
+
+“Unread messages are still loading...”
+
+==================================================
+4. FIX THE REMAINING COUNT/LIST BUG
+==================================================
+
+The screenshots showed examples such as:
+
+- Newsletters badge = 1, rendered rows = 0
+- Unread = 6, rendered rows = 0
+- All omitting a category with a positive badge
+- section counts much larger than visible results
+
+Prove whether the count API and list API use the same:
+
+- production account scope
+- Inbox predicate
+- unread predicate
+- blocked-sender exclusion
+- canonical thread deduplication
+- category mapping
+- active-account resolution
+- conversation unit
+
+For every mailbox prove exactly:
+
+All unread conversations
+=
+People unread conversations
++
+Newsletters unread conversations
++
+Notifications unread conversations
+
+The delta must equal exactly zero.
+
+Also prove:
+
+category badge count = API conversation count = rendered conversation count
+
+Do not compare a badge total against only the first visible collapsed section. Expand or paginate through the complete category when validating rendered totals.
+
+==================================================
+5. VERIFY THE ALL VIEW
+==================================================
+
+All must contain every applicable canonical category:
+
+- People
+- Newsletters
+- Notifications
+
+It must not omit Newsletters or Notifications merely because:
+
+- the first page returned zero
+- the group is collapsed
+- a section cap was reached
+- an old request returned late
+- pagination state survived a category switch
+- old legacy query tokens remain
+- a group request failed
+
+Capture an authenticated screenshot of All for each mailbox.
+
+==================================================
+6. VERIFY PRIVATE MAILBOX SIDEBAR IMPLEMENTATION
+==================================================
+
+Do not merely count three occurrences of duplicated JSX.
+
+Determine whether there are still separate personal, private, and team sidebar implementations.
+
+Preferred correction:
+
+- one shared canonical category configuration
+- one reusable mailbox Inbox sub-navigation component
+- used by work, private, and team mailboxes
+
+At minimum, prove the three implementations cannot diverge again.
+
+Add a behavioural component test verifying all mailbox types render the same four entries:
+
+All, People, Newsletters, Notifications.
+
+==================================================
+7. FIX THE UNREAD LOADER PROPERLY
+==================================================
+
+Changing the condition to:
+
+inboxQuery.isLoading || inboxQuery.isFetching
+
+is not enough by itself.
+
+Verify all termination paths:
+
+- successful non-empty result
+- successful empty result
+- no next cursor
+- zero-row next page
+- repeated cursor
+- repeated page fingerprint
+- request failure
+- safety cap reached
+- account switch
+- category switch
+- read-filter switch
+- disconnected mailbox
+- expired OAuth
+- sync pending
+
+The UI must transition to one finite state:
+
+- loaded
+- loaded empty
+- sync pending
+- failed with Retry
+
+It must never spin forever.
+
+Add runtime tests for both private mailboxes reproducing the exact screenshot condition.
+
+==================================================
+8. NORMALIZE ALL VISIBLE LEGACY LABELS
+==================================================
+
+Verify across every row-rendering path:
+
+- Promotions → Newsletters
+- Forums → Newsletters
+- Updates → Notifications
+- Social → Notifications
+
+Check:
+
+- Smart Inbox rows
+- focused category rows
+- All view
+- Unread view
+- Simple List
+- search results
+- private mailbox
+- team mailbox
+- unified All Inboxes
+- opened-message metadata
+
+No raw provider category may remain visible.
+
+Do not destructively change Gmail labels in the database or provider.
+
+==================================================
+9. PRODUCTION DATABASE RECONCILIATION
+==================================================
+
+Use the production database, not dev fixtures.
+
+For each logical mailbox report:
+
+- production account ID or authorized account-ID set
+- visibility type
+- auth status
+- sync enabled
+- last successful sync
+- Inbox conversations
+- unread conversations
+- People unread
+- Newsletters unread
+- Notifications unread
+- arithmetic delta
+- duplicate conversation count
+- cross-mailbox leakage count
+
+For duplicate Sales and Support account records, verify the correct logical team mailbox is resolved and that mirrored records are not double-counted.
+
+==================================================
+10. REGRESSION TESTS
+==================================================
+
+Add and run behavioural tests covering:
+
+- canonical sidebar for work mailbox
+- canonical sidebar for private mailbox
+- canonical sidebar for team mailbox
+- positive badge cannot produce empty list
+- All includes all canonical groups
+- unread loader terminates after empty settled request
+- unread loader terminates after request failure
+- unread loader terminates after repeated cursor
+- mailbox switch cancels stale response
+- category switch resets pagination
+- legacy row labels never render
+- exact zero-delta category reconciliation
+- account-scoped query isolation
+- duplicate team-mailbox records do not double-count
+
+Run all relevant Mail suites, not only canonical-categories.test.cjs.
+
+Also run:
+
+- npm run build
+- the full Mail test command/workflow
+- mailbox permission tests
+- mailbox switching tests
+- private mailbox tests
+- category reconciliation tests
+- unread loader tests
+
+==================================================
+11. REQUIRED FINAL REPORT
+==================================================
+
+Provide:
+
+- all root causes
+- exact code changes
+- exact files changed
+- exact production account IDs
+- before/after counts per mailbox
+- badge/API/rendered reconciliation per mailbox
+- authenticated screenshots
+- browser Network evidence
+- browser Console evidence
+- all test commands and totals
+- build result
+- commit SHA
+- parent SHA
+- git status --short
+- pushed status
+- deployment/build ID
+- deployed SHA
+- production URL
+- remaining limitations
+
+Do not say “all fixes are live” unless the authenticated production UI has been verified after publication.
+
+Do not close this task while any mailbox:
+
+- lacks the canonical subtabs
+- spins indefinitely
+- shows a positive badge with no results
+- omits a canonical group from All
+- displays Updates, Promotions, Social, or Forums
+- shows stale rows from another mailbox
