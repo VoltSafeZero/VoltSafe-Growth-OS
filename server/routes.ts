@@ -22,7 +22,7 @@ import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActio
 import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from "./services/executive-copilot";
 import { sanitizeSignatureHtml } from "./services/signature-sanitizer";
 import { normalizeSignatureHtml, detectDocumentTags } from "./services/signature-normalizer";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications, activities, tasks, emailSignatures } from "@shared/schema";
 import {
   insertLeadSchema, insertAccountSchema, insertContactSchema,
@@ -6430,9 +6430,8 @@ export async function registerRoutes(
       if (!Array.isArray(ids) || ids.length === 0) {
         return res.status(400).json({ message: "ids must be a non-empty array" });
       }
-      if (ids.length > 200) {
-        return res.status(400).json({ message: "Maximum 200 ids per bulk operation" });
-      }
+      // No hard cap — admin-only endpoint; the DB handles large batches fine.
+      // Chunking is handled client-side when the selection exceeds thousands.
       if (typeof userId !== "number") {
         return res.status(400).json({ message: "userId must be a number" });
       }
@@ -6482,6 +6481,61 @@ export async function registerRoutes(
       `).catch(() => {});
     }
     res.json(updated);
+  });
+
+  // GET /api/documents/no-owner-ids — returns ALL IDs of no-owner attachments
+  // matching the current filter set (no pagination). Uses the identical
+  // parameterized predicate logic as getAllDocuments so the returned IDs exactly
+  // match what the admin sees across all pages of the filtered grid.
+  app.get("/api/documents/no-owner-ids", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "");
+      const isAdmin = ["master_admin", "admin"].includes(role);
+      if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+      const gate = await requireSectionView(userId, "crm");
+      if (!gate.ok) return res.status(403).json({ message: "Not authorized" });
+
+      const { search, useCase, category, visibility, objectType } = req.query;
+
+      // Mirror getAllDocuments predicate logic exactly (same column names,
+      // same strict equality — no COALESCE defaults that would drift from list).
+      const conditions: string[] = ["a.uploaded_by IS NULL"];
+      const params: any[] = [];
+      let pi = 1;
+
+      if (category && category !== "all") {
+        conditions.push(`a.category = $${pi++}`);
+        params.push(String(category));
+      }
+      if (useCase && useCase !== "all") {
+        conditions.push(`a.use_case = $${pi++}`);
+        params.push(String(useCase));
+      }
+      if (visibility && visibility !== "all") {
+        conditions.push(`a.visibility = $${pi++}`);
+        params.push(String(visibility));
+      }
+      if (objectType && objectType !== "all") {
+        conditions.push(`a.object_type = $${pi++}`);
+        params.push(String(objectType));
+      }
+      if (search) {
+        conditions.push(`(a.original_name ILIKE $${pi} OR a.title ILIKE $${pi} OR a.notes ILIKE $${pi})`);
+        params.push(`%${String(search)}%`);
+        pi++;
+      }
+
+      const where = `WHERE ${conditions.join(" AND ")}`;
+      const result = await pool.query(
+        `SELECT a.id FROM attachments a ${where} ORDER BY a.id`,
+        params,
+      );
+      const ids = (result.rows as any[]).map((r: any) => Number(r.id));
+      res.json({ ids, total: ids.length });
+    } catch (e) {
+      res.status(500).json({ message: "Failed to load no-owner IDs" });
+    }
   });
 
   // ── Document Hub endpoints ────────────────────────────────────────────────

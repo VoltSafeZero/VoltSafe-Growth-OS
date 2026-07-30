@@ -764,6 +764,7 @@ export default function DocumentsPage() {
   const [linkOpen, setLinkOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const [selectingAllPages, setSelectingAllPages] = useState(false);
   const limit = 50;
 
   const queryParams = new URLSearchParams();
@@ -824,6 +825,27 @@ export default function DocumentsPage() {
       documents.forEach(d => next.add(d.id));
       return next;
     });
+  };
+
+  const selectAllAcrossPages = async () => {
+    setSelectingAllPages(true);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (useCaseFilter !== "all") params.set("useCase", useCaseFilter);
+      if (categoryFilter !== "all") params.set("category", categoryFilter);
+      if (visibilityFilter !== "all") params.set("visibility", visibilityFilter);
+      if (objectTypeFilter !== "all") params.set("objectType", objectTypeFilter);
+      const res = await fetch(`/api/documents/no-owner-ids?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load all no-owner IDs");
+      const { ids } = await res.json() as { ids: number[]; total: number };
+      setSelectedIds(new Set(ids));
+    } catch {
+      // fall back to just the current page
+      selectAllOnPage();
+    } finally {
+      setSelectingAllPages(false);
+    }
   };
 
   const clearSelection = () => setSelectedIds(new Set());
@@ -1027,6 +1049,16 @@ export default function DocumentsPage() {
               data-testid="button-select-all-page"
             >
               Select all {documents.length} on page
+            </button>
+          )}
+          {noOwnerFilter && total > documents.length && selectedIds.size < total && (
+            <button
+              className="text-xs underline hover:no-underline font-semibold"
+              onClick={selectAllAcrossPages}
+              disabled={selectingAllPages}
+              data-testid="button-select-all-across-pages"
+            >
+              {selectingAllPages ? "Loading…" : `Select all ${total} across all pages`}
             </button>
           )}
           <Button
