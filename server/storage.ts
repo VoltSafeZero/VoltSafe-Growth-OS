@@ -825,25 +825,26 @@ export class DatabaseStorage implements IStorage {
     if (options?.commStatus && options.commStatus !== "all") {
       const cs = options.commStatus;
 
-      // Correlated subquery: any thread reachable via direct OR contact path
-      const anyThreadSql = `
+      // Correlated subqueries use ${accounts.id} so Drizzle binds the column
+      // reference correctly — sql.raw() with a plain string does not resolve
+      // the correlated table reference inside and().
+      const anyThread = sql`
         EXISTS (
           SELECT 1 FROM email_threads et
-          WHERE et.primary_account_id = accounts.id
+          WHERE et.primary_account_id = ${accounts.id}
              OR et.primary_contact_id IN (
                   SELECT ac.contact_id FROM account_contacts ac
-                  WHERE ac.account_id = accounts.id
+                  WHERE ac.account_id = ${accounts.id}
                 )
         )`;
 
-      // Correlated subquery: any such thread with recent activity (within 30 days)
-      const recentThreadSql = `
+      const recentThread = sql`
         EXISTS (
           SELECT 1 FROM email_threads et
-          WHERE (et.primary_account_id = accounts.id
+          WHERE (et.primary_account_id = ${accounts.id}
                  OR et.primary_contact_id IN (
                       SELECT ac.contact_id FROM account_contacts ac
-                      WHERE ac.account_id = accounts.id
+                      WHERE ac.account_id = ${accounts.id}
                     ))
             AND GREATEST(
                   COALESCE(et.last_inbound_at, et.created_at),
@@ -852,11 +853,11 @@ export class DatabaseStorage implements IStorage {
         )`;
 
       if (cs === "recently_contacted") {
-        conditions.push(sql.raw(recentThreadSql));
+        conditions.push(recentThread);
       } else if (cs === "stale") {
-        conditions.push(sql.raw(`${anyThreadSql} AND NOT (${recentThreadSql})`));
+        conditions.push(sql`${anyThread} AND NOT (${recentThread})`);
       } else if (cs === "never_contacted") {
-        conditions.push(sql.raw(`NOT (${anyThreadSql})`));
+        conditions.push(sql`NOT (${anyThread})`);
       }
     }
 

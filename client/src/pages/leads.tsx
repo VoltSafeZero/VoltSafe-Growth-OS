@@ -899,7 +899,8 @@ function PipelineView({
                 >
                   <div className="flex items-start gap-2 mb-1">
                     {lead.marinaId && <Anchor className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />}
-                    <p className="text-sm font-medium leading-tight line-clamp-2">{lead.company}</p>
+                    <p className="text-sm font-medium leading-tight line-clamp-2 flex-1">{lead.company}</p>
+                    <CommStatusBadge commStatus={(lead as any).commStatus} />
                   </div>
                   {(lead.city || lead.state) && (
                     <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
