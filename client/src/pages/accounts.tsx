@@ -1226,7 +1226,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
   return (
     <>
     <Dialog open onOpenChange={onClose}>
-      <ExpandableDialogContent popupClassName="max-w-[95vw] sm:max-w-3xl max-h-[90vh] sm:max-h-[85vh] w-full" contentClassName="overflow-y-auto overflow-x-hidden">
+      <ExpandableDialogContent popupClassName="max-w-[95vw] sm:max-w-3xl w-full" contentClassName="overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
