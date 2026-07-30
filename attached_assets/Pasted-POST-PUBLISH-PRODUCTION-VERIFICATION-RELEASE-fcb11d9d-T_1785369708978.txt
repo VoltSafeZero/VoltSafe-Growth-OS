@@ -1,0 +1,214 @@
+POST-PUBLISH PRODUCTION VERIFICATION — RELEASE fcb11d9d
+
+The release has now been published.
+
+Do not modify code unless a production defect is proven.
+
+IMPORTANT:
+The pre-publish report used private mailbox IDs 685 and 686, which appear to belong to the development database. Previously identified production private mailbox IDs were 11 and 13.
+
+Verify everything below using the actual production deployment and production database only.
+
+Expected release SHA:
+fcb11d9d
+
+==================================================
+1. VERIFY THE DEPLOYMENT
+==================================================
+
+Report:
+
+- deployment ID
+- build ID
+- deployed commit SHA
+- deployment start and completion time
+- Promote result
+- production URL
+
+Confirm `/api/version` reports a SHA beginning with:
+
+fcb11d9d
+
+Run the production release smoke test.
+
+==================================================
+2. IDENTIFY THE ACTUAL PRODUCTION MAILBOXES
+==================================================
+
+Query the production `email_accounts` table.
+
+For these email addresses report only:
+
+- account ID
+- email address
+- auth_status
+- sync_enabled
+- visibility_type
+- last_incremental_sync_at
+- message count
+- unique thread count
+
+Mailboxes:
+
+- trevor@voltsafe.com
+- sales@voltsafe.com
+- support@voltsafe.com
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+Do not expose tokens or token fragments.
+
+Explicitly confirm whether IDs 685 and 686 exist in production or were development-only fixtures.
+
+==================================================
+3. VERIFY EVERY PRODUCTION MAILBOX
+==================================================
+
+Using an authenticated production session, test for each actual production account:
+
+- `in:inbox`
+- `in:inbox is:unread`
+- `in:people is:unread`
+- `in:newsletters is:unread`
+- `in:notifications is:unread`
+
+For each request report:
+
+- mailbox
+- production account ID
+- HTTP status
+- returned message count
+- unique thread count
+- duplicate message-ID count
+- cross-mailbox leakage count
+- error, if any
+
+Required:
+
+- every request returns HTTP 200;
+- duplicate message IDs = 0;
+- cross-mailbox leakage = 0;
+- no `Local mailbox query failed`;
+- no SQL missing-column errors.
+
+Do not treat multiple messages from one Gmail thread as duplicate messages unless the same message ID appears twice.
+
+==================================================
+4. AUTHENTICATED VISUAL VERIFICATION
+==================================================
+
+Capture production screenshots showing:
+
+- Trevor work Inbox loads
+- Trevor Unread loads
+- Sales inbox loads
+- Support inbox loads
+- Hyalos private inbox loads or shows its truthful reconnect/sync state
+- Private Gmail inbox loads or shows its truthful reconnect/sync state
+- People loads
+- Newsletters loads
+- Notifications loads
+
+Confirm there is no:
+
+- Priority sub-tab
+- Starred sub-tab
+- Priority Highlights
+- star/unstar toolbar control
+- row star control
+- focus-mode star control
+- Starred CRM filter
+- endless spinner
+- false empty state
+- `Local mailbox query failed`
+
+==================================================
+5. VERIFY NON-DESTRUCTIVE STAR REMOVAL
+==================================================
+
+Confirm in the deployed frontend:
+
+- frontend toggle-star calls = 0
+- no user-facing star-editing controls remain
+- no Priority navigation remains
+
+Confirm in production data:
+
+- `is_starred` values were not cleared or rewritten;
+- Gmail STARRED metadata remains preserved internally;
+- no migration modified historical star data;
+- the backend compatibility route remains inaccessible from the VoltSafe Mail UI.
+
+Do not print individual starred-message content.
+
+==================================================
+6. VERIFY PRODUCTION LOGS
+==================================================
+
+Search logs from the new deployment forward for:
+
+- `Local mailbox query failed`
+- `[local-mailbox-error]`
+- `column "is_unread" does not exist`
+- `GET /api/gmail/messages 500`
+- unhandled exceptions
+- repeated loader requests
+
+Report counts and timestamps only.
+
+==================================================
+7. RUN FINAL TESTS
+==================================================
+
+Run:
+
+- canonical-cte-unread
+- star-removal
+- unread-filter-server-side
+- inbox-count-reconciliation
+- inbox-category-unread-filter
+- inbox-category-visibility
+- mailbox-switching
+- mailbox-privacy
+- mail-reconciliation
+- mail-permissions
+- npm run build
+
+Report passed, failed, skipped and exit code for every command.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Deployment ID:
+Build ID:
+Deployed SHA:
+Promote status:
+Production URL:
+
+Actual production account IDs:
+- trevor@voltsafe.com:
+- sales@voltsafe.com:
+- support@voltsafe.com:
+- trevor@hyalos.com:
+- burgesstrevor76@gmail.com:
+
+IDs 685/686 were development-only: YES/NO
+
+All production mailbox requests return 200: YES/NO
+Duplicate message IDs: 0 or count
+Cross-mailbox leakage: 0 or count
+Local mailbox query failure eliminated: YES/NO
+Endless loaders: 0 or count
+
+Priority navigation absent: YES/NO
+All star-editing controls absent: YES/NO
+Frontend toggle-star calls: 0 or count
+Historical star data preserved: YES/NO
+
+Authenticated production screenshots captured: YES/NO
+Post-deployment Gmail-message 500s: 0 or count
+All tests green: YES/NO
+Build clean: YES/NO
+Production serving fcb11d9d: YES/NO
+Release complete: YES/NO
