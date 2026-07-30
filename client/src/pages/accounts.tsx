@@ -1172,6 +1172,31 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     },
   });
 
+  // Fetch per-account intelligence so the heat badge always renders, even for
+  // accounts outside the page-level heatmap top-200 cap.
+  const { data: accountIntelligence } = useQuery<{ engagementScore: number; momentum: { status: string } } | null>({
+    queryKey: ["/api/revenue-intelligence/account", account.id],
+    queryFn: async () => {
+      try {
+        const res = await fetch(`/api/revenue-intelligence/account/${account.id}`, { credentials: "include" });
+        if (!res.ok) return null;
+        return res.json();
+      } catch { return null; }
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !heatData, // skip when parent already supplied data
+  });
+
+  // Resolve the effective heat data: parent prop takes precedence; fall back to
+  // the per-account intelligence query so lower-ranked accounts still get a badge.
+  const effectiveHeatData = heatData ?? (accountIntelligence
+    ? {
+        score: accountIntelligence.engagementScore,
+        tier: getHeatTier(accountIntelligence.engagementScore),
+        trend: accountIntelligence.momentum?.status ?? "stable",
+      }
+    : undefined);
+
   const updateAccountMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
       const res = await apiRequest("PUT", `/api/accounts/${account.id}`, data);
@@ -1442,12 +1467,12 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                 <Badge variant="outline" className={segmentColors[account.segment] || ""}>{account.segment}</Badge>
                 <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{getStageLabel(account.leadStatus)}</Badge>
                 <Badge variant="outline" className={priorityColors[account.priority] || ""}>{account.priority}</Badge>
-                {heatData && (
-                  <Badge variant="outline" className={`${heatTierConfig[heatData.tier].className} flex items-center gap-0.5`} data-testid="badge-heat-detail">
+                {effectiveHeatData && (
+                  <Badge variant="outline" className={`${heatTierConfig[effectiveHeatData.tier].className} flex items-center gap-0.5`} data-testid="badge-heat-detail">
                     <Flame className="h-2.5 w-2.5" />
-                    {heatTierConfig[heatData.tier].label}
-                    <span className="ml-0.5 opacity-60">{heatData.score}</span>
-                    <TrendArrow trend={heatData.trend} />
+                    {heatTierConfig[effectiveHeatData.tier].label}
+                    <span className="ml-0.5 opacity-60">{effectiveHeatData.score}</span>
+                    <TrendArrow trend={effectiveHeatData.trend} />
                   </Badge>
                 )}
                 {account.orgType && <Badge variant="outline" className={orgTypeColors[account.orgType] || orgTypeColors.other} data-testid="badge-detail-org-type">{getOrgTypeLabel(account.orgType)}</Badge>}
