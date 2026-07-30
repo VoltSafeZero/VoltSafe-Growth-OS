@@ -44,7 +44,13 @@ async function buildAll() {
     ...Object.keys(pkg.dependencies || {}),
     ...Object.keys(pkg.devDependencies || {}),
   ];
-  const externals = allDeps.filter((dep) => !allowlist.includes(dep));
+  // Transitive deps that aren't in package.json but must be kept external
+  // (unzipper's optional S3 path requires @aws-sdk/client-s3 at runtime only)
+  const forceExternal = ["@aws-sdk/client-s3"];
+  const externals = [
+    ...allDeps.filter((dep) => !allowlist.includes(dep)),
+    ...forceExternal,
+  ];
 
   await esbuild({
     entryPoints: ["server/index.ts"],
