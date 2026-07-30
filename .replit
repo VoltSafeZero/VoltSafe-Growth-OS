@@ -137,7 +137,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "node tests/mailbox-switching.test.js"
+args = "node tests/mailbox-switching.test.js && node tests/mailbox-switching-ui.test.js"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [[workflows.workflow]]
 name = "tracking-proof"

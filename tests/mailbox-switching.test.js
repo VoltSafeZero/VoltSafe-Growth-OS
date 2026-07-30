@@ -26,10 +26,10 @@ const BASE = "http://localhost:5000";
 const ADMIN_EMAIL = "trevor@voltsafe.com";
 const ADMIN_PWD = "alberni1444";
 const ADMIN_USER_ID = 4;
-const PERSONAL_ACCOUNT_ID = 1; // trevor@voltsafe.com
-
 const FIXTURE_TAG = "mbswitch-test-" + Date.now();
-const FAKE_TEAM_EMAIL = `${FIXTURE_TAG}-team@voltsafe.invalid`;
+
+const FAKE_PERSONAL_EMAIL = `${FIXTURE_TAG}-personal@voltsafe.invalid`;
+const FAKE_TEAM_EMAIL     = `${FIXTURE_TAG}-team@voltsafe.invalid`;
 
 let passed = 0;
 let failed = 0;
@@ -57,17 +57,35 @@ const authed = (cookie) => async (url, opts = {}) => fetch(`${BASE}${url}`, {
 });
 
 async function setup(client) {
-  // 1) Create a fake "team inbox" owned by trevor (user_id=4, is_shared=true).
-  const ins = await client.query(
+  // 1) Create a self-contained fake "personal" account (is_shared=false,
+  //    is_active=true).  All real personal accounts for user 4 have
+  //    is_active=false (expired OAuth), so the server's getUserGmailAccount()
+  //    — which queries WHERE is_shared=false AND is_active=true — would
+  //    otherwise return null and the "no asAccountId" path would yield nothing.
+  //    By inserting a fresh active non-shared account here, we guarantee the
+  //    server resolves it as the default personal account for the duration of
+  //    the test, making the assertions deterministic regardless of the OAuth
+  //    state of real accounts in the environment.
+  const personalIns = await client.query(
+    `INSERT INTO email_accounts
+       (user_id, provider, email_address, display_name, auth_status, is_shared, refresh_token, is_active)
+     VALUES ($1, 'gmail', $2, 'MBSwitch Fake Personal', 'active', false, 'fake-refresh-personal-mbswitch', true)
+     RETURNING id`,
+    [ADMIN_USER_ID, FAKE_PERSONAL_EMAIL]
+  );
+  const personalAccountId = personalIns.rows[0].id;
+
+  // 2) Create a fake "team inbox" owned by trevor (user_id=4, is_shared=true).
+  const teamIns = await client.query(
     `INSERT INTO email_accounts
        (user_id, provider, email_address, display_name, auth_status, is_shared, refresh_token, is_active)
      VALUES ($1, 'gmail', $2, 'MBSwitch Fake Team', 'active', true, 'fake-refresh-token-mbswitch', true)
      RETURNING id`,
     [ADMIN_USER_ID, FAKE_TEAM_EMAIL]
   );
-  const teamAccountId = ins.rows[0].id;
+  const teamAccountId = teamIns.rows[0].id;
 
-  // 2) Insert one personal-account message and one team-account message.
+  // 3) Insert one personal-account message and one team-account message.
   // Phase 3: buildQClauses now uses is_inbox=true (derived column) instead of
   // label_ids ILIKE '%"INBOX"%'. Fixtures must set is_inbox=true so they
   // appear in q=in:inbox queries, which is what fetchLocalMessages uses.
@@ -81,7 +99,7 @@ async function setup(client) {
         'personal mailbox sentinel', $4, $5, 'inbound', '["INBOX"]',
         true, false, false, false, false, false, false, 'people')`,
     [`${FIXTURE_TAG}-personal-msg`, `${FIXTURE_TAG}-personal-thr`,
-     `MBSWITCH PERSONAL ${FIXTURE_TAG}`, ADMIN_USER_ID, PERSONAL_ACCOUNT_ID]
+     `MBSWITCH PERSONAL ${FIXTURE_TAG}`, ADMIN_USER_ID, personalAccountId]
   );
   await client.query(
     `INSERT INTO email_messages
@@ -96,13 +114,16 @@ async function setup(client) {
      `MBSWITCH TEAM ${FIXTURE_TAG}`, ADMIN_USER_ID, teamAccountId]
   );
 
-  return { teamAccountId };
+  return { personalAccountId, teamAccountId };
 }
 
 async function teardown(client, ctx) {
   await client.query(`DELETE FROM email_messages WHERE gmail_message_id LIKE $1`, [`${FIXTURE_TAG}-%`]);
   if (ctx?.teamAccountId) {
     await client.query(`DELETE FROM email_accounts WHERE id = $1`, [ctx.teamAccountId]);
+  }
+  if (ctx?.personalAccountId) {
+    await client.query(`DELETE FROM email_accounts WHERE id = $1`, [ctx.personalAccountId]);
   }
 }
 
@@ -124,18 +145,21 @@ async function main() {
   let ctx = null;
   try {
     ctx = await setup(client);
-    console.log(`Setup: fake team inbox id=${ctx.teamAccountId}, fixture tag=${FIXTURE_TAG}`);
+    console.log(`Setup: fake personal id=${ctx.personalAccountId}, fake team id=${ctx.teamAccountId}, tag=${FIXTURE_TAG}`);
 
     const cookie = await login(ADMIN_EMAIL, ADMIN_PWD);
     const call = authed(cookie);
 
     // ── 1. Default (no asAccountId) → must resolve to PERSONAL account only ──
+    // The fake personal account (is_shared=false, is_active=true) is the only
+    // active non-shared account for this user during the test, so the server's
+    // getUserGmailAccount() returns it — making this assertion deterministic.
     console.log("── Default (no asAccountId) returns ONLY personal-account messages ──");
     {
       const msgs = await fetchLocalMessages(call, {});
       const fixturePersonal = msgs.filter((m) => m.id === `${FIXTURE_TAG}-personal-msg`);
       const fixtureTeam     = msgs.filter((m) => m.id === `${FIXTURE_TAG}-team-msg`);
-      const leakage = msgs.filter((m) => m.sourceAccountId != null && m.sourceAccountId !== PERSONAL_ACCOUNT_ID);
+      const leakage = msgs.filter((m) => m.sourceAccountId != null && m.sourceAccountId !== ctx.personalAccountId);
 
       if (fixturePersonal.length === 1) ok("personal-account fixture message present");
       else bad("personal-account fixture message present", `found ${fixturePersonal.length}`);
@@ -150,16 +174,17 @@ async function main() {
     }
 
     // ── 2. Explicit asAccountId=personal → identical result ──
-    console.log("── Explicit asAccountId=PERSONAL_ACCOUNT_ID returns same personal-only set ──");
+    console.log("── Explicit asAccountId=personalAccountId returns same personal-only set ──");
     {
-      const msgs = await fetchLocalMessages(call, { asAccountId: String(PERSONAL_ACCOUNT_ID) });
-      const fixtureTeam = msgs.filter((m) => m.id === `${FIXTURE_TAG}-team-msg`);
-      const leakage = msgs.filter((m) => m.sourceAccountId != null && m.sourceAccountId !== PERSONAL_ACCOUNT_ID);
-      if (fixtureTeam.length === 0 && leakage.length === 0)
+      const msgs = await fetchLocalMessages(call, { asAccountId: String(ctx.personalAccountId) });
+      const fixturePersonal = msgs.filter((m) => m.id === `${FIXTURE_TAG}-personal-msg`);
+      const fixtureTeam     = msgs.filter((m) => m.id === `${FIXTURE_TAG}-team-msg`);
+      const leakage = msgs.filter((m) => m.sourceAccountId != null && m.sourceAccountId !== ctx.personalAccountId);
+      if (fixturePersonal.length === 1 && fixtureTeam.length === 0 && leakage.length === 0)
         ok("explicit personal selection scoped correctly");
       else
         bad("explicit personal selection scoped correctly",
-            `team rows=${fixtureTeam.length}, foreign rows=${leakage.length}`);
+            `personal=${fixturePersonal.length}, team rows=${fixtureTeam.length}, foreign rows=${leakage.length}`);
     }
 
     // ── 3. Explicit asAccountId=teamAccountId → returns ONLY team rows ──
@@ -197,11 +222,14 @@ async function main() {
       const teamIn     = (s) => s.has(`${FIXTURE_TAG}-team-msg`);
 
       if (personalIn(aIds) && !teamIn(aIds)) ok("first default call: personal yes, team no");
-      else bad("first default call: personal yes, team no");
+      else bad("first default call: personal yes, team no",
+               `personalIn=${personalIn(aIds)}, teamIn=${teamIn(aIds)}`);
       if (teamIn(bIds) && !personalIn(bIds)) ok("team selection: team yes, personal no");
-      else bad("team selection: team yes, personal no");
+      else bad("team selection: team yes, personal no",
+               `teamIn=${teamIn(bIds)}, personalIn=${personalIn(bIds)}`);
       if (personalIn(cIds) && !teamIn(cIds)) ok("post-switch default call: personal yes, team no");
-      else bad("post-switch default call: personal yes, team no");
+      else bad("post-switch default call: personal yes, team no",
+               `personalIn=${personalIn(cIds)}, teamIn=${teamIn(cIds)}`);
     }
 
     // ── 5. Expired/absent session cookie → 401 returned cleanly (no stale data) ──
@@ -215,14 +243,14 @@ async function main() {
       });
 
       const msgsRes = await noAuthCall(
-        `/api/gmail/messages?limit=50&q=in:inbox&source=local&asAccountId=${PERSONAL_ACCOUNT_ID}`
+        `/api/gmail/messages?limit=50&q=in:inbox&source=local&asAccountId=${ctx.personalAccountId}`
       );
       if (msgsRes.status === 401) ok("/api/gmail/messages returns 401 when session is absent");
       else bad("/api/gmail/messages returns 401 when session is absent",
                `got ${msgsRes.status} instead`);
 
       const ccRes = await noAuthCall(
-        `/api/gmail/category-counts?asAccountId=${PERSONAL_ACCOUNT_ID}`
+        `/api/gmail/category-counts?asAccountId=${ctx.personalAccountId}`
       );
       if (ccRes.status === 401) ok("/api/gmail/category-counts returns 401 when session is absent");
       else bad("/api/gmail/category-counts returns 401 when session is absent",
