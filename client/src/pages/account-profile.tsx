@@ -12,7 +12,7 @@ import {
   ArrowLeft, Mail, Phone, Building2, Users, Zap, CheckSquare,
   CalendarDays, TrendingUp, TrendingDown, MessageSquare, AlertTriangle, RefreshCw,
   MapPin, Globe, Clock, ExternalLink, Send, Plus, User, Anchor, Pin,
-  DollarSign, Package, BarChart2, Pencil, Trophy, Activity,
+  DollarSign, Package, BarChart2, Pencil, Trophy, Activity, Flame, Eye,
 } from "lucide-react";
 import { AccountDetailDialog } from "./accounts";
 import { formatDistanceToNow, format, isPast } from "date-fns";
@@ -43,6 +43,35 @@ const SEG_COLOR: Record<string, string> = {
   C: "bg-amber-500/15 text-amber-400",
   D: "bg-red-500/15 text-red-400",
 };
+
+// ── Heat score tiers (mirrors accounts.tsx) ──────────────────────────────────
+type HeatTier = "hot" | "warm" | "nurture" | "low" | "cold";
+
+function getHeatTier(score: number): HeatTier {
+  if (score >= 60) return "hot";
+  if (score >= 30) return "warm";
+  if (score >= 10) return "nurture";
+  if (score > 0)   return "low";
+  return "cold";
+}
+
+const heatTierConfig: Record<HeatTier, { label: string; className: string }> = {
+  hot:     { label: "Hot",     className: "bg-red-500/15 text-red-400 border-red-500/30" },
+  warm:    { label: "Warm",    className: "bg-orange-500/15 text-orange-400 border-orange-500/30" },
+  nurture: { label: "Nurture", className: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" },
+  low:     { label: "Low",     className: "bg-slate-500/10 text-slate-400 border-slate-500/20" },
+  cold:    { label: "Cold",    className: "bg-blue-500/10 text-blue-300 border-blue-500/20" },
+};
+
+function ProfileTrendArrow({ trend }: { trend: string | undefined }) {
+  if (trend === "accelerating") {
+    return <span className="text-emerald-400 leading-none" title="Accelerating">▲</span>;
+  }
+  if (trend === "cooling" || trend === "dormant") {
+    return <span className="text-red-400/70 leading-none" title={trend === "dormant" ? "Dormant" : "Cooling"}>▼</span>;
+  }
+  return null;
+}
 
 type ProfileData = {
   account: any;
@@ -387,6 +416,17 @@ export default function AccountProfilePage() {
     }),
   });
 
+  // Heat / per-account intelligence — same queryKey as AccountIntelligencePanel so React Query shares the cache
+  const { data: accountIntel } = useQuery<RIAccountIntelligence | null>({
+    queryKey: ["/api/revenue-intelligence/account", id],
+    queryFn: () =>
+      fetch(`/api/revenue-intelligence/account/${id}`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : null).catch(() => null),
+    staleTime: 120_000,
+    retry: false,
+    enabled: !!id,
+  });
+
   // Revenue data — hoisted above early returns to satisfy React rules of hooks
   const { data: billingLines } = useQuery<any[]>({ queryKey: ["/api/accounts", id, "billing-lines"], queryFn: () => fetch(`/api/accounts/${id}/billing-lines`).then(r => r.json()), staleTime: 30_000, enabled: !!id });
   const { data: rolloutPhases } = useQuery<any[]>({ queryKey: ["/api/accounts", id, "rollout-phases"], queryFn: () => fetch(`/api/accounts/${id}/rollout-phases`).then(r => r.json()), staleTime: 30_000, enabled: !!id });
@@ -454,6 +494,18 @@ export default function AccountProfilePage() {
                 {account.priority && (
                   <Badge variant="outline" className="text-xs capitalize">{account.priority}</Badge>
                 )}
+                {accountIntel && accountIntel.engagementScore > 0 && (() => {
+                  const tier = getHeatTier(accountIntel.engagementScore);
+                  const cfg = heatTierConfig[tier];
+                  return (
+                    <Badge variant="outline" className={`text-xs flex items-center gap-1 ${cfg.className}`} data-testid="heat-badge">
+                      <Flame className="h-2.5 w-2.5" />
+                      {cfg.label}
+                      <span className="opacity-60">{accountIntel.engagementScore}</span>
+                      <ProfileTrendArrow trend={accountIntel.momentum?.status} />
+                    </Badge>
+                  );
+                })()}
               </div>
               {account.org_type && <p className="text-sm text-muted-foreground capitalize">{account.org_type.replace(/_/g, " ")}</p>}
               <div className="flex flex-wrap gap-3 mt-3">
