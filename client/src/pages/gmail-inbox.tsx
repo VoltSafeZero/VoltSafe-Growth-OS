@@ -211,7 +211,7 @@ function parseSenderEmail(from: string) {
   return match ? match[1] : from;
 }
 
-type InboxCategory = "all" | "people" | "updates" | "promotions" | "social" | "forums";
+type InboxCategory = "all" | "people" | "newsletters" | "notifications";
 type CrmInboxFilter = "all" | "unread" | "follow-up" | "needs-reply" | "awaiting-reply" | "hot" | "unlinked";
 
 type MailFolderDomain = { id: number; folderId: number; domain: string; matchType: string };
@@ -435,11 +435,9 @@ function isUnread(labelIds: string[]) {
 }
 
 
-function getEmailCategory(labelIds: string[]): "people" | "updates" | "promotions" | "social" | "forums" {
-  if (labelIds.includes("CATEGORY_UPDATES"))    return "updates";
-  if (labelIds.includes("CATEGORY_PROMOTIONS")) return "promotions";
-  if (labelIds.includes("CATEGORY_SOCIAL"))     return "social";
-  if (labelIds.includes("CATEGORY_FORUMS"))     return "forums";
+function getEmailCategory(labelIds: string[]): "people" | "newsletters" | "notifications" {
+  if (labelIds.includes("CATEGORY_PROMOTIONS") || labelIds.includes("CATEGORY_FORUMS")) return "newsletters";
+  if (labelIds.includes("CATEGORY_UPDATES")    || labelIds.includes("CATEGORY_SOCIAL"))  return "notifications";
   return "people";
 }
 
@@ -5840,11 +5838,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // "in:<category>" syntax which buildQClauses already maps to CATEGORY_* labels.
   const inboxCategoryQ = useMemo(() => {
     if (searchQuery) return searchQuery;
-    if (inboxCategory === "people")     return "in:people is:unread";
-    if (inboxCategory === "updates")    return "in:updates is:unread";
-    if (inboxCategory === "promotions") return "in:promotions is:unread";
-    if (inboxCategory === "social")     return "in:social is:unread";
-    if (inboxCategory === "forums")     return "in:forums is:unread";
+    if (inboxCategory === "people")        return "in:people is:unread";
+    // Newsletters = promotions + forums; notifications = updates + social.
+    // No single Gmail query covers both, so fetch all inbox and filter client-side.
+    if (inboxCategory === "newsletters")   return "in:inbox is:unread";
+    if (inboxCategory === "notifications") return "in:inbox is:unread";
     return "in:inbox";
   }, [searchQuery, inboxCategory]);
 
@@ -7331,10 +7329,23 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     ? inboxMain
     : inboxCategory === "all"
       ? inboxMain
-      : inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory);
+      : inboxMain.filter((m) => {
+      // Normalize both server-derived smartCategory (may carry legacy values like
+      // "promotions", "forums", "updates", "social") and label-derived values to
+      // the canonical three-category taxonomy before comparing.
+      const raw = (m.smartCategory ?? getEmailCategory(m.labelIds)) as string;
+      const canonical: InboxCategory =
+        (raw === "promotions" || raw === "forums")  ? "newsletters"
+        : (raw === "updates"  || raw === "social")  ? "notifications"
+        : (raw === "newsletters" || raw === "notifications" || raw === "people") ? (raw as InboxCategory)
+        : "people";
+      return canonical === inboxCategory;
+    });
 
-  const peopleCount      = inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === "people").length;
-  const updatesCount = inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === "updates").length;
+  const peopleCount = inboxMain.filter((m) => {
+    const raw = (m.smartCategory ?? getEmailCategory(m.labelIds)) as string;
+    return raw === "people" || (!["promotions","forums","updates","social","newsletters","notifications"].includes(raw));
+  }).length;
   const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
 
   // ── Raw inbox count from health API (private — feeds countSnapshot below) ───────────
@@ -7394,11 +7405,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // would never converge because a People-filtered query returns far fewer messages than
   // the full inbox, so inboxUnreadCount < serverInboxUnreadCount always.
   const inboxCategoryServerUnread = useMemo(() => {
-    if (inboxCategory === "people")     return countSnapshot.people;
-    if (inboxCategory === "updates")    return countSnapshot.updates;
-    if (inboxCategory === "promotions") return countSnapshot.promotions;
-    if (inboxCategory === "social")     return countSnapshot.social;
-    if (inboxCategory === "forums")     return countSnapshot.forums;
+    if (inboxCategory === "people")        return countSnapshot.people;
+    if (inboxCategory === "newsletters")   return countSnapshot.promotions + countSnapshot.forums;
+    if (inboxCategory === "notifications") return countSnapshot.updates    + countSnapshot.social;
     return countSnapshot.inbox;
   }, [inboxCategory, countSnapshot]);
 
@@ -7421,11 +7430,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Per-category unread badge counts for the Inbox subcategory sidebar items.
   // All values sourced from countSnapshot (stabilised joint freshness).
   const sidebarCategoryBadges = useMemo(() => ({
-    people:     countSnapshot.people,
-    updates:    countSnapshot.updates,
-    promotions: countSnapshot.promotions,
-    social:     countSnapshot.social,
-    forums:     countSnapshot.forums,
+    people:        countSnapshot.people,
+    newsletters:   countSnapshot.promotions + countSnapshot.forums,
+    notifications: countSnapshot.updates    + countSnapshot.social,
   }), [countSnapshot]);
 
   // ── LIVE BADGE COUNT DIAGNOSTIC ──────────────────────────────────────────
@@ -7445,17 +7452,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
     // What the sidebar badge for each category actually renders
     const rendered = {
-      inboxBadge:      serverInboxUnreadCount,
-      peopleBadge:     sidebarCategoryBadges.people,
-      updatesBadge:    sidebarCategoryBadges.updates,
-      promotionsBadge: sidebarCategoryBadges.promotions,
-      socialBadge:     sidebarCategoryBadges.social,
-      forumsBadge:     sidebarCategoryBadges.forums,
-      seenCount:       null, // "Seen" section has no server count — local page only
+      inboxBadge:          serverInboxUnreadCount,
+      peopleBadge:         sidebarCategoryBadges.people,
+      newslettersBadge:    sidebarCategoryBadges.newsletters,
+      notificationsBadge:  sidebarCategoryBadges.notifications,
+      seenCount:           null, // "Seen" section has no server count — local page only
     };
 
-    const catSum = rendered.peopleBadge + rendered.updatesBadge +
-                   rendered.promotionsBadge + rendered.socialBadge + rendered.forumsBadge;
+    const catSum = rendered.peopleBadge + rendered.newslettersBadge + rendered.notificationsBadge;
     const gap = rendered.inboxBadge - catSum;
 
     console.group("%c🔢 VoltSafe Inbox Count Debug", "font-weight:bold;color:#22d3ee");
@@ -7481,16 +7485,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       (activeAccountId === null || activeAccountId === "all"
         ? "SUM of all accounts (" + health.map(a=>a.unreadCount).join("+") + ")"
         : "accounts.find(a => a.id === " + activeAccountId + ")?.unreadCount"));
-    console.log("sidebarCategoryBadges.people        → People badge    =", rendered.peopleBadge,
-      "\n  source: cc?.people?.unread ?? Math.max(0, serverInboxUnreadCount - updates - promotions - social - forums)");
-    console.log("sidebarCategoryBadges.updates       → Updates badge   =", rendered.updatesBadge,
-      "\n  source: cc?.updates?.unread ?? 0");
-    console.log("sidebarCategoryBadges.promotions    → Promotions badge=", rendered.promotionsBadge,
-      "\n  source: cc?.promotions?.unread ?? 0");
-    console.log("sidebarCategoryBadges.social        → Social badge    =", rendered.socialBadge,
-      "\n  source: cc?.social?.unread ?? 0");
-    console.log("sidebarCategoryBadges.forums        → Forums badge    =", rendered.forumsBadge,
-      "\n  source: cc?.forums?.unread ?? 0");
+    console.log("sidebarCategoryBadges.people        → People badge        =", rendered.peopleBadge,
+      "\n  source: cc?.people?.unread ?? fallback");
+    console.log("sidebarCategoryBadges.newsletters   → Newsletters badge   =", rendered.newslettersBadge,
+      "\n  source: (cc?.promotions?.unread ?? 0) + (cc?.forums?.unread ?? 0)");
+    console.log("sidebarCategoryBadges.notifications → Notifications badge =", rendered.notificationsBadge,
+      "\n  source: (cc?.updates?.unread ?? 0) + (cc?.social?.unread ?? 0)");
     console.log("serverGroupCounts (Smart Inbox section headers):", serverGroupCounts,
       "\n  NOTE: section headers use serverGroupCounts ?? item.count where item.count = locally-loaded threads only");
     console.groupEnd();
@@ -7498,13 +7498,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     console.group("🔍 Reconciliation Table");
     console.table({
       "Inbox badge":  { displayed: rendered.inboxBadge,      sourceVar: "serverInboxUnreadCount",             queryKey: '"/api/gmail/accounts","health"',    endpoint: "GET /api/gmail/accounts/health",    rawAPIValue: health.reduce((s,a)=>s+(a.unreadCount??0),0) },
-      "People":       { displayed: rendered.peopleBadge,     sourceVar: "sidebarCategoryBadges.people",        queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.people?.unread    ?? "(fallback)" },
-      "Updates":      { displayed: rendered.updatesBadge,    sourceVar: "sidebarCategoryBadges.updates",       queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.updates?.unread   ?? 0 },
-      "Promotions":   { displayed: rendered.promotionsBadge, sourceVar: "sidebarCategoryBadges.promotions",    queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.promotions?.unread ?? 0 },
-      "Social":       { displayed: rendered.socialBadge,     sourceVar: "sidebarCategoryBadges.social",        queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.social?.unread    ?? 0 },
-      "Forums":       { displayed: rendered.forumsBadge,     sourceVar: "sidebarCategoryBadges.forums",        queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.forums?.unread    ?? 0 },
+      "People":        { displayed: rendered.peopleBadge,        sourceVar: "sidebarCategoryBadges.people",        queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.people?.unread    ?? "(fallback)" },
+      "Newsletters":   { displayed: rendered.newslettersBadge,   sourceVar: "sidebarCategoryBadges.newsletters",   queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: (cc?.promotions?.unread ?? 0) + (cc?.forums?.unread ?? 0) },
+      "Notifications": { displayed: rendered.notificationsBadge, sourceVar: "sidebarCategoryBadges.notifications", queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: (cc?.updates?.unread   ?? 0) + (cc?.social?.unread  ?? 0) },
     });
-    console.log("Category sum (People+Updates+Promotions+Social+Forums):", catSum);
+    console.log("Category sum (People+Newsletters+Notifications):", catSum);
     console.log("Inbox badge:", rendered.inboxBadge, "   Gap:", gap,
       gap === 0 ? "✅ RECONCILES" : "❌ GAP = " + gap + " — see explanation below");
     if (gap !== 0) {
@@ -8854,12 +8852,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     {tab === "inbox" && (
                       <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
                         {([
-                          { key: "all" as const,         label: "All",                   Icon: Inbox,     badge: 0 },
-                          { key: "people" as const,      label: "People",                Icon: User,      badge: sidebarCategoryBadges.people },
-                          { key: "updates" as const, label: "Updates", Icon: Newspaper, badge: sidebarCategoryBadges.updates },
-                          { key: "promotions" as const,  label: "Promotions",            Icon: Tag,       badge: sidebarCategoryBadges.promotions },
-                          { key: "social" as const,      label: "Social",                Icon: Users,     badge: sidebarCategoryBadges.social },
-                          { key: "forums" as const,      label: "Forums & Communities",  Icon: Hash,      badge: sidebarCategoryBadges.forums },
+                          { key: "all" as const,           label: "All",           Icon: Inbox,     badge: 0 },
+                          { key: "people" as const,        label: "People",        Icon: User,      badge: sidebarCategoryBadges.people },
+                          { key: "newsletters" as const,   label: "Newsletters",   Icon: Newspaper, badge: sidebarCategoryBadges.newsletters },
+                          { key: "notifications" as const, label: "Notifications", Icon: Bell,      badge: sidebarCategoryBadges.notifications },
                         ]).map(({ key, label, Icon, badge }) => {
                           const isActive = inboxCategory === key;
                           return (
@@ -9089,12 +9085,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           {tab === "inbox" && (
                             <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
                               {([
-                                { key: "all" as const,         label: "All",                   Icon: Inbox,     badge: 0 },
-                                { key: "people" as const,      label: "People",                Icon: User,      badge: sidebarCategoryBadges.people },
-                                { key: "updates" as const, label: "Updates", Icon: Newspaper, badge: sidebarCategoryBadges.updates },
-                                { key: "promotions" as const,  label: "Promotions",            Icon: Tag,       badge: sidebarCategoryBadges.promotions },
-                                { key: "social" as const,      label: "Social",                Icon: Users,     badge: sidebarCategoryBadges.social },
-                                { key: "forums" as const,      label: "Forums & Communities",  Icon: Hash,      badge: sidebarCategoryBadges.forums },
+                                { key: "all" as const,           label: "All",           Icon: Inbox,     badge: 0 },
+                                { key: "people" as const,        label: "People",        Icon: User,      badge: sidebarCategoryBadges.people },
+                                { key: "newsletters" as const,   label: "Newsletters",   Icon: Newspaper, badge: sidebarCategoryBadges.newsletters },
+                                { key: "notifications" as const, label: "Notifications", Icon: Bell,      badge: sidebarCategoryBadges.notifications },
                               ]).map(({ key, label, Icon, badge }) => {
                                 const isActive = inboxCategory === key;
                                 return (
@@ -9906,11 +9900,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <span className="text-[11px] text-muted-foreground/55">Inbox</span>
                 <span className="text-[11px] text-muted-foreground/30">·</span>
                 <span className="text-[11px] font-medium text-foreground/70">
-                  {inboxCategory === "people"      ? "People"
-                    : inboxCategory === "updates" ? "Updates"
-                    : inboxCategory === "promotions"  ? "Promotions"
-                    : inboxCategory === "social"       ? "Social"
-                    : inboxCategory === "forums"       ? "Forums & Communities"
+                  {inboxCategory === "people"        ? "People"
+                    : inboxCategory === "newsletters"   ? "Newsletters"
+                    : inboxCategory === "notifications" ? "Notifications"
                     : ""}
                 </span>
               </div>

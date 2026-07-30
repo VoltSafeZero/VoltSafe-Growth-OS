@@ -238,13 +238,13 @@ export async function computeWarmness(userId?: number): Promise<number> {
       NOW() AS computed_at
     FROM (
       SELECT
-        CASE WHEN direction = 'sent' THEN to_email ELSE from_email END AS ext_email,
+        CASE WHEN direction = 'sent' THEN to_emails ELSE from_email END AS ext_email,
         direction,
         sent_at,
         owner_user_id
       FROM email_messages
       WHERE sent_at IS NOT NULL
-        AND (from_email NOT ILIKE '%voltsafe.com%' OR to_email NOT ILIKE '%voltsafe.com%')
+        AND (from_email NOT ILIKE '%voltsafe.com%' OR to_emails NOT ILIKE '%voltsafe.com%')
         ${userFilter}
     ) raw
     WHERE ext_email IS NOT NULL AND ext_email NOT ILIKE '%voltsafe.com%'
