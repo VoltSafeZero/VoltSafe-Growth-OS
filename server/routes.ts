@@ -6418,6 +6418,41 @@ export async function registerRoutes(
     res.status(201).json(created.length === 1 ? created[0] : created);
   });
 
+  // POST /api/attachments/bulk-assign — admin-only; sets uploaded_by / uploaded_by_name
+  // on a batch of attachment IDs in a single UPDATE.
+  app.post("/api/attachments/bulk-assign", requireAuth, async (req, res) => {
+    try {
+      const role = String((req.session as any).globalRole || "");
+      const isAdmin = ["master_admin", "admin"].includes(role);
+      if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+
+      const { ids, userId } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "ids must be a non-empty array" });
+      }
+      if (ids.length > 200) {
+        return res.status(400).json({ message: "Maximum 200 ids per bulk operation" });
+      }
+      if (typeof userId !== "number") {
+        return res.status(400).json({ message: "userId must be a number" });
+      }
+
+      // Resolve the target user's display name.
+      const targetUser = await db.execute(sql`SELECT id, name FROM users WHERE id = ${userId} LIMIT 1`);
+      const userRow = (targetUser.rows[0] as any);
+      if (!userRow) return res.status(404).json({ message: "User not found" });
+      const userName: string = userRow.name ?? "Unknown";
+
+      const numericIds = (ids as any[]).map(Number).filter(n => !Number.isNaN(n));
+      const updated = await storage.bulkAssignAttachments(numericIds, userId, userName);
+
+      res.json({ updated });
+    } catch (e: any) {
+      console.error("[attachments/bulk-assign]", e?.message);
+      res.status(500).json({ message: "Bulk assign failed" });
+    }
+  });
+
   app.patch("/api/attachments/:id", requireAuth, async (req, res) => {
     const attachment = await storage.getAttachment(Number(req.params.id));
     if (!attachment) return res.status(404).json({ message: "Attachment not found" });

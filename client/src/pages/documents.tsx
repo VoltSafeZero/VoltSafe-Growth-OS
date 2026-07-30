@@ -17,6 +17,7 @@ import {
   FileSignature, Ruler, Paperclip, X, ExternalLink, FolderOpen, File,
   FileImage, FileVideo, ChevronRight, Star, Lock, Users, Megaphone,
   TrendingUp, Layers, ShieldAlert, UserX, AlertTriangle, Clock,
+  CheckSquare, Square, UserCheck,
 } from "lucide-react";
 import type { Attachment } from "@shared/schema";
 
@@ -577,11 +578,109 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment & { useCa
   );
 }
 
+// ── Bulk Assign Dialog ───────────────────────────────────────────────────────
+
+function BulkAssignDialog({
+  open, onClose, selectedIds, onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  selectedIds: Set<number>;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+
+  const { data: users } = useQuery<{ id: number; name: string; email: string }[]>({
+    queryKey: ["/api/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/users", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load users");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/attachments/bulk-assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ids: Array.from(selectedIds), userId: Number(selectedUserId) }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? "Bulk assign failed");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents/stats"] });
+      toast({ title: `Owner assigned to ${data.updated} doc${data.updated !== 1 ? "s" : ""}` });
+      onSuccess();
+      onClose();
+    },
+    onError: (e: Error) => toast({ title: "Assign failed", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-sm" data-testid="modal-bulk-assign">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserCheck className="h-4 w-4" />
+            Assign Owner
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-3 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Assign an owner to <span className="font-semibold text-foreground">{selectedIds.size}</span> selected doc{selectedIds.size !== 1 ? "s" : ""}.
+          </p>
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1.5 block">Owner</Label>
+            <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-bulk-owner">
+                <SelectValue placeholder="Select a user…" />
+              </SelectTrigger>
+              <SelectContent>
+                {(users ?? []).map(u => (
+                  <SelectItem key={u.id} value={String(u.id)}>
+                    {u.name} <span className="text-muted-foreground text-[10px] ml-1">{u.email}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose} data-testid="button-cancel-bulk-assign">Cancel</Button>
+          <Button
+            size="sm"
+            disabled={!selectedUserId || assignMutation.isPending}
+            onClick={() => assignMutation.mutate()}
+            data-testid="button-confirm-bulk-assign"
+          >
+            {assignMutation.isPending ? "Assigning…" : "Assign"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Document Row ─────────────────────────────────────────────────────────────
 
 type DocRow = Attachment & { useCase?: string; visibility?: string; isFavorite?: boolean };
 
-function DocumentRow({ doc, selected, onClick }: { doc: DocRow; selected: boolean; onClick: () => void }) {
+function DocumentRow({
+  doc, selected, onClick, checkable, checked, onCheck,
+}: {
+  doc: DocRow;
+  selected: boolean;
+  onClick: () => void;
+  checkable?: boolean;
+  checked?: boolean;
+  onCheck?: (checked: boolean) => void;
+}) {
   const ucMeta = getUseCaseMeta((doc as any).useCase ?? "general");
   const UcIcon = ucMeta.icon;
   const MimeIcon = getMimeIcon(doc.mimeType, doc.source ?? "upload");
@@ -591,9 +690,21 @@ function DocumentRow({ doc, selected, onClick }: { doc: DocRow; selected: boolea
   return (
     <div
       onClick={onClick}
-      className={`flex items-center gap-3 px-4 py-2.5 border-b border-border/20 hover:bg-muted/20 cursor-pointer transition-colors ${selected ? "bg-primary/5 border-l-2 border-l-primary" : ""}`}
+      className={`flex items-center gap-3 px-4 py-2.5 border-b border-border/20 hover:bg-muted/20 cursor-pointer transition-colors ${selected ? "bg-primary/5 border-l-2 border-l-primary" : ""} ${checked ? "bg-amber-500/5" : ""}`}
       data-testid={`document-row-${doc.id}`}
     >
+      {checkable && (
+        <button
+          className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+          onClick={e => { e.stopPropagation(); onCheck?.(!checked); }}
+          data-testid={`checkbox-doc-${doc.id}`}
+          aria-label={checked ? "Deselect" : "Select"}
+        >
+          {checked
+            ? <CheckSquare className="h-4 w-4 text-amber-400" />
+            : <Square className="h-4 w-4" />}
+        </button>
+      )}
       <div className="w-8 h-8 rounded-md bg-muted/30 flex items-center justify-center shrink-0">
         {doc.source === "link" ? <Link2 className="h-4 w-4 text-primary" /> : <MimeIcon className="h-4 w-4 text-muted-foreground" />}
       </div>
@@ -651,6 +762,8 @@ export default function DocumentsPage() {
   const [selectedDoc, setSelectedDoc] = useState<DocRow | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const limit = 50;
 
   const queryParams = new URLSearchParams();
@@ -694,8 +807,26 @@ export default function DocumentsPage() {
   const clearAllFilters = () => {
     setSearch(""); setUseCaseFilter("all"); setCategoryFilter("all");
     setVisibilityFilter("all"); setObjectTypeFilter("all");
-    setNoOwnerFilter(false); setPage(0);
+    setNoOwnerFilter(false); setPage(0); setSelectedIds(new Set());
   };
+
+  const toggleDocCheck = (id: number, checked: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
+  const selectAllOnPage = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      documents.forEach(d => next.add(d.id));
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
 
   const hasActiveFilters = search || useCaseFilter !== "all" || categoryFilter !== "all"
     || visibilityFilter !== "all" || objectTypeFilter !== "all" || noOwnerFilter;
@@ -882,6 +1013,41 @@ export default function DocumentsPage() {
         </div>
       </div>
 
+      {/* Bulk action toolbar — shown when docs are selected */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-400 shrink-0" data-testid="bulk-action-toolbar">
+          <CheckSquare className="h-4 w-4 shrink-0" />
+          <p className="text-xs flex-1 font-medium">
+            {selectedIds.size} doc{selectedIds.size !== 1 ? "s" : ""} selected
+          </p>
+          {noOwnerFilter && documents.length > 0 && selectedIds.size < documents.length && (
+            <button
+              className="text-xs underline hover:no-underline"
+              onClick={selectAllOnPage}
+              data-testid="button-select-all-page"
+            >
+              Select all {documents.length} on page
+            </button>
+          )}
+          <Button
+            size="sm"
+            className="h-7 text-xs gap-1.5 bg-amber-500 hover:bg-amber-600 text-white border-0"
+            onClick={() => setBulkAssignOpen(true)}
+            data-testid="button-bulk-assign-owner"
+          >
+            <UserCheck className="h-3.5 w-3.5" />
+            Assign Owner
+          </Button>
+          <button
+            className="h-6 w-6 flex items-center justify-center rounded hover:bg-amber-500/20 transition-colors"
+            onClick={clearSelection}
+            data-testid="button-clear-selection"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Content */}
       <div className={`flex flex-1 min-h-0 overflow-hidden`}>
         {/* Document list */}
@@ -904,6 +1070,9 @@ export default function DocumentsPage() {
                   doc={doc}
                   selected={selectedDoc?.id === doc.id}
                   onClick={() => setSelectedDoc(doc)}
+                  checkable={noOwnerFilter || selectedIds.size > 0}
+                  checked={selectedIds.has(doc.id)}
+                  onCheck={v => toggleDocCheck(doc.id, v)}
                 />
               ))
             )}
@@ -936,6 +1105,12 @@ export default function DocumentsPage() {
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
       <LinkModal open={linkOpen} onClose={() => setLinkOpen(false)} />
       <StaleBreakdownSheet open={staleSheetOpen} onClose={() => setStaleSheetOpen(false)} />
+      <BulkAssignDialog
+        open={bulkAssignOpen}
+        onClose={() => setBulkAssignOpen(false)}
+        selectedIds={selectedIds}
+        onSuccess={clearSelection}
+      />
     </div>
   );
 }

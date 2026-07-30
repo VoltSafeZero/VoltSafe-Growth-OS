@@ -161,6 +161,7 @@ export interface IStorage {
   getAttachment(id: number): Promise<Attachment | undefined>;
   updateAttachment(id: number, data: Partial<InsertAttachment>): Promise<Attachment | undefined>;
   getAllDocuments(filters: { category?: string; useCase?: string; visibility?: string; objectType?: string; uploadedBy?: number; noOwner?: boolean; search?: string; limit?: number; offset?: number; }): Promise<{ documents: Attachment[]; total: number }>;
+  bulkAssignAttachments(ids: number[], uploadedBy: number, uploadedByName: string): Promise<number>;
 
   getUsers(): Promise<Pick<User, 'id' | 'name' | 'email'>[]>;
 
@@ -1278,6 +1279,15 @@ export class DatabaseStorage implements IStorage {
   async updateAttachment(id: number, data: Partial<InsertAttachment>) {
     const result = await db.update(attachments).set(data).where(eq(attachments.id, id)).returning();
     return result[0];
+  }
+
+  async bulkAssignAttachments(ids: number[], uploadedBy: number, uploadedByName: string): Promise<number> {
+    if (ids.length === 0) return 0;
+    const result = await db.update(attachments)
+      .set({ uploadedBy, uploadedByName })
+      .where(inArray(attachments.id, ids))
+      .returning({ id: attachments.id });
+    return result.length;
   }
 
   async getAllDocuments(filters: { category?: string; useCase?: string; visibility?: string; objectType?: string; uploadedBy?: number; noOwner?: boolean; search?: string; limit?: number; offset?: number; }) {
