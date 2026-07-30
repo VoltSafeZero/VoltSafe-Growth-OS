@@ -267,6 +267,116 @@ async function main() {
   }
   console.log();
 
+  // ─── C8/C9: orphaned primary_contact_id (no lead_contacts row) ───────────
+  // Seeds: lead + contact + stale email_thread whose primary_contact_id = that
+  //        contact, but NO lead_contacts row linking the contact to the lead.
+  // C8: lead must NOT appear in commStatus=stale (thread must not count).
+  // C9: the same lead MUST appear in commStatus=never_contacted.
+  console.log("── C8/C9: orphaned primary_contact_id — no lead_contacts bridge ──");
+  {
+    const dbPool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const TS = Date.now();
+    let seededLeadId    = null;
+    let seededContactId = null;
+    let seededAccountId = null;
+    let seededThreadId  = null;
+    try {
+      // 1. Lead with no direct thread link
+      const leadRes = await dbPool.query(`
+        INSERT INTO leads (company, contact_name, contact_email, status, created_at, updated_at)
+        VALUES ($1, $2, $3, 'prospect', NOW(), NOW())
+        RETURNING id
+      `, [`C8-Lead-${TS}`, `C8 Contact ${TS}`, `c8-lead-${TS}@test-c8.example`]);
+      seededLeadId = leadRes.rows[0].id;
+
+      // 2. Throw-away account (contacts.account_id is NOT NULL)
+      const accountRes = await dbPool.query(`
+        INSERT INTO accounts (name, created_at, updated_at)
+        VALUES ($1, NOW(), NOW())
+        RETURNING id
+      `, [`C8-Account-${TS}`]);
+      seededAccountId = accountRes.rows[0].id;
+
+      // 3. Contact — deliberately NOT linked to the lead via lead_contacts
+      const contactRes = await dbPool.query(`
+        INSERT INTO contacts (name, first_name, last_name, email, account_id, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        RETURNING id
+      `, [`C8 Contact${TS}`, `C8`, `Contact${TS}`, `c8-contact-${TS}@test-c8.example`, seededAccountId]);
+      seededContactId = contactRes.rows[0].id;
+
+      // 4. Stale thread: primary_contact_id = that contact, primary_lead_id = NULL
+      //    last_inbound_at 60 days ago — would be "stale" if the contact were linked
+      const threadRes = await dbPool.query(`
+        INSERT INTO email_threads
+          (gmail_thread_id, primary_contact_id, primary_lead_id,
+           last_inbound_at, last_outbound_at, created_at, updated_at)
+        VALUES ($1, $2, NULL,
+                NOW() - INTERVAL '60 days',
+                NULL,
+                NOW() - INTERVAL '60 days',
+                NOW() - INTERVAL '60 days')
+        RETURNING id
+      `, [`c8-thread-${TS}`, seededContactId]);
+      seededThreadId = threadRes.rows[0].id;
+
+      // Use the unique company name as a search filter so the correlated
+      // subquery touches only the seeded lead — avoids slow full-table scan.
+      const encodedCompany = encodeURIComponent(`C8-Lead-${TS}`);
+
+      // C8: lead must NOT be in commStatus=stale
+      const staleRes = await api(cookie, `/api/leads?commStatus=stale&search=${encodedCompany}&limit=10`);
+      if (!staleRes.ok) {
+        bad("C8: GET /api/leads?commStatus=stale returns 200", `status=${staleRes.status}`);
+      } else {
+        const { data } = await staleRes.json();
+        if (!Array.isArray(data)) {
+          bad("C8: data is an array", typeof data);
+        } else {
+          const found = data.find(row => row.id === seededLeadId);
+          if (!found) {
+            ok(`C8: orphaned lead (id=${seededLeadId}) correctly absent from commStatus=stale`);
+          } else {
+            bad(`C8: orphaned lead (id=${seededLeadId}) incorrectly appeared in commStatus=stale`,
+                `thread primary_contact_id=${seededContactId} has no lead_contacts row`);
+          }
+        }
+      }
+
+      // C9: same lead MUST appear in commStatus=never_contacted
+      const neverRes = await api(cookie, `/api/leads?commStatus=never_contacted&search=${encodedCompany}&limit=10`);
+      if (!neverRes.ok) {
+        bad("C9: GET /api/leads?commStatus=never_contacted returns 200", `status=${neverRes.status}`);
+      } else {
+        const { data } = await neverRes.json();
+        if (!Array.isArray(data)) {
+          bad("C9: data is an array", typeof data);
+        } else {
+          const found = data.find(row => row.id === seededLeadId);
+          if (found) {
+            ok(`C9: orphaned lead (id=${seededLeadId}) correctly appears in commStatus=never_contacted`);
+            if (found.commStatus === "never_contacted") {
+              ok(`C9: returned row has commStatus === 'never_contacted'`);
+            } else {
+              bad(`C9: returned row commStatus`, `expected 'never_contacted', got '${found.commStatus}'`);
+            }
+          } else {
+            bad(`C9: orphaned lead (id=${seededLeadId}) not found in never_contacted results`,
+                `total rows returned: ${data.length}`);
+          }
+        }
+      }
+    } finally {
+      // Cleanup — no lead_contacts row was inserted for this lead
+      if (seededThreadId)  await dbPool.query(`DELETE FROM email_threads WHERE id = $1`, [seededThreadId]);
+      if (seededContactId) await dbPool.query(`DELETE FROM contacts WHERE id = $1`, [seededContactId]);
+      if (seededAccountId) await dbPool.query(`DELETE FROM accounts WHERE id = $1`, [seededAccountId]);
+      if (seededLeadId)    await dbPool.query(`DELETE FROM leads WHERE id = $1`, [seededLeadId]);
+      await dbPool.end();
+    }
+  }
+  console.log();
+
   // ─── Summary ──────────────────────────────────────────────────────────────
   console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);
   if (failed > 0) process.exit(1);
