@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -41,8 +42,6 @@ export async function seedUsers() {
   const existingUsers = await db.select().from(users);
   if (existingUsers.length > 0) return;
 
-  const defaultPassword = await hashPassword("alberni1444");
-
   const seedData = [
     { name: "Terri", email: "terri@voltsafe.com", role: "admin" },
     { name: "Scott", email: "scott@voltsafe.com", role: "sales" },
@@ -51,15 +50,23 @@ export async function seedUsers() {
     { name: "Alex", email: "alex@voltsafe.com", role: "sales" },
   ];
 
+  // Each seeded account receives a unique, cryptographically random one-time
+  // password. These are printed to the server log once so the team can retrieve
+  // them on first startup, and must be changed immediately after first login.
+  // There is no shared default password: knowing one account's bootstrap
+  // credential does not help an attacker against any other account.
+  console.log("[bootstrap] Seeding initial users — one-time passwords follow. Change these immediately after first login:");
   for (const user of seedData) {
+    const oneTimePassword = crypto.randomBytes(16).toString("hex");
+    const hashed = await hashPassword(oneTimePassword);
     await db.insert(users).values({
       ...user,
-      password: defaultPassword,
+      password: hashed,
       mustChangePassword: true,
     });
+    console.log(`[bootstrap]   ${user.email}  password: ${oneTimePassword}`);
   }
-
-  console.log("Seeded 5 users with default password");
+  console.log("[bootstrap] Done. These credentials will not be printed again.");
 }
 
 declare module "express-session" {
@@ -72,6 +79,8 @@ declare module "express-session" {
     webauthnRegChallenge: string;
     webauthnAuthChallenge: string;
     zoomOAuthState?: string;
+    /** One-time nonce stored at OAuth flow start; validated and consumed in the callback to prevent CSRF. */
+    oauthNonce?: string;
   }
 }
 

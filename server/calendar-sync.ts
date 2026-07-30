@@ -74,13 +74,13 @@ function getCalendarOAuth2Client() {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function getCalendarAuthUrl(): string {
+export function getCalendarAuthUrl(state = "calendar"): string {
   const client = getCalendarOAuth2Client();
   return client.generateAuthUrl({
     access_type: "offline",
     scope: CALENDAR_SCOPES,
     prompt: "consent",
-    state: "calendar",
+    state,
   });
 }
 
