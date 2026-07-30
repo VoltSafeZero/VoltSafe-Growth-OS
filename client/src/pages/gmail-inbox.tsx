@@ -5930,9 +5930,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // as page 1, keeping cursor alignment correct and avoiding client-side-only filtering.
   const inboxCategoryQ = useMemo(() => {
     if (searchQuery) return searchQuery;
-    if (inboxCategory === "people")        return "in:people is:unread";
-    if (inboxCategory === "newsletters")   return "in:newsletters is:unread";
-    if (inboxCategory === "notifications") return "in:notifications is:unread";
+    // NOTE: do NOT add "is:unread" here. inboxCategoryQ is only consumed by the
+    // non-unread (crmFilter !== "unread") path (line below). The unread path
+    // always sends "in:inbox is:unread" regardless of inboxCategory. Adding
+    // is:unread here causes category tabs in All mode to silently exclude every
+    // read message → "No messages found" even when read messages exist.
+    if (inboxCategory === "people")        return "in:people";
+    if (inboxCategory === "newsletters")   return "in:newsletters";
+    if (inboxCategory === "notifications") return "in:notifications";
     return "in:inbox";
   }, [searchQuery, inboxCategory]);
 
@@ -6355,7 +6360,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     setSectionLoadingIds(new Set());
     setSectionFetchDoneIds(new Set());
     // inboxCategory is included because each category tab now sends its own specific
-    // query ("in:social is:unread", "in:people is:unread", …).  Without this, the
+    // query ("in:people", "in:newsletters", "in:notifications", …).  Without this, the
     // cursor from a previous category view would persist when switching tabs — Effect B
     // would not adopt the new category cursor (prev !== null) and page 2+ would fetch
     // the wrong partition.
@@ -9468,7 +9473,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                   {([
                     { key: "all",     label: "All",     icon: <Filter className="h-3 w-3" />,   activeColor: "bg-violet-500/15 text-violet-300 ring-violet-400/40 shadow-[0_0_10px_-2px_rgba(167,139,250,0.3)]", count: null },
-                    { key: "unread",  label: "Unread",  icon: <MailOpen className="h-3 w-3" />, activeColor: "bg-blue-500/15 text-blue-300 ring-blue-400/40 shadow-[0_0_10px_-2px_rgba(96,165,250,0.3)]",    count: serverInboxUnreadCount || inboxUnreadCount || null },
+                    { key: "unread",  label: "Unread",  icon: <MailOpen className="h-3 w-3" />, activeColor: "bg-blue-500/15 text-blue-300 ring-blue-400/40 shadow-[0_0_10px_-2px_rgba(96,165,250,0.3)]",    count: serverInboxUnreadCount > 0 ? serverInboxUnreadCount : null },
                   ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; activeColor: string; count: number | null }[]).map(({ key, label, icon, activeColor, count }) => {
                     const active = crmFilter === key;
                     return (
@@ -10406,13 +10411,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {/* PART C — Smart Inbox status strip */}
             {isSmartView && (
               <div className="px-3 py-1.5 flex items-center gap-1.5 border-b border-border/20">
-                {loadingMoreInbox || (!!inboxNextToken && inboxUnreadCount < inboxCategoryServerUnread && inboxCategoryServerUnread > 0) ? (
+                {loadingMoreInbox || (crmFilter === "unread" && !!inboxNextToken && inboxUnreadCount < inboxCategoryServerUnread && inboxCategoryServerUnread > 0) ? (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/35 flex-shrink-0" />
                     <span className="text-[10px] text-muted-foreground/45 italic">Loading remaining unread emails…</span>
                   </>
                 ) : (
-                  <span className="text-[10px] text-muted-foreground/35 italic">Showing grouped unread inbox mail. Older unread emails load automatically.</span>
+                  <span className="text-[10px] text-muted-foreground/35 italic">Showing grouped inbox mail. Older unread emails load automatically.</span>
                 )}
               </div>
             )}
