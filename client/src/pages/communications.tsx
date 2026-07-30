@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,9 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Send, Users, Megaphone, AlertCircle } from "lucide-react";
+import { Plus, Send, Users, Megaphone, AlertCircle, Loader2 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
-import type { CommunicationList, CampaignDraft } from "@shared/schema";
+import type { CommunicationList, CampaignDraft, CommunicationListMember } from "@shared/schema";
 
 const campaignStatusColors: Record<string, string> = {
   draft: "bg-gray-500/10 text-gray-400 border-gray-500/20",
@@ -233,6 +233,43 @@ function SendCampaignDialog({ campaign, onClose, onSent }: SendCampaignDialogPro
   const [emailsRaw, setEmailsRaw] = useState("");
   const { toast } = useToast();
 
+  // Parse list IDs from the campaign's listIds text field (comma-separated integers)
+  const linkedListIds: number[] = campaign?.listIds
+    ? campaign.listIds.split(/[\s,;]+/).map(Number).filter(n => !isNaN(n) && n > 0)
+    : [];
+
+  // Fetch members for all linked lists when the dialog opens
+  const { data: listMembersResults, isLoading: membersLoading } = useQuery<CommunicationListMember[][]>({
+    queryKey: ["/api/comm-lists/members-batch", linkedListIds],
+    queryFn: async () => {
+      if (linkedListIds.length === 0) return [];
+      const results = await Promise.all(
+        linkedListIds.map(id =>
+          apiRequest("GET", `/api/comm-lists/${id}/members`).then(r => r.json() as Promise<CommunicationListMember[]>)
+        )
+      );
+      return results;
+    },
+    enabled: campaign !== null && linkedListIds.length > 0,
+    staleTime: 30_000,
+  });
+
+  // Pre-fill the textarea once members are loaded (only on initial open)
+  useEffect(() => {
+    if (!campaign) {
+      setEmailsRaw("");
+      return;
+    }
+    if (listMembersResults && listMembersResults.length > 0) {
+      const emails = [...new Set(
+        listMembersResults.flat().map(m => m.email.trim().toLowerCase()).filter(Boolean)
+      )];
+      if (emails.length > 0) {
+        setEmailsRaw(emails.join("\n"));
+      }
+    }
+  }, [campaign?.id, listMembersResults]);
+
   const sendMutation = useMutation({
     mutationFn: async ({ id, recipients }: { id: number; recipients: { email: string }[] }) => {
       const res = await apiRequest("POST", `/api/campaigns/${id}/send`, { recipients });
@@ -285,6 +322,19 @@ function SendCampaignDialog({ campaign, onClose, onSent }: SendCampaignDialogPro
               <span className="font-medium">{campaign.subject}</span>
             </div>
 
+            {linkedListIds.length > 0 && (
+              <div className="rounded-md bg-blue-500/10 border border-blue-500/20 px-3 py-2 text-xs text-blue-400 flex items-center gap-2">
+                {membersLoading ? (
+                  <><Loader2 className="h-3 w-3 animate-spin shrink-0" /> Loading recipients from linked list{linkedListIds.length > 1 ? "s" : ""}…</>
+                ) : (
+                  <><Users className="h-3 w-3 shrink-0" />
+                    Recipients auto-filled from list{linkedListIds.length > 1 ? "s" : ""}{" "}
+                    <span className="font-mono">{linkedListIds.join(", ")}</span>. You can still edit below.
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label htmlFor="send-recipients">
                 Recipients
@@ -307,12 +357,6 @@ function SendCampaignDialog({ campaign, onClose, onSent }: SendCampaignDialogPro
                 </p>
               )}
             </div>
-
-            {campaign.listIds && (
-              <p className="text-xs text-muted-foreground bg-muted/40 rounded px-2 py-1.5">
-                This campaign is linked to list IDs: <span className="font-mono">{campaign.listIds}</span>. Paste the member emails above.
-              </p>
-            )}
 
             <div className="flex gap-2 justify-end">
               <Button type="button" variant="outline" onClick={() => { setEmailsRaw(""); onClose(); }} disabled={sendMutation.isPending}>

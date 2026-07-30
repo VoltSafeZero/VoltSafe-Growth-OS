@@ -1820,6 +1820,32 @@ export async function migrateAccountHeatScores(): Promise<void> {
   }
 }
 
+export async function migrateCommunicationListMembers(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS communication_list_members (
+        id         SERIAL PRIMARY KEY,
+        list_id    INTEGER NOT NULL REFERENCES communication_lists(id) ON DELETE CASCADE,
+        email      TEXT NOT NULL,
+        contact_id INTEGER,
+        name       TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_comm_list_members_list_id
+        ON communication_list_members(list_id)
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_comm_list_members_list_email
+        ON communication_list_members(list_id, lower(email))
+    `);
+    console.log("[migration] communication_list_members table ready.");
+  } catch (err) {
+    console.error("[migration] migrateCommunicationListMembers error (non-fatal):", err);
+  }
+}
+
 export async function migrateCampaignTrackingTables(): Promise<void> {
   try {
     // campaign_recipients — one row per (campaign × contact/email) delivery.

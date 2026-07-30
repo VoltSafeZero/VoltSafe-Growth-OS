@@ -115,6 +115,8 @@ import {
   calendarConnections, calendarEvents, tasks,
   digestConfigs, digestRuns,
   meetingNoteParticipants,
+  communicationListMembers,
+  insertCommunicationListMemberSchema,
 } from "@shared/schema";
 import { weatherPrefsSchema, WEATHER_PREFS_MAX_BYTES } from "@shared/weather-types";
 import { VALID_USE_CASE_SET } from "@shared/document-use-cases";
@@ -6316,6 +6318,79 @@ export async function registerRoutes(
     const result = await storage.updateCommunicationList(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "List not found" });
     res.json(result);
+  });
+
+  // GET /api/comm-lists/:id/members — return all members of a list
+  app.get("/api/comm-lists/:id/members", requireAuth, requirePermission("communications", "view"), async (req, res) => {
+    try {
+      const listId = Number(req.params.id);
+      if (isNaN(listId)) return res.status(400).json({ message: "Invalid list id" });
+      const members = await db
+        .select()
+        .from(communicationListMembers)
+        .where(eq(communicationListMembers.listId, listId))
+        .orderBy(asc(communicationListMembers.createdAt));
+      res.json(members);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/comm-lists/:id/members — add one or more members
+  app.post("/api/comm-lists/:id/members", requirePermission("communications", "edit"), async (req, res) => {
+    try {
+      const listId = Number(req.params.id);
+      if (isNaN(listId)) return res.status(400).json({ message: "Invalid list id" });
+
+      // Accept either { email, name?, contactId? } or { members: [...] }
+      const rawItems: unknown[] = Array.isArray(req.body.members) ? req.body.members : [req.body];
+      const rows = rawItems
+        .map((item: any) => ({ listId, email: item.email?.trim()?.toLowerCase(), name: item.name || null, contactId: item.contactId || null }))
+        .filter(r => r.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email));
+
+      if (rows.length === 0) return res.status(400).json({ message: "No valid email addresses provided" });
+
+      // Upsert — ignore duplicate (list_id, email) pairs
+      await db.execute(sql`
+        INSERT INTO communication_list_members (list_id, email, contact_id, name)
+        SELECT * FROM jsonb_to_recordset(${JSON.stringify(rows.map(r => ({ list_id: r.listId, email: r.email, contact_id: r.contactId, name: r.name })))}::jsonb)
+          AS t(list_id int, email text, contact_id int, name text)
+        ON CONFLICT (list_id, lower(email)) DO UPDATE
+          SET name = EXCLUDED.name,
+              contact_id = COALESCE(EXCLUDED.contact_id, communication_list_members.contact_id)
+      `);
+
+      // Update memberCount on the list
+      await db.execute(sql`
+        UPDATE communication_lists
+        SET member_count = (SELECT COUNT(*) FROM communication_list_members WHERE list_id = ${listId})
+        WHERE id = ${listId}
+      `);
+
+      res.status(201).json({ ok: true, upserted: rows.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/comm-lists/:id/members/:memberId — remove a member
+  app.delete("/api/comm-lists/:id/members/:memberId", requirePermission("communications", "edit"), async (req, res) => {
+    try {
+      const listId = Number(req.params.id);
+      const memberId = Number(req.params.memberId);
+      if (isNaN(listId) || isNaN(memberId)) return res.status(400).json({ message: "Invalid id" });
+      await db.delete(communicationListMembers).where(
+        and(eq(communicationListMembers.id, memberId), eq(communicationListMembers.listId, listId))
+      );
+      await db.execute(sql`
+        UPDATE communication_lists
+        SET member_count = (SELECT COUNT(*) FROM communication_list_members WHERE list_id = ${listId})
+        WHERE id = ${listId}
+      `);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/campaigns", requireAuth, requirePermission("crm", "view"), async (req, res) => {

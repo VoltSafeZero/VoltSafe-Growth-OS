@@ -622,6 +622,19 @@ export const communicationLists = pgTable("communication_lists", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const communicationListMembers = pgTable("communication_list_members", {
+  id: serial("id").primaryKey(),
+  listId: integer("list_id").notNull().references(() => communicationLists.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  contactId: integer("contact_id"),
+  name: text("name"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertCommunicationListMemberSchema = createInsertSchema(communicationListMembers).omit({ id: true, createdAt: true });
+export type CommunicationListMember = typeof communicationListMembers.$inferSelect;
+export type InsertCommunicationListMember = z.infer<typeof insertCommunicationListMemberSchema>;
+
 export const campaignDrafts = pgTable("campaign_drafts", {
   id: serial("id").primaryKey(),
   subject: text("subject").notNull(),
