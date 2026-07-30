@@ -1,0 +1,258 @@
+POST-PUBLISH PRODUCTION ACCEPTANCE TEST — VOLTSAFE MAIL RELEASE 88fdcba0
+
+The release has now been published.
+
+Do not modify code unless a production defect is reproduced. Verify the deployed release using the actual production environment and Trevor’s authenticated production session.
+
+Expected release SHA:
+
+88fdcba0
+
+==================================================
+1. VERIFY THE DEPLOYED BUILD
+==================================================
+
+Report:
+
+- deployment ID
+- build ID
+- deployed commit SHA
+- deployment start/completion time
+- production URL
+- readiness result
+- git ancestry proving the deployment contains 88fdcba0
+
+Confirm production is serving the new release rather than the prior build.
+
+==================================================
+2. VERIFY REAL PRODUCTION MAILBOXES
+==================================================
+
+Use the production database read-only.
+
+Confirm these production records:
+
+- account 1 — trevor@voltsafe.com
+- account 11 — burgesstrevor76@gmail.com
+- account 13 — trevor@hyalos.com
+- account 10 — revoked duplicate trevor@voltsafe.com
+- the active Sales logical mailbox
+- the active Support logical mailbox
+
+Report:
+
+- account ID
+- email
+- auth_status
+- is_active
+- sync_enabled
+- visibility_type
+- last successful sync
+
+Do not expose tokens or modify any production records.
+
+==================================================
+3. PROVE ACCOUNT 10 IS FULLY EXCLUDED
+==================================================
+
+Account 10 is reportedly:
+
+- is_active=true
+- auth_status=revoked
+- sync_enabled=false
+
+Do not call it safely excluded merely because sync is disabled.
+
+Prove it is excluded from:
+
+- active VoltSafe Mail sidebar entries
+- private/disconnected sidebar entries unless intentionally shown as historical
+- default mailbox resolution
+- unified All Inboxes account sets
+- category counts
+- unread counts
+- message-list requests
+- sending
+- replying
+- forwarding
+- sync and watch-renewal jobs
+
+Report the exact filters used by each path.
+
+Confirm account 10 contributes zero duplicate rows or counts.
+
+If it still appears anywhere operationally, fix the filtering to require the appropriate operational state without deleting its historical data.
+
+==================================================
+4. AUTHENTICATED PRODUCTION UI VERIFICATION
+==================================================
+
+Use Trevor’s real authenticated production session.
+
+Capture screenshots showing these mailbox entries:
+
+- trevor@voltsafe.com
+- burgesstrevor76@gmail.com
+- trevor@hyalos.com
+- Sales
+- Support
+
+For each mailbox:
+
+- select it;
+- confirm the correct account ID or authorized account-ID set;
+- confirm the breadcrumb;
+- confirm its Inbox expands to exactly:
+  - All
+  - People
+  - Newsletters
+  - Notifications
+- click each category;
+- confirm messages are scoped correctly;
+- confirm switching away and back preserves the mailbox entry;
+- refresh and confirm it remains visible.
+
+Confirm account 10 does not create a second Trevor mailbox entry.
+
+==================================================
+5. VERIFY CANONICAL CATEGORY BEHAVIOUR
+==================================================
+
+For every mailbox, verify:
+
+- no Priority
+- no Starred
+- no Updates category
+- no Promotions category
+- no Social category
+- no Forums category
+- no raw legacy row badges
+- no Local mailbox query failed
+- no endless unread loader
+- no stale rows after switching
+
+Visible provider labels must normalize:
+
+- Promotions and Forums → Newsletters
+- Updates and Social → Notifications
+
+==================================================
+6. VERIFY COUNTS AGAINST PRODUCTION
+==================================================
+
+For each real logical mailbox report:
+
+- All unread conversations
+- People unread conversations
+- Newsletters unread conversations
+- Notifications unread conversations
+- arithmetic delta
+- sidebar badge count
+- API count
+- rendered conversation count
+
+Required:
+
+All = People + Newsletters + Notifications
+
+Delta must be exactly zero.
+
+A positive badge must never produce a successful empty list.
+
+==================================================
+7. VERIFY INACTIVE-MAILBOX SEND PROTECTION
+==================================================
+
+Using a safe fixture or non-destructive mocked provider call, prove:
+
+- inactive owner mailbox remains visible with Reconnect;
+- historical local messages remain readable;
+- new compose returns 403 with reconnectRequired=true;
+- reply returns the same;
+- forward returns the same;
+- Gmail is not invoked;
+- another account is never selected as fallback;
+- non-owner access remains blocked.
+
+Do not alter a real production mailbox to test this.
+
+==================================================
+8. PRODUCTION NETWORK AND LOG AUDIT
+==================================================
+
+From the new deployment onward, search for:
+
+- Local mailbox query failed
+- [local-mailbox-error]
+- GET /api/gmail/messages 500
+- missing-column SQL errors
+- uncaught exceptions
+- repeated infinite unread requests
+- incorrect account-resolution logs
+- Gmail sends attempted through account 10
+
+Report counts and timestamps.
+
+==================================================
+9. FINAL TEST RUN
+==================================================
+
+Run fresh against the final deployed source:
+
+- inbox-sidebar-categories
+- canonical-categories
+- private-mailbox-visibility
+- inactive-mailbox-policy
+- disconnected-mailbox-sidebar
+- Gmail reconnect
+- mailbox privacy
+- mailbox switching
+- mail permissions
+- permissions
+- unread-filter-server-side
+- Smart Inbox tests
+- inbox visibility
+- inactive-send-guard runtime
+- npm run build
+
+Report passed, failed, skipped, and exit code for each.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Deployment ID:
+Build ID:
+Deployed SHA:
+Production URL:
+
+Account 1 visible once: YES/NO
+Account 11 visible: YES/NO
+Account 13 visible: YES/NO
+Sales visible once: YES/NO
+Support visible once: YES/NO
+Account 10 operationally excluded: YES/NO
+
+All five real mailboxes independently selectable: YES/NO
+Canonical tabs shown for all: YES/NO
+Authenticated production screenshots captured: YES/NO
+Cross-mailbox leakage: 0 or count
+Positive badge with empty list: 0 or count
+Endless loaders: 0 or count
+Mailbox-list 500s: 0 or count
+Legacy visible categories: 0 or count
+
+Inactive send blocked before Gmail: YES/NO
+Wrong-account fallback prevented: YES/NO
+
+Production count deltas:
+- Trevor:
+- private Gmail:
+- Hyalos:
+- Sales:
+- Support:
+
+All tests green: YES/NO
+Build clean: YES/NO
+Production serving 88fdcba0: YES/NO
+Release accepted: YES/NO
