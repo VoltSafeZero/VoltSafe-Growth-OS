@@ -82,6 +82,17 @@ const heatTierConfig: Record<HeatTier, { label: string; className: string }> = {
   cold:    { label: "Cold",    className: "bg-blue-500/10 text-blue-300 border-blue-500/20" },
 };
 
+// ── Trend indicator ──────────────────────────────────────────────────────────
+function TrendArrow({ trend }: { trend: string | undefined }) {
+  if (trend === "accelerating") {
+    return <span className="text-emerald-400 leading-none" title="Accelerating">▲</span>;
+  }
+  if (trend === "cooling" || trend === "dormant") {
+    return <span className="text-red-400/70 leading-none" title={trend === "dormant" ? "Dormant" : "Cooling"}>▼</span>;
+  }
+  return null;
+}
+
 const LEGACY_ORG_TYPE_OPTIONS = [
   { value: "marina_prospect", label: "Marina Prospect" },
   { value: "marina_customer", label: "Marina Customer" },
@@ -740,6 +751,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                           <Flame className="h-2.5 w-2.5" />
                           {heatCfg.label}
                           {heat && <span className="ml-0.5 opacity-60">{heat.score}</span>}
+                          {heat && <TrendArrow trend={heat.trend} />}
                         </Badge>
                       </div>
                     </div>
@@ -957,6 +969,7 @@ function AccountsPipelineView({
                     {heatCfg && (
                       <Badge variant="outline" className={`text-[10px] px-1 py-0 shrink-0 flex items-center gap-0.5 ${heatCfg.className}`} data-testid={`badge-heat-pipeline-${account.id}`}>
                         <Flame className="h-2 w-2" />{heatCfg.label}
+                        {heat && <TrendArrow trend={heat.trend} />}
                       </Badge>
                     )}
                   </div>
