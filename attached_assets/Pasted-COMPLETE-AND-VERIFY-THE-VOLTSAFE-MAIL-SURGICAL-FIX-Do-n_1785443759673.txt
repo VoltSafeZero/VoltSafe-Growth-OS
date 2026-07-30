@@ -1,0 +1,296 @@
+COMPLETE AND VERIFY THE VOLTSAFE MAIL SURGICAL FIX
+
+Do not start more task agents.
+Do not redesign VoltSafe Mail.
+Do not change classification rules in this task.
+Do not publish automatically.
+
+The category-query correction is accepted in principle:
+
+Unread mode must send:
+- All: in:inbox is:unread
+- People: in:people is:unread
+- Newsletters: in:newsletters is:unread
+- Notifications: in:notifications is:unread
+
+Page 2+ must use the identical query as page 1, apart from the cursor.
+
+Now complete the missing proof and fix the remaining loading-state defect.
+
+==================================================
+1. REPORT THE CURRENT CODE AND GIT STATE
+==================================================
+
+Report:
+
+- current HEAD
+- parent SHA
+- origin/main SHA
+- git status --short
+- Task #212 status
+- exact files changed
+- exact production-code lines changed
+- whether committed
+- whether pushed
+- whether published
+
+Show the before-and-after request generation for:
+
+- All + All mode
+- All + Unread mode
+- People + All mode
+- People + Unread mode
+- Newsletters + All mode
+- Newsletters + Unread mode
+- Notifications + All mode
+- Notifications + Unread mode
+
+Show the page-1 and page-2 base queries and prove they match.
+
+==================================================
+2. COMPLETE THE PHANTOM-THREAD SET DIFFERENCE
+==================================================
+
+Use the relevant production-equivalent account scopes for:
+
+- sales@voltsafe.com → Newsletters + Unread
+- burgesstrevor76@gmail.com → People + Unread
+
+For each case compute:
+
+A = DISTINCT gmail_thread_id values counted by the badge query
+B = DISTINCT gmail_thread_id values returned after exhausting every page of the corrected list query
+
+Report:
+
+- A − B
+- B − A
+
+Do not compare the badge with only the first page.
+
+For every discrepant thread list:
+
+- source_account_id
+- gmail_thread_id
+- selected gmail_message_id
+- subject
+- from_email
+- sent_at
+- is_unread
+- is_inbox
+- is_spam
+- label_ids
+- smart_category
+- blocked-sender status
+- badge inclusion predicate
+- list exclusion predicate
+- exact reason for divergence
+
+Required interpretation:
+
+- A − B empty: the structural badge/list predicates reconcile.
+- A − B non-empty: the issue is not fixed; identify the remaining predicate or scope difference.
+
+Do not claim pagination caused the screenshot unless the complete corrected list eventually returns every thread in A.
+
+==================================================
+3. FIX THE CONTRADICTORY LOADING STATES
+==================================================
+
+The UI must never display these simultaneously:
+
+- Loading remaining unread emails…
+- Loading more messages…
+- No messages found
+
+Create one locally derived, mutually exclusive list-state value from the existing query and pagination state.
+
+Required states:
+
+- initial_loading
+- loaded_results
+- auto_loading_unread
+- loading_next_page
+- loaded_empty
+- failed
+- exhausted_with_discrepancy
+
+Required behavior:
+
+- loaded_empty only after a successful exhausted query with zero rows and no active loader;
+- auto_loading_unread only while the unread auto-loader is actively fetching;
+- loading_next_page only while loading another page with existing rows;
+- failed shows error and Retry;
+- positive badge plus exhausted zero-row list shows a discrepancy warning with Retry and diagnostic reference—not “No messages found”;
+- All mode never starts the unread auto-loader.
+
+Do not broadly rewrite state management. Centralize only the rendering decision.
+
+==================================================
+4. VERIFY CATEGORY-SCOPED AUTO-LOADING
+==================================================
+
+For each category in Unread mode, prove these all use the same category-scoped dataset:
+
+- request query
+- inboxMain rows
+- inboxUnreadCount
+- inboxCategoryServerUnread
+- loader stop target
+- cursor
+- accumulated rows
+- page fingerprint
+
+For People, compare loaded People unread conversations only with the People unread server count.
+
+Repeat for Newsletters and Notifications.
+
+Verify loader termination on:
+
+- target count reached
+- no next cursor
+- zero-row page
+- repeated cursor
+- repeated page fingerprint
+- safety cap
+- request failure
+- mailbox change
+- category change
+- All/Unread filter change
+
+==================================================
+5. AUTHENTICATED BEHAVIORAL VERIFICATION
+==================================================
+
+Use an authenticated VoltSafe Mail session.
+
+Verify these exact cases.
+
+Sales:
+
+- Newsletters + Unread
+- Newsletters + All
+- badge count
+- complete API conversation count
+- rendered conversation count
+- no positive badge with empty list
+- no contradictory loader
+- no endless loading
+
+Private Gmail:
+
+- People + Unread
+- People + All
+- badge count
+- complete API conversation count
+- rendered conversation count
+- no unrelated Newsletters or Notifications sections
+- no contradictory loader
+
+Trevor:
+
+- People + Unread renders only People
+- Newsletters + Unread renders only Newsletters
+- Notifications + Unread renders only Notifications
+- selected tab, breadcrumb, network query, returned rows and rendered section agree
+
+Capture screenshots and Network requests.
+
+==================================================
+6. KEEP CLASSIFICATION AS A SEPARATE ISSUE
+==================================================
+
+After the category filter works, inspect the messages that still legitimately remain in People.
+
+Classify a sample as:
+
+- known human/contact conversation
+- direct reply
+- automated service mail
+- personalized marketing/cold outreach
+- unknown
+
+Do not change the classifier now.
+
+Report whether Gmail CATEGORY_PERSONAL is too broad for VoltSafe’s intended meaning of People. Make a separate future recommendation only.
+
+==================================================
+7. REGRESSION TESTS
+==================================================
+
+Add behavioral tests proving:
+
+- People + Unread sends in:people is:unread
+- Newsletters + Unread sends in:newsletters is:unread
+- Notifications + Unread sends in:notifications is:unread
+- All + Unread remains in:inbox is:unread
+- All mode contains no forced is:unread
+- page 2 preserves page-1 category/read scope
+- switching category changes returned and rendered groups
+- People + Unread cannot render Newsletter/Notification groups
+- empty state cannot coexist with either loading indicator
+- failed query cannot render No messages found
+- unread auto-loader never runs in All mode
+- controlled fixture badge/list set difference equals zero
+- mailbox/category switches discard stale responses
+
+Run:
+
+- new category-filter tests
+- loader-state tests
+- canonical-category tests
+- mailbox-switching tests
+- mailbox-privacy tests
+- unread-filter tests
+- count-reconciliation tests
+- full Mail suite
+- npm run build
+
+Report passed, failed, skipped and exit code.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Task #212 commit:
+Current HEAD:
+Parent SHA:
+Origin/main:
+git status --short:
+Pushed:
+Published:
+
+Sales Newsletters:
+- badge thread count:
+- complete API thread count:
+- rendered thread count:
+- A−B:
+- B−A:
+
+Private Gmail People:
+- badge thread count:
+- complete API thread count:
+- rendered thread count:
+- A−B:
+- B−A:
+
+Unread category filtering works: YES/NO
+All category filtering works: YES/NO
+Page 2 matches page 1 scope: YES/NO
+
+Contradictory loading combinations remaining: 0 or count
+Positive badge with empty exhausted list: 0 or count
+Endless loaders: 0 or count
+
+Authenticated screenshots captured: YES/NO
+Tests:
+Build:
+Ready to publish: YES/NO
+
+Do not return READY TO PUBLISH unless:
+
+- both A−B sets are empty;
+- all three Unread category tabs are category-scoped;
+- page 2 preserves the same query;
+- contradictory loading states are impossible;
+- authenticated UI verification passes.
