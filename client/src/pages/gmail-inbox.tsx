@@ -5170,6 +5170,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [loadingDraftId, setLoadingDraftId] = useState<string | null>(null);
   const [inboxExtra, setInboxExtra] = useState<MessageSummary[]>([]);
   const [inboxNextToken, setInboxNextToken] = useState<string | null>(null);
+  // True when any inbox API call returns 401 (app session expired mid-switch).
+  // Triggers the "Session expired" banner and clears stale thread list so the
+  // user never silently sees the wrong account's data.
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [loadingMoreInbox, setLoadingMoreInbox] = useState(false);
   const [sentExtra, setSentExtra] = useState<MessageSummary[]>([]);
   const [sentNextToken, setSentNextToken] = useState<string | null>(null);
@@ -5882,7 +5886,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       // [INBOX-QFN-LOG] Temporary diagnostic — remove after root cause confirmed
       console.log("[INBOX-QFN] request", { activeAccountId, url: `/api/gmail/messages?${params}`, crmFilter, inboxCategory });
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
-      if (!res.ok) throw new Error((await res.json()).message);
+      if (!res.ok) {
+        if (res.status === 401) {
+          setSessionExpired(true);
+          throw new Error("SESSION_EXPIRED");
+        }
+        throw new Error((await res.json().catch(() => ({ message: res.statusText }))).message);
+      }
       const _json = await res.json();
       const _have = (_json.messages ?? []).filter((m: any) => Array.isArray(m.labelIds) && m.labelIds.includes("UNREAD")).length;
       console.log("[INBOX-QFN] response", {
@@ -6232,7 +6242,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       const params = new URLSearchParams();
       appendAccountId(params);
       const res = await fetch(`/api/gmail/category-counts?${params}`, { credentials: "include" });
-      if (!res.ok) return { updates: { total: 0, unread: 0 }, promotions: { total: 0, unread: 0 }, social: { total: 0, unread: 0 }, forums: { total: 0, unread: 0 } };
+      if (!res.ok) {
+        if (res.status === 401) setSessionExpired(true);
+        return { updates: { total: 0, unread: 0 }, promotions: { total: 0, unread: 0 }, social: { total: 0, unread: 0 }, forums: { total: 0, unread: 0 } };
+      }
       return res.json();
     },
     refetchInterval: 30_000,   // aligned with accounts/health — both 30 s so they refresh together
@@ -6267,6 +6280,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // the base query changes (unread-only vs all), and stale extra pages from the
     // previous filter must not bleed into the new view.
   }, [searchQuery, activeAccountId, crmFilter, inboxCategory]);
+  // When the app session expires (401 received mid-switch), clear paginated extras
+  // so stale threads from the previous account are not left on screen.
+  useEffect(() => {
+    if (sessionExpired) {
+      setInboxExtra([]);
+      setInboxNextToken(null);
+    }
+  }, [sessionExpired]);
   useEffect(() => {
     setInboxNextToken((prev) => prev ?? inboxBaseToken);
   }, [inboxBaseToken]);
@@ -8726,6 +8747,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             data-testid="button-enable-gmail-api"
           >
             Enable Gmail API →
+          </a>
+        </div>
+      )}
+      {/* App session expired banner — shown when the server returns 401 mid-switch,
+          meaning the user's login session (cookie) has expired. Inbox is cleared
+          to prevent stale threads from the previous account remaining visible. */}
+      {sessionExpired && (
+        <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2.5 bg-red-500/10 border-b border-red-500/30 text-red-400 text-sm" data-testid="banner-session-expired">
+          <Lock className="h-4 w-4 flex-shrink-0" />
+          <span className="flex-1">Session expired — please log in again to continue.</span>
+          <a
+            href="/login"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-medium transition-colors whitespace-nowrap"
+            data-testid="button-session-expired-login"
+          >
+            Log in again →
           </a>
         </div>
       )}

@@ -183,6 +183,7 @@ async function main() {
 
     // ── 4. Switching default ↔ team ↔ default returns deterministic, non-overlapping sets ──
     console.log("── Round-trip switch: default → team → default ──");
+
     {
       const a = await fetchLocalMessages(call, {});
       const b = await fetchLocalMessages(call, { asAccountId: String(ctx.teamAccountId) });
@@ -201,6 +202,37 @@ async function main() {
       else bad("team selection: team yes, personal no");
       if (personalIn(cIds) && !teamIn(cIds)) ok("post-switch default call: personal yes, team no");
       else bad("post-switch default call: personal yes, team no");
+    }
+
+    // ── 5. Expired/absent session cookie → 401 returned cleanly (no stale data) ──
+    // Simulates a session expiry mid-switch: requests made without a valid session
+    // cookie must receive a clean 401, not a 200 with the previous account's data.
+    console.log("── Expired/absent session cookie → 401 on messages and category-counts ──");
+    {
+      const noAuthCall = async (url) => fetch(`${BASE}${url}`, {
+        headers: { "Content-Type": "application/json" },
+        // Deliberately no Cookie header — simulates an expired/absent session
+      });
+
+      const msgsRes = await noAuthCall(
+        `/api/gmail/messages?limit=50&q=in:inbox&source=local&asAccountId=${PERSONAL_ACCOUNT_ID}`
+      );
+      if (msgsRes.status === 401) ok("/api/gmail/messages returns 401 when session is absent");
+      else bad("/api/gmail/messages returns 401 when session is absent",
+               `got ${msgsRes.status} instead`);
+
+      const ccRes = await noAuthCall(
+        `/api/gmail/category-counts?asAccountId=${PERSONAL_ACCOUNT_ID}`
+      );
+      if (ccRes.status === 401) ok("/api/gmail/category-counts returns 401 when session is absent");
+      else bad("/api/gmail/category-counts returns 401 when session is absent",
+               `got ${ccRes.status} instead`);
+
+      // The response body must be a JSON error object, not an inbox payload
+      const msgsBody = await msgsRes.json().catch(() => null);
+      if (msgsBody && !msgsBody.messages) ok("401 body contains no 'messages' array (no stale data leaked)");
+      else bad("401 body contains no 'messages' array (no stale data leaked)",
+               `body=${JSON.stringify(msgsBody)?.slice(0, 120)}`);
     }
 
   } finally {
