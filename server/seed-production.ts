@@ -1850,6 +1850,18 @@ export async function migrateCampaignTrackingTables(): Promise<void> {
         ON campaign_events(account_id)
     `);
 
+    // Backfill account_id on existing rows where contact_id is set but
+    // account_id was never populated (contact-only campaign sends).
+    // Safe to re-run — only touches rows where account_id IS NULL.
+    await db.execute(sql`
+      UPDATE campaign_recipients cr
+      SET    account_id = c.account_id
+      FROM   contacts c
+      WHERE  cr.contact_id = c.id
+        AND  cr.account_id IS NULL
+        AND  c.account_id IS NOT NULL
+    `);
+
     console.log("[migration] campaign_recipients + campaign_events tables ready.");
   } catch (err) {
     console.error("[migration] migrateCampaignTrackingTables error (non-fatal):", err);

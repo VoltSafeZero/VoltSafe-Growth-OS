@@ -306,7 +306,8 @@ async function scoreCampaignEngagement(
   try {
     const since = windowStart(windowDays);
 
-    const recipients = await db
+    // Primary path: recipients linked directly by account_id
+    let recipients = await db
       .select({ id: campaignRecipients.id })
       .from(campaignRecipients)
       .where(
@@ -315,6 +316,29 @@ async function scoreCampaignEngagement(
           gte(campaignRecipients.createdAt, since),
         ),
       );
+
+    // Fallback: recipients linked by contact_id when account_id was not set
+    // on the row at send time (contact-only campaign sends).
+    if (recipients.length === 0) {
+      const accountContacts = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.accountId, accountId));
+
+      const contactIds = accountContacts.map((c) => c.id);
+
+      if (contactIds.length > 0) {
+        recipients = await db
+          .select({ id: campaignRecipients.id })
+          .from(campaignRecipients)
+          .where(
+            and(
+              inArray(campaignRecipients.contactId, contactIds),
+              gte(campaignRecipients.createdAt, since),
+            ),
+          );
+      }
+    }
 
     if (recipients.length === 0) {
       return { value: 0, rawPoints: 0, available: true };
