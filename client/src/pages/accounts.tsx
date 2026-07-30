@@ -837,6 +837,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           account={selectedAccount}
           onClose={() => setSelectedAccount(null)}
           canEdit={canEdit}
+          heatData={heatScoreMap.get(selectedAccount.id)}
           onOpenLead={(leadId) => {
             setSelectedAccount(null);
             setLocation(`/opportunities/${leadId}`);
@@ -1128,7 +1129,7 @@ function SectionHeader({ icon: Icon, title, count }: {
   );
 }
 
-export function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true, onOpenLead }: { account: Account; onClose: () => void; canEdit?: boolean; onOpenLead?: (leadId: number) => void }) {
+export function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true, onOpenLead, heatData }: { account: Account; onClose: () => void; canEdit?: boolean; onOpenLead?: (leadId: number) => void; heatData?: { score: number; tier: HeatTier; trend: string } }) {
   const { toast } = useToast();
   const [editMode, setEditMode] = useState(false);
   const [showFolderDialog, setShowFolderDialog] = useState(false);
@@ -1441,6 +1442,14 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                 <Badge variant="outline" className={segmentColors[account.segment] || ""}>{account.segment}</Badge>
                 <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{getStageLabel(account.leadStatus)}</Badge>
                 <Badge variant="outline" className={priorityColors[account.priority] || ""}>{account.priority}</Badge>
+                {heatData && (
+                  <Badge variant="outline" className={`${heatTierConfig[heatData.tier].className} flex items-center gap-0.5`} data-testid="badge-heat-detail">
+                    <Flame className="h-2.5 w-2.5" />
+                    {heatTierConfig[heatData.tier].label}
+                    <span className="ml-0.5 opacity-60">{heatData.score}</span>
+                    <TrendArrow trend={heatData.trend} />
+                  </Badge>
+                )}
                 {account.orgType && <Badge variant="outline" className={orgTypeColors[account.orgType] || orgTypeColors.other} data-testid="badge-detail-org-type">{getOrgTypeLabel(account.orgType)}</Badge>}
                 {(account as any).convertedFromLeadId && (
                   onOpenLead ? (

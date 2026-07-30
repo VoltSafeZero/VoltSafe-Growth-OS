@@ -267,6 +267,8 @@ function AccountIntelligencePanel({ accountId }: { accountId: number }) {
           <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm font-bold ${scoreColor}`}>
             <BarChart2 className="h-3.5 w-3.5" />
             Score {engagementScore}
+            {momentum.status === "accelerating" && <span className="text-emerald-400 leading-none ml-0.5">▲</span>}
+            {(momentum.status === "cooling" || momentum.status === "dormant") && <span className="text-red-400/70 leading-none ml-0.5">▼</span>}
           </div>
           <span className={`flex items-center gap-1 text-[11px] font-medium ${trendColor}`}>
             <TrendIco className="h-3 w-3" />
