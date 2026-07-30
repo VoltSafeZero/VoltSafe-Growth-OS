@@ -44,8 +44,8 @@ const mapUsages = [...inboxSrc.matchAll(/INBOX_CATEGORY_TABS\.map/g)].length;
 check('INBOX_CATEGORY_TABS.map appears exactly 1 time (inside shared InboxCategoryNav component)',
   mapUsages === 1);
 const navUsages = [...inboxSrc.matchAll(/<InboxCategoryNav\b/g)].length;
-check('<InboxCategoryNav> used at exactly 4 call sites (personal + fallback + private + team)',
-  navUsages === 4);
+check('<InboxCategoryNav> used at exactly 5 call sites (all-inboxes + personal + fallback + private + team)',
+  navUsages === 5);
 
 // The shared constant defines key:"all" as InboxCategory exactly once.
 // Sidebar sections use INBOX_CATEGORY_TABS.map — no additional inline copies.

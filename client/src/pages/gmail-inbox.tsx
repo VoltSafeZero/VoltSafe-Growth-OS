@@ -502,7 +502,6 @@ function InboxCategoryNav({
 }
 
 
-
 function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -8909,26 +8908,38 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {/* Multi-mailbox Phase 1: "All Inboxes" unified view — only show when user has
                 more than one accessible account (personal + private + shared). */}
             {((personalAccount ? 1 : 0) + privateAccounts.length + sharedAccounts.length) > 1 && (
-              <button
-                onClick={() => {
-                  setActiveAccountId("all");
-                  setTab("inbox");
-                  setInboxCategory("all");
-                  setSelectedMessageId(null);
-                  setSelectedThreadId(null);
-                  setCurrentThreadAccountId(null);
-                }}
-                data-testid="btn-account-all"
-                className={`w-full flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${activeAccountId === "all" ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-              >
-                <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${activeAccountId === "all" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                  <Inbox className="h-3.5 w-3.5" />
-                </span>
-                <span className="flex-1 text-left text-[12px] font-medium truncate">All Inboxes</span>
-                <span className="text-[10px] text-muted-foreground/60">
-                  {(personalAccount ? 1 : 0) + privateAccounts.length + sharedAccounts.length}
-                </span>
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    setActiveAccountId("all");
+                    setTab("inbox");
+                    setInboxCategory("all");
+                    setSelectedMessageId(null);
+                    setSelectedThreadId(null);
+                    setCurrentThreadAccountId(null);
+                  }}
+                  data-testid="btn-account-all"
+                  className={`w-full flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${activeAccountId === "all" ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                >
+                  <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${activeAccountId === "all" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                    <Inbox className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="flex-1 text-left text-[12px] font-medium truncate">All Inboxes</span>
+                  <span className="text-[10px] text-muted-foreground/60">
+                    {(personalAccount ? 1 : 0) + privateAccounts.length + sharedAccounts.length}
+                  </span>
+                </button>
+                {/* All Inboxes category subtabs — only shown when "All Inboxes" is active */}
+                {activeAccountId === "all" && tab === "inbox" && (
+                  <div className="ml-3 pl-2 border-l border-border/40 space-y-0.5 mt-0.5 mb-1">
+                    <InboxCategoryNav
+                      badges={sidebarCategoryBadges}
+                      activeCategory={inboxCategory}
+                      onSelect={(key) => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                    />
+                  </div>
+                )}
+              </>
             )}
 
             {/* Personal account row + subtabs when active */}

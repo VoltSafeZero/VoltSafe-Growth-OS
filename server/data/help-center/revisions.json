@@ -442,10 +442,10 @@
     "trigger": "scheduled"
   },
   {
-    "ranAt": "2026-07-30T06:58:00.600Z",
+    "ranAt": "2026-07-30T06:58:00.493Z",
     "localDate": "2026-07-29",
     "action": "refreshed",
-    "bootTime": "2026-07-30T06:35:37.403Z",
+    "bootTime": "2026-07-30T06:47:01.783Z",
     "republishedToday": true,
     "filesUpdated": [
       "quick-start-guide.md",

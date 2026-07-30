@@ -172,14 +172,14 @@ check(
   notifKeys === 1
 );
 // After InboxCategoryNav refactor: map is called once inside the shared component;
-// the 4 sidebar sections each render <InboxCategoryNav> instead of inline maps.
+// 5 sidebar sections each render <InboxCategoryNav> (all-inboxes + personal + fallback + private + team).
 check(
   'INBOX_CATEGORY_TABS.map appears exactly 1 time (inside shared InboxCategoryNav component)',
   [...inboxSrc.matchAll(/INBOX_CATEGORY_TABS\.map/g)].length === 1
 );
 check(
-  '<InboxCategoryNav> used at exactly 4 call sites (personal + fallback + private + team)',
-  [...inboxSrc.matchAll(/<InboxCategoryNav\b/g)].length === 4
+  '<InboxCategoryNav> used at exactly 5 call sites (all-inboxes + personal + fallback + private + team)',
+  [...inboxSrc.matchAll(/<InboxCategoryNav\b/g)].length === 5
 );
 
 console.log("\n── sidebarCategoryBadges ─────────────────────────────────────────────");
