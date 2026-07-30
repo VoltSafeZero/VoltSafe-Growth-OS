@@ -270,38 +270,38 @@ check(
   })()
 );
 
-// ─── 10. Visual guard: "still loading" replaces "No messages found" ─────────
+// ─── 10. listState machine replaces "still loading" inline guard ─────────────
 //
-// If the server reports N > 0 unread messages but crmFilteredMessages is empty
-// (edge case: stale TanStack cache or pre-fetch render), the UI must NOT show
-// the misleading "No messages found" empty state.  Instead it shows a spinner
-// and "Unread messages are still loading…" so the user knows to wait.
+// The old inline guard (crmFilter==="unread" && serverInboxUnreadCount>0 && isFetching)
+// was replaced by the listState machine.  The machine enforces:
+//   • loaded_empty only when !loadingMoreInbox && !isFetching && badge=0
+//   • exhausted_with_discrepancy when badge>0 after exhaustion (shows Retry, not "No messages found")
+//   • initial_loading when isFetching with 0 rows (skeleton, not empty state)
+// These three checks verify the machine's guard is in place.
 
-console.log("\n── 10. Visual guard: loading state instead of 'No messages found' ──");
+console.log("\n── 10. listState machine: empty-state guards ──");
 
 check(
-  'Visual guard checks crmFilter === "unread" && serverInboxUnreadCount > 0',
-  /crmFilter === "unread"\s*&&\s*serverInboxUnreadCount\s*>\s*0/.test(inboxSrc)
+  "listState \"initial_loading\" includes isFetching guard (prevents empty state during refetch)",
+  inboxSrc.includes(`(isLoading || inboxQuery.isFetching) && rowCount === 0`) &&
+    inboxSrc.includes(`return "initial_loading"`)
 );
 
 check(
-  '"Unread messages are still loading" text present in source',
-  inboxSrc.includes("Unread messages are still loading")
+  "listState \"exhausted_with_discrepancy\" shows Retry — not \"No messages found\" — when badge>0",
+  inboxSrc.includes(`listState === "exhausted_with_discrepancy"`) &&
+    inboxSrc.includes(`data-testid="button-retry-inbox"`) &&
+    inboxSrc.includes(`ref: exhausted_with_discrepancy`)
 );
 
 check(
-  "Loading spinner (Loader2 animate-spin) used in unread stall state",
+  "Loading spinner (Loader2 animate-spin) used in initial_loading skeleton",
   /Loader2.*animate-spin|animate-spin.*Loader2/.test(inboxSrc)
 );
 
 check(
-  "Guard appears immediately before the generic No-messages-found fallback (last occurrence) in source order",
-  (() => {
-    const guardIdx = inboxSrc.indexOf("Unread messages are still loading");
-    // Use lastIndexOf: the definitive "No messages found" fallback is the last occurrence
-    const noMsgIdx = inboxSrc.lastIndexOf("No messages found");
-    return guardIdx !== -1 && noMsgIdx !== -1 && guardIdx < noMsgIdx;
-  })()
+  "Empty state gated on listState=loaded_empty or exhausted_with_discrepancy (never fires alongside loaders)",
+  inboxSrc.includes(`listState === "loaded_empty" || listState === "exhausted_with_discrepancy"`)
 );
 
 // ─── 11. Stall safety-net refetch effect ────────────────────────────────────

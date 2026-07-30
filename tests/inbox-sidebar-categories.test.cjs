@@ -117,12 +117,16 @@ check('InboxCategory does NOT include "priority"',
 // ── 6. Unread loader termination guard ───────────────────────────────────────
 console.log("\n── Unread loader termination ────────────────────────────────────────────");
 
-check('Unread loader guards with inboxQuery.isFetching (terminates when query settles)',
-  /crmFilter === ["']unread["'][\s\S]{0,200}inboxQuery\.isFetching/.test(inboxSrc));
-check('Unread loader guards with inboxQuery.isLoading',
-  /crmFilter === ["']unread["'][\s\S]{0,200}inboxQuery\.isLoading/.test(inboxSrc));
-check('Unread loader requires BOTH isLoading and isFetching (OR guard)',
-  /crmFilter === ["']unread["'][\s\S]{0,250}inboxQuery\.isLoading\s*\|\|\s*inboxQuery\.isFetching/.test(inboxSrc));
+// Updated for listState machine: isFetching + isLoading are now guarded inside the
+// `listState` useMemo (returns "initial_loading" while fetching with 0 rows) rather
+// than via an inline ternary inside the render tree. The mutual-exclusion invariants
+// are stronger: loaded_empty/exhausted_with_discrepancy cannot appear while fetching.
+check('listState machine uses inboxQuery.isFetching guard (terminates empty state during refetch)',
+  inboxSrc.includes('inboxQuery.isFetching') && inboxSrc.includes('"initial_loading"'));
+check('listState machine uses isLoading guard',
+  inboxSrc.includes('isLoading || inboxQuery.isFetching') && inboxSrc.includes('"initial_loading"'));
+check('listState machine uses OR guard for isLoading | isFetching',
+  /isLoading\s*\|\|\s*inboxQuery\.isFetching/.test(inboxSrc));
 
 // ── 7. Legacy category tab dead-code disabled ─────────────────────────────────
 console.log("\n── Legacy isCategoryTab disabled ────────────────────────────────────────");

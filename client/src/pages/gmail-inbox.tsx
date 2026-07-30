@@ -7787,6 +7787,58 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     false;
   const loadMore = tab === "inbox" ? loadMoreInbox : loadMoreSent;
 
+  // ── Mutually exclusive list-state machine ──────────────────────────────────────────────
+  // Prevents contradictory states from rendering simultaneously (e.g. "Loading remaining
+  // unread emails…" alongside "No messages found"). Only the inbox tab drives this machine;
+  // all other tabs use their own independent render paths.
+  //
+  // State definitions:
+  //   initial_loading          — first fetch in-flight with zero rows
+  //   loaded_results           — rows present (no active sub-loader, or non-inbox tab)
+  //   auto_loading_unread      — PART B unread auto-loader running while rows are visible
+  //   loading_next_page        — scroll-triggered loadMore running while rows are visible
+  //   loaded_empty             — settled, 0 rows, badge=0 (genuine empty inbox)
+  //   failed                   — query returned an error
+  //   exhausted_with_discrepancy — 0 rows after exhaustion, but badge > 0
+  //
+  // Invariants enforced:
+  //   • loaded_empty only when !loadingMoreInbox && !isLoading && rows===0 && badge<=0
+  //   • auto_loading_unread only fires in Unread mode (crmFilter==="unread")
+  //   • All mode never reaches auto_loading_unread (PART B guard: crmFilter !== "unread")
+  type ListState =
+    | "initial_loading"
+    | "loaded_results"
+    | "auto_loading_unread"
+    | "loading_next_page"
+    | "loaded_empty"
+    | "failed"
+    | "exhausted_with_discrepancy";
+
+  const listState = useMemo((): ListState => {
+    if (tab !== "inbox" || isCategoryTab) return "loaded_results";
+    if (error) return "failed";
+    const rowCount = crmFilteredMessages?.length ?? 0;
+    // Include isFetching so a background re-fetch with 0 cached rows stays in initial_loading
+    // (prevents "No messages found" flashing during stale-while-revalidate).
+    if ((isLoading || inboxQuery.isFetching) && rowCount === 0) return "initial_loading";
+    if (rowCount > 0) {
+      if (crmFilter === "unread" && loadingMoreInbox) return "auto_loading_unread";
+      if (loadingMoreInbox) return "loading_next_page";
+      return "loaded_results";
+    }
+    // Zero rows — still loading more?
+    if (isLoading || loadingMoreInbox) return "initial_loading";
+    // Settled empty — check for badge/list discrepancy
+    if (crmFilter === "unread" && inboxCategoryServerUnread > 0 && !inboxNextToken) {
+      return "exhausted_with_discrepancy";
+    }
+    return "loaded_empty";
+  }, [
+    tab, isCategoryTab, error, crmFilteredMessages?.length,
+    isLoading, inboxQuery.isFetching, loadingMoreInbox,
+    crmFilter, inboxCategoryServerUnread, inboxNextToken,
+  ]);
+
   // ── Infinite scroll — stable observer (Apr 2026 fix for "hard stop after first batch") ──
   // Previous version listed `loadMore` (a fresh function every render) in deps, which tore the
   // observer down and rebuilt it on every render. Intersection events landing in the teardown
@@ -10149,7 +10201,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               )
             )}
 
-            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && !isCategoryTab && isLoading && (
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && !isCategoryTab && (
+              // Inbox tab: use listState so skeleton never shows alongside the PART C loader strip.
+              // Other tabs (sent, spam): fall back to their own isLoading flag directly.
+              (tab === "inbox" ? listState === "initial_loading" : isLoading)
+            ) && (
               <div className="p-3 space-y-2">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="space-y-1 p-2">
@@ -10333,8 +10389,33 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 </div>
               </div>
             )}
-            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && !isLoading && !error && crmFilteredMessages?.length === 0 && (
-              statusQuery.data && !statusQuery.data.connected ? (
+            {/* Empty / discrepancy state — mutually exclusive: exactly one of loaded_empty or
+                exhausted_with_discrepancy renders; auto_loading_unread blocks both. For non-inbox
+                tabs (sent, spam) the original !isLoading && !error && length===0 predicate applies. */}
+            {(tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review") && (
+              tab === "inbox" && !isCategoryTab
+                ? (listState === "loaded_empty" || listState === "exhausted_with_discrepancy")
+                : (!isLoading && !error && (crmFilteredMessages?.length ?? 0) === 0)
+            ) && (
+              listState === "exhausted_with_discrepancy" ? (
+                // Badge says N unread exist but all pages returned 0 rows after exhaustion.
+                // Show a diagnostic warning instead of the misleading "No messages found".
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40 text-amber-400" />
+                  <p className="font-medium">Could not load messages</p>
+                  <p className="text-[11px] mt-1 opacity-60">
+                    Server reports {inboxCategoryServerUnread} unread {inboxCategory === "all" ? "message" : inboxCategory}{inboxCategoryServerUnread !== 1 ? "s" : ""} but all pages returned 0 rows.
+                  </p>
+                  <button
+                    onClick={() => inboxQuery.refetch()}
+                    className="mt-3 text-[11px] underline text-primary/70 hover:text-primary transition-colors"
+                    data-testid="button-retry-inbox"
+                  >
+                    Retry
+                  </button>
+                  <p className="text-[10px] mt-1 opacity-40">ref: exhausted_with_discrepancy</p>
+                </div>
+              ) : statusQuery.data && !statusQuery.data.connected ? (
                 <div className="p-8 text-center">
                   <Mail className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p className="text-sm font-medium text-foreground mb-1">Connect Your Gmail Account</p>
@@ -10378,17 +10459,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <p className="font-medium">No pinned conversations</p>
                   <p className="text-[11px] mt-1">Right-click any thread and choose Pin to keep it here.</p>
                 </div>
-              ) : crmFilter === "unread" && serverInboxUnreadCount > 0 && (inboxQuery.isLoading || inboxQuery.isFetching) ? (
-                // Safety guard: server says unread messages exist but the query is still
-                // in-flight. Show a loading state instead of the misleading "No messages found."
-                // IMPORTANT: only shown while the query is ACTIVELY fetching — once it settles,
-                // trust the empty result even if the server count says otherwise (stale count).
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  <Loader2 className="h-8 w-8 mx-auto mb-2 opacity-40 animate-spin" />
-                  <p className="font-medium">Unread messages are still loading…</p>
-                  <p className="text-[11px] mt-1 opacity-60">{serverInboxUnreadCount} unread email{serverInboxUnreadCount !== 1 ? "s" : ""} will appear shortly.</p>
-                </div>
               ) : (
+                // loaded_empty — genuine empty result (badge=0 and all pages exhausted).
+                // listState ensures we never reach here while loadingMoreInbox is true or
+                // while the query is still fetching (those states stay in initial_loading).
                 <div className="p-6 text-center text-sm text-muted-foreground">
                   <Inbox className="h-8 w-8 mx-auto mb-2 opacity-30" />
                   <p>No messages found</p>
@@ -10396,13 +10470,20 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               )
             )}
 
-            {/* PART C — Smart Inbox status strip */}
-            {isSmartView && (
+            {/* PART C — Smart Inbox status strip.
+                Only renders while results are present or actively loading more — never alongside
+                empty/discrepancy states. Text reflects which sub-loader is active so All mode
+                never says "Loading remaining unread emails…" (it uses loading_next_page instead). */}
+            {isSmartView && (listState === "loaded_results" || listState === "auto_loading_unread" || listState === "loading_next_page") && (
               <div className="px-3 py-1.5 flex items-center gap-1.5 border-b border-border/20">
-                {loadingMoreInbox || (crmFilter === "unread" && !!inboxNextToken && inboxUnreadCount < inboxCategoryServerUnread && inboxCategoryServerUnread > 0) ? (
+                {listState === "auto_loading_unread" || listState === "loading_next_page" ? (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/35 flex-shrink-0" />
-                    <span className="text-[10px] text-muted-foreground/45 italic">Loading remaining unread emails…</span>
+                    <span className="text-[10px] text-muted-foreground/45 italic">
+                      {listState === "auto_loading_unread"
+                        ? "Loading remaining unread emails…"
+                        : "Loading more messages…"}
+                    </span>
                   </>
                 ) : (
                   <span className="text-[10px] text-muted-foreground/35 italic">Showing grouped inbox mail. Older unread emails load automatically.</span>
