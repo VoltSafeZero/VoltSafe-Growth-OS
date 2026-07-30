@@ -1,0 +1,646 @@
+FINAL VERIFICATION AND COMPLETION PROMPT — VOLTSAFE MAIL CANONICAL CATEGORIES + RELATIONSHIP INTELLIGENCE RECOMPUTE
+
+Do not return a planning-only response.
+
+The previous implementation report is not sufficient proof of completion. Complete the remaining verification and correction work now.
+
+Do not publish until every required check below is proven.
+
+==================================================
+PART 1 — VERIFY THE CANONICAL VOLTSAFE MAIL TAXONOMY
+==================================================
+
+The final Inbox structure for every mailbox must be exactly:
+
+Inbox
+├── All
+├── People
+├── Newsletters
+└── Notifications
+
+There must be only three primary categories beneath All:
+
+- People
+- Newsletters
+- Notifications
+
+The following must not appear anywhere in the user-facing Inbox navigation, Smart Inbox groups, breadcrumbs, filter chips, persisted selections, or category labels:
+
+- Priority
+- Starred
+- Updates
+- Promotions
+- Social
+- Forums & Communities
+- Priority Highlights
+
+Do not restore any Priority or star-editing UI.
+
+Historical Gmail STARRED metadata and the backend star route must remain intact and unchanged.
+
+==================================================
+PART 2 — AUDIT THE CURRENT IMPLEMENTATION
+==================================================
+
+Inspect the current post-merge source and prove that the canonical taxonomy is applied consistently across:
+
+- `client/src/pages/gmail-inbox.tsx`
+- `client/src/components/inbox/smart-inbox-grouper.ts`
+- shared Inbox category types
+- sidebar arrays
+- breadcrumb labels
+- category badge configuration
+- client filters
+- server category-count API
+- local mailbox query tokens
+- cache keys
+- persisted preferences
+- mailbox switching logic
+- private mailbox rendering
+- team mailbox rendering
+
+Identify any remaining legacy code paths or duplicated category logic.
+
+Do not fix only the visible sidebar while leaving the obsolete taxonomy active internally.
+
+==================================================
+PART 3 — CANONICAL CATEGORY MAPPING
+==================================================
+
+The canonical internal categories are:
+
+- people
+- newsletters
+- notifications
+
+Legacy provider values must map as follows:
+
+People:
+- people
+- null or unknown values according to the existing safe fallback policy
+
+Newsletters:
+- newsletters
+- promotions
+- forums
+
+Notifications:
+- notifications
+- updates
+- social
+
+Use one authoritative shared normalization helper.
+
+The same helper must drive:
+
+- sidebar categories
+- Smart Inbox grouping
+- list filtering
+- breadcrumbs
+- category counts
+- diagnostic output
+- saved preference migration
+
+A message may appear in only one primary category.
+
+Starred messages must remain visible in their ordinary People, Newsletters, or Notifications category.
+
+==================================================
+PART 4 — UNIVERSAL MAILBOX UI VERIFICATION
+==================================================
+
+Use an authenticated VoltSafe Mail session.
+
+Verify each of these mailboxes independently:
+
+- trevor@voltsafe.com
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+- sales@voltsafe.com
+- support@voltsafe.com
+
+For each mailbox, prove the sidebar shows exactly:
+
+- All
+- People
+- Newsletters
+- Notifications
+
+Confirm:
+
+- no Priority
+- no Starred
+- no Updates
+- no Promotions
+- no Social
+- no Forums & Communities
+- no stale category from the previously selected mailbox
+- no missing private mailbox
+- no endless loader
+- no false empty state
+- no `Local mailbox query failed`
+- no browser-console error
+
+Capture authenticated screenshots for all five mailbox types.
+
+==================================================
+PART 5 — SMART INBOX GROUP VERIFICATION
+==================================================
+
+Smart Inbox must render only:
+
+1. People
+2. Newsletters
+3. Notifications
+4. Seen, only if Seen remains part of the intended design
+
+Do not render:
+
+- Priority
+- Updates
+- Promotions
+- Social
+- Forums
+- any legacy provider category as a standalone section
+
+Verify with real messages that:
+
+- direct human mail appears under People
+- promotional and editorial mail appears under Newsletters
+- transactional and automated system mail appears under Notifications
+- starred messages are not hidden
+- no message appears in more than one primary group
+
+==================================================
+PART 6 — COUNTS MUST RECONCILE EXACTLY
+==================================================
+
+For every selected mailbox, prove:
+
+All unread conversations
+=
+People unread conversations
++
+Newsletters unread conversations
++
+Notifications unread conversations
+
+Use one consistent unit:
+
+- unread conversations, not messages
+
+Report for each mailbox:
+
+- All unread
+- People unread
+- Newsletters unread
+- Notifications unread
+- arithmetic delta
+- sidebar count
+- API count
+- DB count
+- rendered row count
+
+The arithmetic delta must be zero.
+
+Legacy count fields may exist internally for backward compatibility, but they must not be rendered directly.
+
+==================================================
+PART 7 — CATEGORY QUERY TOKENS
+==================================================
+
+Verify production support for:
+
+- `in:people`
+- `in:newsletters`
+- `in:notifications`
+
+All combinations below must return HTTP 200:
+
+- `in:inbox`
+- `in:inbox is:unread`
+- `in:people`
+- `in:people is:unread`
+- `in:newsletters`
+- `in:newsletters is:unread`
+- `in:notifications`
+- `in:notifications is:unread`
+
+Legacy tokens may remain accepted only to migrate old saved state.
+
+They must normalize immediately:
+
+- priority → all
+- promotions → newsletters
+- forums → newsletters
+- updates → notifications
+- social → notifications
+
+==================================================
+PART 8 — PERSISTED STATE AND CACHE MIGRATION
+==================================================
+
+Audit:
+
+- localStorage
+- sessionStorage
+- URL parameters
+- React Query cache
+- persisted query cache
+- server-side user preferences
+
+Requirements:
+
+- old Priority selection resolves to All
+- Promotions and Forums resolve to Newsletters
+- Updates and Social resolve to Notifications
+- old values never recreate legacy sidebar entries
+- user does not need to clear browser storage
+- switching mailbox resets pagination and accumulated rows
+- switching category clears stale grouped rows
+- invalid selected account falls back safely
+- private mailboxes remain visible after refresh
+- cache keys include account, canonical category, view mode, read filter, search, and cursor
+
+==================================================
+PART 9 — RELATIONSHIP INTELLIGENCE RECOMPUTE
+==================================================
+
+The previous report identified a probable SQL schema defect:
+
+- code referenced `to_email`
+- the real column appears to be `to_emails`
+
+Do not assume that single change fully resolves the operation.
+
+Trace and execute the complete path:
+
+Admin
+→ My Mailboxes
+→ Relationship Intelligence
+→ Recompute
+
+Capture:
+
+- frontend mutation
+- request URL and method
+- authenticated user
+- route
+- service
+- SQL
+- PostgreSQL error code and message, if any
+- affected row counts
+- transaction result
+
+The operation must return HTTP 200.
+
+==================================================
+PART 10 — VERIFY THE WARMNESS SQL AGAINST THE REAL SCHEMA
+==================================================
+
+Audit the complete query against the production schema.
+
+Verify:
+
+- `to_emails` actual type
+- whether it is text, array, or JSON
+- sender field
+- recipient expansion
+- alias consistency
+- owner and mailbox scope
+- internal-domain filtering
+- external-contact normalization
+- GROUP BY
+- INSERT column list
+- SELECT column list
+- ON CONFLICT target
+- JSON aggregation
+- first_seen
+- last_seen
+- total_sent
+- total_received
+- warmth score
+- computed_at
+
+If `to_emails` contains multiple recipients, correctly expand it before calculating external relationships.
+
+Do not treat the entire serialized recipient list as one email address.
+
+==================================================
+PART 11 — RELATIONSHIP RECOMPUTE SCOPE
+==================================================
+
+The recompute must use only mailboxes the authenticated user is authorized to use.
+
+Resolve an explicit authorized `source_account_id` set.
+
+Include according to the intended permissions:
+
+- owned work mailbox
+- owned private mailboxes
+- authorized team mailboxes
+
+Exclude:
+
+- another user’s private mailbox
+- inactive account
+- revoked account
+- sync-disabled account where appropriate
+- duplicate account records that would double-count the same source data
+
+Do not scope solely by `email_messages.owner_user_id` unless production evidence proves that field correctly represents every authorized mailbox.
+
+==================================================
+PART 12 — RELATIONSHIP UPSERT CORRECTNESS
+==================================================
+
+Run recomputation twice.
+
+Prove:
+
+- first run inserts or updates expected rows
+- second run creates zero duplicates
+- unique key is correct
+- one normalized external email produces one intended relationship row
+- first_seen remains the earliest date
+- last_seen remains the latest date
+- total_sent is correct
+- total_received is correct
+- mailbox_sources contains unique values
+- warmth score remains between 0 and 100
+- computed_at updates
+- previous valid relationship data remains intact on failure
+
+Use a transaction or safe staging pattern so partial failure cannot corrupt the current dataset.
+
+==================================================
+PART 13 — SAFE ERROR HANDLING
+==================================================
+
+The previous UI exposed the complete failed SQL statement.
+
+That must not happen again.
+
+Frontend failure message should be concise, for example:
+
+“Warmness score recomputation failed. No relationship data was changed. Reference: <correlationId>.”
+
+Server logging should include:
+
+- correlation ID
+- route
+- user ID
+- operation name
+- PostgreSQL error code
+- redacted message
+- duration
+
+Do not expose or log:
+
+- OAuth tokens
+- session cookies
+- raw email bodies
+- full recipient lists
+- raw full SQL in the client
+- unredacted sensitive values
+
+Use the centralized redaction helper.
+
+==================================================
+PART 14 — OVERLAP AND BUTTON STATE
+==================================================
+
+While recomputation is running:
+
+- disable the Recompute button
+- show a pending state
+- prevent a second overlapping run for the same user/workspace
+- return success only after commit
+- restore button state on success or failure
+
+Add a per-user/workspace lock or equivalent guard.
+
+==================================================
+PART 15 — PRODUCTION MAILBOX RECORD AUDIT
+==================================================
+
+Do not modify Sales or Support records in this task unless a direct defect is proven.
+
+Audit and report:
+
+- active trevor@voltsafe.com account
+- revoked duplicate trevor@voltsafe.com account
+- team Sales records
+- team Support records
+
+Confirm whether Sales and Support records represent:
+
+- separate valid team/company-managed access records
+- or accidental duplicates
+
+For the revoked Trevor record, report:
+
+- account ID
+- references by table
+- message count
+- thread count
+- audit dependencies
+- whether it is excluded from active Mail UI
+- whether it is excluded from sending
+- whether it is excluded from sync
+- recommended lifecycle action
+
+Do not delete the revoked account automatically.
+
+Provide evidence-based recommendation only.
+
+==================================================
+PART 16 — REGRESSION TESTS
+==================================================
+
+Add or update tests covering:
+
+Canonical taxonomy:
+- exactly All, People, Newsletters, Notifications
+- Priority absent
+- Starred absent
+- Updates absent
+- Promotions absent
+- Social absent
+- Forums absent
+
+Classification:
+- promotions → newsletters
+- forums → newsletters
+- updates → notifications
+- social → notifications
+- human message → people
+- unknown remains visible through fallback
+- starred remains visible under canonical category
+
+Counts:
+- exact zero-delta reconciliation
+- unread-conversation unit
+- no duplicate thread counting
+
+Mailbox types:
+- work
+- private personal
+- team shared
+- company managed
+
+Switching:
+- mailbox switching
+- category switching
+- refresh
+- old stored preference migration
+- no stale rows
+- no cross-mailbox leakage
+
+Queries:
+- all canonical tokens return 200
+- all unread variants return 200
+- no SQL missing-column errors
+
+Warmness recompute:
+- valid SQL executes
+- multi-recipient handling
+- incoming external
+- outgoing external
+- internal-only excluded
+- unauthorized mailbox excluded
+- revoked account excluded
+- duplicate account source does not double-count
+- idempotent second run
+- rollback on failure
+- no SQL exposed to client
+- correlation ID returned
+
+==================================================
+PART 17 — FULL AUTHENTICATED VERIFICATION
+==================================================
+
+Capture authenticated screenshots showing:
+
+1. trevor@voltsafe.com canonical sidebar
+2. trevor@hyalos.com canonical sidebar
+3. burgesstrevor76@gmail.com canonical sidebar
+4. sales@voltsafe.com canonical sidebar
+5. support@voltsafe.com canonical sidebar
+6. Smart Inbox with only People, Newsletters, Notifications
+7. category switching without stale rows
+8. mailbox switching without stale rows
+9. Recompute button pending state
+10. successful Relationship Intelligence recompute
+11. updated relationship summary after refresh
+12. no raw SQL in any toast
+
+Confirm browser console is clean.
+
+==================================================
+PART 18 — RELEASE GATES
+==================================================
+
+Run:
+
+- all relevant VoltSafe Mail test suites
+- new canonical-category regression tests
+- Relationship Intelligence tests
+- mailbox-permission tests
+- mailbox-switching tests
+- `npm run build`
+
+Verify production or authenticated dev logs contain zero:
+
+- `Local mailbox query failed`
+- `[local-mailbox-error]`
+- Gmail message-list 500s
+- missing-column SQL errors
+- warmness recompute 500s
+- unhandled exceptions
+- raw SQL responses to clients
+
+Do not publish until all release gates pass.
+
+==================================================
+REQUIRED COMPLETION REPORT
+==================================================
+
+MAIL TAXONOMY
+
+Root cause:
+First bad commit:
+Exact files changed:
+Canonical categories restored:
+Legacy categories remaining in visible UI:
+Priority UI remaining:
+Star-editing UI remaining:
+Preference migration:
+Cache invalidation:
+Mailbox-switching result:
+Cross-mailbox leakage:
+Count deltas by mailbox:
+
+RELATIONSHIP INTELLIGENCE
+
+Root cause:
+Exact PostgreSQL error:
+Recipient column and type:
+Mailbox-scoping method:
+Rows before:
+Rows inserted:
+Rows updated:
+Duplicates:
+Second-run changes:
+Unauthorized mailbox rows:
+Score bounds:
+Transaction verified:
+Overlap guard:
+Raw SQL exposed after fix:
+Correlation ID:
+
+MAILBOX RECORD AUDIT
+
+Active Trevor account ID:
+Revoked Trevor account ID:
+Sales account interpretation:
+Support account interpretation:
+Revoked-account references:
+Recommended lifecycle action:
+Any destructive action taken: NO
+
+VALIDATION
+
+Tests:
+Build:
+Authenticated screenshots:
+Browser console:
+Commit SHA:
+Parent SHA:
+git status --short:
+Pushed to origin/main:
+Production serving commit:
+Ready to publish:
+Complete:
+
+==================================================
+DEFINITION OF DONE
+==================================================
+
+Complete only when:
+
+- every mailbox shows only All, People, Newsletters, Notifications
+- no obsolete category appears anywhere
+- Priority and star-editing UI remain removed
+- historical star data remains preserved
+- private mailboxes remain visible
+- counts reconcile exactly
+- canonical queries return 200
+- persisted legacy state migrates automatically
+- Relationship Intelligence recompute returns HTTP 200
+- warmness rows are correct and idempotent
+- no SQL is exposed to users
+- authenticated screenshots prove the result
+- all tests pass
+- build passes
+- no production-blocking errors remain

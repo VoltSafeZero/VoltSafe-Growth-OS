@@ -216,46 +216,75 @@ export async function runBackfillJob(opts: BackfillOptions): Promise<void> {
 
 // ── Compute warmness scores ───────────────────────────────────────────────────
 // Called after a backfill or on demand. Upserts contact_relationships rows.
+//
+// SQL correctness notes:
+//   - email_messages.direction uses 'inbound' / 'outbound' (not 'received' / 'sent').
+//   - email_messages.to_emails is a JSON array string (e.g. '["alice@acme.com"]').
+//     Outbound rows are expanded with jsonb_array_elements_text so each recipient
+//     becomes its own row — otherwise a multi-recipient serialized list would be
+//     stored as one email address.  Inbound rows use from_email directly.
+//   - The internal-domain filter is applied on ext_email AFTER expansion.
+//   - userFilter scopes by owner_user_id (no table alias — the table is inline).
 export async function computeWarmness(userId?: number): Promise<number> {
-  const userFilter = userId ? `AND em.owner_user_id = ${userId}` : "";
+  const userFilterInbound  = userId ? `AND owner_user_id = ${userId}` : "";
+  const userFilterOutbound = userId ? `AND owner_user_id = ${userId}` : "";
 
-  // Build relationship stats from email_messages
+  // Build relationship stats from email_messages.
+  // Uses UNION ALL to handle two separate expansion shapes:
+  //   1. Inbound  — one row per message, ext_email = from_email
+  //   2. Outbound — one row per RECIPIENT via jsonb_array_elements_text(to_emails::jsonb)
   await db.execute(sql.raw(`
-    INSERT INTO contact_relationships (email_address, domain, first_seen, last_seen, total_sent, total_received, warmness_score, mailbox_sources, computed_at)
+    INSERT INTO contact_relationships
+      (email_address, domain, first_seen, last_seen, total_sent, total_received, warmness_score, mailbox_sources, computed_at)
     SELECT
       ext_email,
       LOWER(SPLIT_PART(ext_email, '@', 2)) AS domain,
-      MIN(sent_at) AS first_seen,
-      MAX(sent_at) AS last_seen,
-      COUNT(*) FILTER (WHERE direction = 'sent') AS total_sent,
-      COUNT(*) FILTER (WHERE direction = 'received') AS total_received,
+      MIN(sent_at)                                                    AS first_seen,
+      MAX(sent_at)                                                    AS last_seen,
+      COUNT(*) FILTER (WHERE direction = 'outbound')                  AS total_sent,
+      COUNT(*) FILTER (WHERE direction = 'inbound')                   AS total_received,
       LEAST(100, GREATEST(0,
         100
         - GREATEST(0, EXTRACT(DAY FROM NOW() - MAX(sent_at))::int) / 2
         + LEAST(30, (COUNT(*)::int / 3))
-      ))::int AS warmness_score,
-      '[]'::jsonb AS mailbox_sources,
-      NOW() AS computed_at
+      ))::int                                                         AS warmness_score,
+      '[]'::jsonb                                                     AS mailbox_sources,
+      NOW()                                                           AS computed_at
     FROM (
+      -- Inbound: one row per message, ext_email = sender address
+      SELECT from_email AS ext_email, direction, sent_at, owner_user_id
+      FROM email_messages
+      WHERE direction = 'inbound'
+        AND sent_at IS NOT NULL
+        AND from_email IS NOT NULL
+        ${userFilterInbound}
+
+      UNION ALL
+
+      -- Outbound: expand JSON recipient array — one row per external recipient
       SELECT
-        CASE WHEN direction = 'sent' THEN to_emails ELSE from_email END AS ext_email,
+        jsonb_array_elements_text(to_emails::jsonb) AS ext_email,
         direction,
         sent_at,
         owner_user_id
       FROM email_messages
-      WHERE sent_at IS NOT NULL
-        AND (from_email NOT ILIKE '%voltsafe.com%' OR to_emails NOT ILIKE '%voltsafe.com%')
-        ${userFilter}
+      WHERE direction = 'outbound'
+        AND sent_at IS NOT NULL
+        AND to_emails IS NOT NULL
+        AND to_emails NOT IN ('[]', 'null', '')
+        ${userFilterOutbound}
     ) raw
-    WHERE ext_email IS NOT NULL AND ext_email NOT ILIKE '%voltsafe.com%'
+    WHERE ext_email IS NOT NULL
+      AND ext_email <> ''
+      AND ext_email NOT ILIKE '%voltsafe.com%'
     GROUP BY ext_email
     ON CONFLICT (email_address) DO UPDATE SET
-      first_seen = LEAST(contact_relationships.first_seen, EXCLUDED.first_seen),
-      last_seen = GREATEST(contact_relationships.last_seen, EXCLUDED.last_seen),
-      total_sent = EXCLUDED.total_sent,
+      first_seen    = LEAST(contact_relationships.first_seen, EXCLUDED.first_seen),
+      last_seen     = GREATEST(contact_relationships.last_seen, EXCLUDED.last_seen),
+      total_sent    = EXCLUDED.total_sent,
       total_received = EXCLUDED.total_received,
       warmness_score = EXCLUDED.warmness_score,
-      computed_at = NOW()
+      computed_at   = NOW()
   `));
 
   // Link to contacts where email matches
@@ -267,6 +296,7 @@ export async function computeWarmness(userId?: number): Promise<number> {
       AND cr.contact_id IS NULL
   `));
 
-  const [row] = await db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM contact_relationships`)) as any;
+  const result = await db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM contact_relationships`)) as any;
+  const row = Array.isArray(result) ? result[0] : (result?.rows?.[0] ?? result);
   return Number((row as any)?.cnt ?? 0);
 }

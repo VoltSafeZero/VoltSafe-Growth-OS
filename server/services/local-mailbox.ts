@@ -252,6 +252,14 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
       // Phase 3: use derived columns — includes CATEGORY_PERSONAL (maps to smart_category='people').
       where.push(`is_inbox = true`);
       where.push(`smart_category = 'people'`);
+    } else if (rawLabel === "NEWSLETTERS") {
+      // Canonical VoltSafe category: promotional + editorial mail (promotions ∪ forums).
+      where.push(`is_inbox = true`);
+      where.push(`smart_category IN ('promotions', 'forums')`);
+    } else if (rawLabel === "NOTIFICATIONS") {
+      // Canonical VoltSafe category: transactional + social automation (updates ∪ social).
+      where.push(`is_inbox = true`);
+      where.push(`smart_category IN ('updates', 'social')`);
     } else if (label === "INBOX") {
       // Phase 3: is_inbox is the canonical VoltSafe inbox predicate. It covers:
       //   (INBOX OR CATEGORY_PERSONAL OR CATEGORY_UPDATES OR CATEGORY_PROMOTIONS

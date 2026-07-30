@@ -5833,16 +5833,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Category sub-inbox views fetch ONLY relevant messages from the server so
   // the first page already contains useful data — prevents the "People spins"
   // issue where the loader had to page through thousands of mixed-category messages.
-  // "in:people" uses the custom filter added to buildQClauses in local-mailbox.ts
-  // (INBOX + no CATEGORY_* labels). All other category queries use Gmail's own
-  // "in:<category>" syntax which buildQClauses already maps to CATEGORY_* labels.
+  // All three canonical category tokens are handled by buildQClauses in local-mailbox.ts:
+  //   in:people        → is_inbox=true AND smart_category='people'
+  //   in:newsletters   → is_inbox=true AND smart_category IN ('promotions','forums')
+  //   in:notifications → is_inbox=true AND smart_category IN ('updates','social')
+  // Server-side token handling means pagination (loadMoreInbox) uses the same predicate
+  // as page 1, keeping cursor alignment correct and avoiding client-side-only filtering.
   const inboxCategoryQ = useMemo(() => {
     if (searchQuery) return searchQuery;
     if (inboxCategory === "people")        return "in:people is:unread";
-    // Newsletters = promotions + forums; notifications = updates + social.
-    // No single Gmail query covers both, so fetch all inbox and filter client-side.
-    if (inboxCategory === "newsletters")   return "in:inbox is:unread";
-    if (inboxCategory === "notifications") return "in:inbox is:unread";
+    if (inboxCategory === "newsletters")   return "in:newsletters is:unread";
+    if (inboxCategory === "notifications") return "in:notifications is:unread";
     return "in:inbox";
   }, [searchQuery, inboxCategory]);
 

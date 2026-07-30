@@ -262,12 +262,12 @@ check(
   backfillSrc.includes("to_emails") && !backfillSrc.includes("to_email\b")
 );
 check(
-  'computeWarmness CASE WHEN uses to_emails',
-  /CASE WHEN direction = 'sent' THEN to_emails/.test(backfillSrc)
+  'computeWarmness uses UNION ALL to expand to_emails JSON array',
+  /UNION ALL/.test(backfillSrc) && /jsonb_array_elements_text\(to_emails::jsonb\)/.test(backfillSrc)
 );
 check(
-  'computeWarmness WHERE clause uses to_emails',
-  /to_emails NOT ILIKE/.test(backfillSrc)
+  'computeWarmness outbound expansion uses to_emails',
+  /jsonb_array_elements_text\(to_emails::jsonb\)/.test(backfillSrc)
 );
 check(
   'computeWarmness does NOT reference singular to_email column',

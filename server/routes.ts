@@ -11461,7 +11461,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         //
         // Spam/trash/category folders are fully mirrored locally via incremental sync, so
         // overflow adds no value and is actively harmful (Gmail doesn't understand in:updates etc).
-        const isSpamOrTrashQuery = /\bin:(spam|trash|junk|updates|promotions|social|forums)\b/i.test(q);
+        // Canonical VoltSafe category tokens (people/newsletters/notifications) and legacy
+        // Gmail category tokens are all served purely from the local DB mirror — Gmail's
+        // API search index doesn't understand these labels, so overflowing to Gmail for
+        // them produces wrong results and silently overwrites local derived-column data.
+        const isSpamOrTrashQuery = /\bin:(spam|trash|junk|updates|promotions|social|forums|people|newsletters|notifications)\b/i.test(q);
 
         const shouldOverflow =
           canOverflow &&
@@ -29408,13 +29412,43 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // POST /api/my/mailbox/warmness/compute — trigger warmness recompute
+  // In-progress guard: prevents two concurrent recomputes for the same user.
+  const _warmnessInProgress = new Set<number>();
+
   app.post("/api/my/mailbox/warmness/compute", requireAuth, async (req, res) => {
+    const correlationId = `wrm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const userId = req.session.userId as number;
+    const start = Date.now();
+
+    if (_warmnessInProgress.has(userId)) {
+      return res.status(409).json({
+        message: "A warmness recomputation is already running for your account. Please wait for it to finish.",
+        correlationId,
+      });
+    }
+    _warmnessInProgress.add(userId);
+
     try {
-      const userId = req.session.userId as number;
       const { computeWarmness } = await import("./services/backfill-service");
       const count = await computeWarmness(userId);
-      res.json({ computed: count });
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
+      console.log(`[warmness] correlationId=${correlationId} userId=${userId} computed=${count} duration=${Date.now()-start}ms`);
+      res.json({ computed: count, correlationId });
+    } catch (e: any) {
+      // Log the full error server-side (includes SQL detail) but return only a
+      // safe summary to the client — never expose raw SQL or stack traces.
+      const pgCode: string | undefined = e?.code;
+      console.error(
+        `[warmness-error] correlationId=${correlationId} route=POST /api/my/mailbox/warmness/compute` +
+        ` userId=${userId} operation=computeWarmness pgCode=${pgCode ?? "n/a"} duration=${Date.now()-start}ms` +
+        ` message=${String(e?.message ?? "unknown").substring(0, 300)}`
+      );
+      res.status(500).json({
+        message: `Warmness score recomputation failed. No relationship data was changed. Reference: ${correlationId}.`,
+        correlationId,
+      });
+    } finally {
+      _warmnessInProgress.delete(userId);
+    }
   });
 
   // ── Phase 3: Relationship Graph ──────────────────────────────────────────
