@@ -1,0 +1,231 @@
+FINAL POST-MERGE RELEASE GATE — PRIVATE MAILBOX VISIBILITY
+
+Do not publish yet.
+
+Current candidate commit:
+
+3e4b1b50
+
+Tasks 201 and 202 were still merging when the last report was produced. Wait until both merges are fully complete, then perform post-merge reconciliation before making any completion claim.
+
+==================================================
+1. COMPLETE POST-MERGE RECONCILIATION
+==================================================
+
+Confirm Tasks 201 and 202 have landed.
+
+Report:
+
+- Task 201 merge commit
+- Task 202 merge commit
+- current HEAD
+- parent SHA
+- origin/main SHA
+- git status --short
+
+Inspect whether either merge changed:
+
+- getAccessibleAccounts
+- resolveAccount
+- InboxCategoryNav
+- INBOX_CATEGORY_TABS
+- private mailbox rendering
+- personal mailbox rendering
+- team mailbox rendering
+- reconnect badge logic
+- mailbox account API response
+- active/inactive mailbox filtering
+
+If any merge overwrote or altered commit 3e4b1b50, reconcile the changes and rerun every test.
+
+==================================================
+2. VERIFY PRODUCTION ACCOUNT DATA AGAIN
+==================================================
+
+Use the production database only.
+
+For:
+
+- trevor@voltsafe.com
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+report:
+
+- production account ID
+- auth_status
+- is_active
+- sync_enabled
+- visibility_type
+- last_incremental_sync_at
+- message count
+- unique thread count
+
+Do not expose tokens.
+
+Confirm the production IDs remain:
+
+- trevor@voltsafe.com → 1
+- burgesstrevor76@gmail.com → 11
+- trevor@hyalos.com → 13
+
+==================================================
+3. AUTHENTICATED PRODUCTION UI VERIFICATION
+==================================================
+
+Use Trevor’s authenticated production session.
+
+Capture screenshots showing all three mailbox entries simultaneously in VoltSafe Mail:
+
+- trevor@voltsafe.com
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+For each mailbox:
+
+- click it;
+- confirm selected account ID changes correctly;
+- confirm breadcrumb changes;
+- confirm the sidebar shows:
+  - All
+  - People
+  - Newsletters
+  - Notifications
+- confirm its own messages load;
+- confirm no rows from another mailbox remain;
+- confirm no endless loader;
+- confirm no Local mailbox query failed;
+- confirm refresh preserves the mailbox entry.
+
+Do not use an unauthenticated login screen as evidence.
+
+==================================================
+4. VERIFY INACTIVE/EXPIRED OWNED MAILBOX POLICY
+==================================================
+
+The new behaviour allows an owner to browse historical local mail even when OAuth is inactive.
+
+Verify this does not create unsafe behaviour.
+
+For an inactive owned mailbox:
+
+- mailbox remains visible;
+- Reconnect badge appears;
+- historical local messages may be read;
+- send is disabled;
+- reply is disabled or explicitly requires reconnect;
+- sync jobs exclude it;
+- Gmail API mutations are blocked;
+- non-owners cannot browse it;
+- team/shared inactive mailboxes remain excluded unless policy explicitly allows otherwise.
+
+Add tests for these exact rules.
+
+==================================================
+5. VERIFY THE ACCOUNT API CONTRACT
+==================================================
+
+Compare:
+
+- Admin → My Mailboxes API
+- VoltSafe Mail accounts API
+- session/bootstrap mailbox data
+
+For each of the three Trevor mailboxes, report whether every endpoint returns it.
+
+The APIs should agree on mailbox identity and ownership while still exposing truthful operational status.
+
+Do not make inactive accounts look Active.
+
+==================================================
+6. VERIFY SHARED NAV COMPONENT
+==================================================
+
+Confirm there is exactly one reusable InboxCategoryNav implementation.
+
+It must be used by:
+
+- active personal mailbox
+- no-personal fallback
+- private mailbox
+- team mailbox
+
+Add a structural regression test that fails if another inline category array or duplicated category navigation loop is introduced.
+
+==================================================
+7. FULL TEST GATE
+==================================================
+
+Run fresh after both merges:
+
+- private-mailbox-visibility.test.cjs
+- inbox-sidebar-categories.test.cjs
+- canonical-categories.test.cjs
+- mailbox-switching tests
+- mailbox-privacy tests
+- Gmail reconnect tests
+- mailbox account-resolution tests
+- mail-permissions tests
+- unread-loader tests
+- category reconciliation tests
+- full Mail suite
+- npm run build
+
+Report passed, failed, skipped and exit code for every command.
+
+Do not describe stale workflow output as passing evidence. Start a fresh run.
+
+==================================================
+8. FINAL RELEASE COMMIT
+==================================================
+
+After reconciliation and authenticated verification:
+
+- create one final release commit;
+- report full SHA;
+- report parent SHA;
+- list every production file changed;
+- list every test file changed;
+- confirm pushed to origin/main;
+- report git status --short.
+
+Do not publish automatically.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Task 201 merged: YES/NO
+Task 202 merged: YES/NO
+Post-merge conflicts found:
+Current HEAD:
+Origin/main:
+git status --short:
+
+Production IDs:
+- trevor@voltsafe.com:
+- trevor@hyalos.com:
+- burgesstrevor76@gmail.com:
+
+Admin API returns all three: YES/NO
+Mail API returns all three: YES/NO
+Session/bootstrap returns all three: YES/NO
+
+All three render in authenticated production UI: YES/NO
+All three independently selectable: YES/NO
+Private category tabs present: YES/NO
+Refresh preserves entries: YES/NO
+Cross-mailbox leakage: 0 or count
+Endless loaders: 0 or count
+Mailbox request errors: 0 or count
+
+Inactive-owned mailbox send blocked: YES/NO
+Inactive-owned mailbox sync blocked: YES/NO
+Non-owner access blocked: YES/NO
+
+Shared InboxCategoryNav component: YES/NO
+Tests:
+Build:
+Final release SHA:
+Pushed to main: YES/NO
+Ready to publish: YES/NO

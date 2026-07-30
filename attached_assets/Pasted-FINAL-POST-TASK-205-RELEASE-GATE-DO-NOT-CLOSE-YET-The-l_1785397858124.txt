@@ -1,0 +1,259 @@
+FINAL POST-TASK-205 RELEASE GATE — DO NOT CLOSE YET
+
+The latest report incorrectly says the release gate is complete while Task 205 is still waiting to merge.
+
+Current pushed commit:
+
+781e6d1a
+
+Do not publish or declare completion until Task 205 has merged and the resulting combined HEAD has been fully reconciled.
+
+==================================================
+1. WAIT FOR TASK 205 TO MERGE
+==================================================
+
+Wait until Task 205 is no longer pending or waiting for the merge lock.
+
+Report:
+
+- Task 205 commit SHA
+- merge/rebase result
+- current HEAD after Task 205
+- parent SHA
+- origin/main SHA
+- git status --short
+
+If Task 205 fails to merge, report the exact platform error. Do not silently omit it.
+
+==================================================
+2. POST-MERGE DIFF AUDIT
+==================================================
+
+Compare the final HEAD against commit 781e6d1a.
+
+Determine whether Task 205 changed any of:
+
+- server/routes.ts
+- POST /api/gmail/send
+- getAccessibleAccounts
+- resolveAccount
+- InboxCategoryNav
+- INBOX_CATEGORY_TABS
+- private mailbox rendering
+- disconnected mailbox rendering
+- reconnect badges
+- mailbox account APIs
+- mailbox query/cache keys
+- unread loader logic
+- any tests touched in this release
+
+Report every overlapping file and whether reconciliation was required.
+
+Preserve these required behaviours:
+
+- active owned private mailboxes appear;
+- inactive owned mailboxes remain visible with Reconnect;
+- inactive mailboxes may expose historical local mail to their owner;
+- inactive mailboxes cannot send;
+- inactive mailboxes are excluded from sync;
+- non-owners cannot browse inactive private mailboxes;
+- all mailbox types show All / People / Newsletters / Notifications.
+
+==================================================
+3. VERIFY THE SEND GUARD AT RUNTIME
+==================================================
+
+The new guard returns:
+
+403
+reconnectRequired: true
+
+for inactive accounts.
+
+Add or run runtime tests proving:
+
+- active owned mailbox may proceed to provider sending;
+- inactive owned mailbox receives 403 with reconnectRequired=true;
+- inactive mailbox does not invoke Gmail;
+- non-owner receives 403;
+- active team mailbox permissions remain intact;
+- no fallback silently sends through another account;
+- reply, forward and new-compose all resolve the correct account.
+
+Do not rely only on source-analysis tests.
+
+==================================================
+4. VERIFY PRODUCTION ACCOUNT STATE READ-ONLY
+==================================================
+
+Use the production database only.
+
+Confirm:
+
+- account 1 — trevor@voltsafe.com
+- account 11 — burgesstrevor76@gmail.com
+- account 13 — trevor@hyalos.com
+- account 10 — inactive duplicate trevor@voltsafe.com
+
+Report:
+
+- is_active
+- auth_status
+- sync_enabled
+- visibility_type
+- last_incremental_sync_at
+- message count
+- thread count
+
+Do not expose tokens and do not modify production.
+
+Confirm account 10:
+
+- is excluded from sync;
+- is excluded from active mailbox resolution;
+- is not used for sending;
+- does not duplicate unread or category counts;
+- is retained only for historical references, if any.
+
+==================================================
+5. AUTHENTICATED FINAL UI VERIFICATION
+==================================================
+
+Use Trevor’s authenticated session against the final combined HEAD.
+
+Capture screenshots showing:
+
+1. trevor@voltsafe.com visible and selectable
+2. burgesstrevor76@gmail.com visible and selectable
+3. trevor@hyalos.com visible and selectable
+4. Sales visible and selectable
+5. Support visible and selectable
+
+For each mailbox confirm the sidebar shows exactly:
+
+- All
+- People
+- Newsletters
+- Notifications
+
+Confirm:
+
+- no Priority
+- no Starred
+- no Updates
+- no Promotions
+- no Social
+- no Forums
+- no endless loader
+- no stale rows after switching
+- no Local mailbox query failed
+
+For an inactive fixture mailbox, capture the Reconnect state and verify sending is blocked.
+
+==================================================
+6. VERIFY SHARED COMPONENT COUNT
+==================================================
+
+Task 201/202 introduced a fifth InboxCategoryNav usage.
+
+Document all five call sites:
+
+- active personal
+- no-personal/unified fallback
+- private
+- team
+- disconnected or All-Inboxes path
+
+Confirm there remains exactly one category-loop implementation inside InboxCategoryNav.
+
+Add a structural test that fails if:
+
+- another inline INBOX_CATEGORY_TABS.map is introduced;
+- another hand-written All/People/Newsletters/Notifications array is added;
+- a mailbox type stops using InboxCategoryNav.
+
+==================================================
+7. FRESH FULL TEST RUN
+==================================================
+
+Run after Task 205 merges:
+
+- inbox-sidebar-categories
+- canonical-categories
+- private-mailbox-visibility
+- inactive-mailbox-policy
+- mailbox-switching
+- mailbox-privacy
+- Gmail reconnect
+- account resolution
+- mail-permissions
+- permissions
+- unread-filter-server-side
+- smart-inbox tests
+- inbox-visibility
+- category reconciliation
+- runtime inactive-send tests
+- full Mail suite
+- npm run build
+
+Report passed, failed, skipped and exit code for every command.
+
+Do not use stale workflow logs as evidence.
+
+==================================================
+8. FINAL RELEASE COMMIT
+==================================================
+
+If reconciliation changes are needed after Task 205:
+
+- create a new final release commit;
+- push it to origin/main.
+
+Report:
+
+- full final SHA
+- parent SHA
+- all production files changed
+- all test files changed
+- git status --short
+- origin/main SHA
+
+Do not publish automatically.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Task 205 merged: YES/NO
+Task 205 SHA:
+Overlapping files:
+Reconciliation required: YES/NO
+
+Current HEAD:
+Origin/main:
+git status --short:
+
+Production account 1 valid: YES/NO
+Production account 11 valid: YES/NO
+Production account 13 valid: YES/NO
+Duplicate account 10 safely excluded: YES/NO
+
+Inactive send returns reconnectRequired: YES/NO
+Inactive Gmail call prevented: YES/NO
+Wrong-account fallback prevented: YES/NO
+Non-owner inactive access blocked: YES/NO
+
+All five mailboxes visible: YES/NO
+Canonical categories on all mailbox types: YES/NO
+Authenticated screenshots captured: YES/NO
+Cross-mailbox leakage: 0 or count
+Endless loaders: 0 or count
+Mailbox request errors: 0 or count
+
+Tests:
+Build:
+Final release SHA:
+Pushed to main: YES/NO
+Ready to publish: YES/NO
+
+Only return READY TO PUBLISH after Task 205 has merged and the final combined HEAD passes every gate.
