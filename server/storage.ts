@@ -91,7 +91,7 @@ export interface IStorage {
   ensureAccountForLead(leadId: number): Promise<void>;
   backfillAccountsForLeads(): Promise<number>;
 
-  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; page?: number; limit?: number; onlyPromoted?: boolean }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
+  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; commStatus?: string; page?: number; limit?: number; onlyPromoted?: boolean }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
   getAccount(id: number): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
   updateAccount(id: number, data: Partial<InsertAccount>): Promise<Account | undefined>;
@@ -748,7 +748,7 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; type?: string; country?: string; stateProvince?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string; onlyPromoted?: boolean }) {
+  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; commStatus?: string; type?: string; country?: string; stateProvince?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string; onlyPromoted?: boolean }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -811,6 +811,53 @@ export class DatabaseStorage implements IStorage {
     // is accepted for UI parity with Leads but has no filtering effect yet.
     if (options?.onlyPromoted) {
       conditions.push(sql`(accounts.converted_from_lead_id IS NULL OR EXISTS (SELECT 1 FROM leads WHERE leads.id = accounts.converted_from_lead_id AND leads.status = 'converted'))`);
+    }
+
+    // ── commStatus filter ─────────────────────────────────────────────────
+    // A thread is considered "linked" to an account via two paths:
+    //   Direct path:  email_threads.primary_account_id = accounts.id
+    //   Contact path: email_threads.primary_contact_id IN (
+    //                   SELECT contact_id FROM account_contacts WHERE account_id = accounts.id
+    //                 )
+    // "recently_contacted" = a linked thread whose last activity is within 30 days.
+    // "stale"              = has a linked thread but none within 30 days.
+    // "never_contacted"    = no linked thread at all.
+    if (options?.commStatus && options.commStatus !== "all") {
+      const cs = options.commStatus;
+
+      // Correlated subquery: any thread reachable via direct OR contact path
+      const anyThreadSql = `
+        EXISTS (
+          SELECT 1 FROM email_threads et
+          WHERE et.primary_account_id = accounts.id
+             OR et.primary_contact_id IN (
+                  SELECT ac.contact_id FROM account_contacts ac
+                  WHERE ac.account_id = accounts.id
+                )
+        )`;
+
+      // Correlated subquery: any such thread with recent activity (within 30 days)
+      const recentThreadSql = `
+        EXISTS (
+          SELECT 1 FROM email_threads et
+          WHERE (et.primary_account_id = accounts.id
+                 OR et.primary_contact_id IN (
+                      SELECT ac.contact_id FROM account_contacts ac
+                      WHERE ac.account_id = accounts.id
+                    ))
+            AND GREATEST(
+                  COALESCE(et.last_inbound_at, et.created_at),
+                  COALESCE(et.last_outbound_at, et.created_at)
+                ) >= NOW() - INTERVAL '30 days'
+        )`;
+
+      if (cs === "recently_contacted") {
+        conditions.push(sql.raw(recentThreadSql));
+      } else if (cs === "stale") {
+        conditions.push(sql.raw(`${anyThreadSql} AND NOT (${recentThreadSql})`));
+      } else if (cs === "never_contacted") {
+        conditions.push(sql.raw(`NOT (${anyThreadSql})`));
+      }
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
