@@ -220,7 +220,7 @@ app.use((req, res, next) => {
 (async () => {
   // Run schema migrations FIRST before any route setup queries the DB
   try {
-    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema, migrateCrmAiSummarySchema, migrateScheduledEmailColumns, migrateShorePowerColumn, migrateLeadWebsiteColumn, migrateSpamTrustedSenders, migrateCleanInternalAutoLinkRules, migrateTaskContactId, migrateEmailSignaturesSchema, migrateSignatureCtaSchema, migrateEmailRecipientsSchema, migrateInternalEngagementSchema, migrateSignatureCtaAssetColumns, migrateCtaFileData, migrateCtaOriginalName, migrateDerivedLabelColumns, migrateBlockedSenders, migrateCampaignTrackingTables } = await import("./seed-production");
+    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema, migrateCrmAiSummarySchema, migrateScheduledEmailColumns, migrateShorePowerColumn, migrateLeadWebsiteColumn, migrateSpamTrustedSenders, migrateCleanInternalAutoLinkRules, migrateTaskContactId, migrateEmailSignaturesSchema, migrateSignatureCtaSchema, migrateEmailRecipientsSchema, migrateInternalEngagementSchema, migrateSignatureCtaAssetColumns, migrateCtaFileData, migrateCtaOriginalName, migrateDerivedLabelColumns, migrateBlockedSenders, migrateCampaignTrackingTables, migrateAccountHeatScores } = await import("./seed-production");
     await migrateUserSchema();
     await migrateEmailSchema();
     await migrateCalendarSchema();
@@ -264,6 +264,7 @@ app.use((req, res, next) => {
     );
     await migrateBlockedSenders();
     await migrateCampaignTrackingTables();
+    await migrateAccountHeatScores();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }

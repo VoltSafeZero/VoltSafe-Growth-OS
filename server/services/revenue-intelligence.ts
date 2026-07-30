@@ -1094,3 +1094,46 @@ export async function getThreadAccountMomentum(threadId: string): Promise<Accoun
     return null;
   }
 }
+
+// ─── Persist heat scores to account_heat_scores ───────────────────────────────
+// Upserts engagement scores for every account that has email engagement data.
+// Accounts with no data are left without a row (they sort last via COALESCE to 0).
+// This is intentionally fire-and-forget: callers do NOT await the result.
+
+let _lastHeatRefresh = 0;
+const HEAT_REFRESH_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+export async function refreshAccountHeatScores(force = false): Promise<void> {
+  const now = Date.now();
+  if (!force && now - _lastHeatRefresh < HEAT_REFRESH_TTL_MS) return;
+  _lastHeatRefresh = now;
+  try {
+    // Compute scores for ALL accounts that have engagement data (no LIMIT).
+    // Formula matches getEngagementHeatmap: min(100, round(sqrt(opens)*12 + clicks*3))
+    await db.execute(sql.raw(`
+      INSERT INTO account_heat_scores (account_id, score, updated_at)
+      SELECT
+        et.primary_account_id AS account_id,
+        LEAST(100, ROUND(
+          SQRT(GREATEST(COUNT(DISTINCT CASE
+            WHEN ee.event_type='open' AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
+            THEN ee.id END)::NUMERIC, 0)) * 12
+          + COUNT(DISTINCT CASE
+              WHEN ee.event_type='click' AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
+              THEN ee.id END) * 3
+        ))::INTEGER AS score,
+        NOW() AS updated_at
+      FROM email_threads et
+      JOIN email_messages em ON em.gmail_thread_id = et.gmail_thread_id AND em.direction = 'outbound'
+      JOIN email_tracking_pixels p ON p.gmail_message_id = em.gmail_message_id
+      LEFT JOIN email_engagement_events ee ON ee.tracking_id = p.tracking_id
+      WHERE et.primary_account_id IS NOT NULL
+      GROUP BY et.primary_account_id
+      ON CONFLICT (account_id) DO UPDATE
+        SET score = EXCLUDED.score,
+            updated_at = EXCLUDED.updated_at
+    `));
+  } catch (err) {
+    console.warn("[ri] refreshAccountHeatScores error (non-fatal):", err);
+  }
+}

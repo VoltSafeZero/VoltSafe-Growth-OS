@@ -1798,6 +1798,28 @@ export async function migrateBlockedSenders(): Promise<void> {
   }
 }
 
+export async function migrateAccountHeatScores(): Promise<void> {
+  try {
+    // account_heat_scores — persisted engagement scores for server-side ORDER BY.
+    // Populated by refreshAccountHeatScores() in revenue-intelligence.ts.
+    // account_id is the PK so upserts are safe to run concurrently.
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS account_heat_scores (
+        account_id  INTEGER PRIMARY KEY,
+        score       INTEGER NOT NULL DEFAULT 0,
+        updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_account_heat_scores_score
+        ON account_heat_scores (score DESC)
+    `);
+    console.log("[migration] account_heat_scores table ready.");
+  } catch (err) {
+    console.error("[migration] migrateAccountHeatScores error (non-fatal):", err);
+  }
+}
+
 export async function migrateCampaignTrackingTables(): Promise<void> {
   try {
     // campaign_recipients — one row per (campaign × contact/email) delivery.

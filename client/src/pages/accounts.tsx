@@ -170,10 +170,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     }
   }, []);
 
-  // When sorting by heat score we fetch up to 500 accounts in a single page so
-  // the client-side reorder covers the complete dataset (not just the loaded window).
-  const isHeatSort = sortOption === "heat_score:desc";
-  const PAGE_SIZE = isHeatSort ? 500 : 100;
+  const PAGE_SIZE = 100;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Account[]; total: number; page: number; totalPages: number }>({
     queryKey: ["/api/accounts", { search, industry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "all" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, country: countryFilter === "all" ? "" : countryFilter, state: regionFilter === "all" ? "" : regionFilter, priority: priorityFilter === "all" ? "" : priorityFilter, sort: sortOption }],
     queryFn: async ({ pageParam }) => {
@@ -184,8 +181,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
       if (countryFilter !== "all") params.set("country", countryFilter);
       if (regionFilter !== "all") params.set("state", regionFilter);
       if (priorityFilter !== "all") params.set("priority", priorityFilter);
-      // heat_score is sorted client-side after merging heatmap data; don't send to backend
-      if (sortOption !== "default" && !isHeatSort) { const [key, order] = sortOption.split(":"); params.set("sortBy", key); params.set("sortOrder", order); }
+      // All sorts (including heat_score) are handled server-side.
+      if (sortOption !== "default") { const [key, order] = sortOption.split(":"); params.set("sortBy", key); params.set("sortOrder", order); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
       const res = await fetch(`/api/accounts?${params}`, { credentials: "include" });
@@ -371,11 +368,9 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     let list = allAccounts;
     if (heatFilter === "hot") list = list.filter(a => (heatScoreMap.get(a.id)?.score ?? 0) >= 60);
     else if (heatFilter === "warm") list = list.filter(a => (heatScoreMap.get(a.id)?.score ?? 0) >= 30);
-    if (sortOption === "heat_score:desc") {
-      list = [...list].sort((a, b) => (heatScoreMap.get(b.id)?.score ?? 0) - (heatScoreMap.get(a.id)?.score ?? 0));
-    }
+    // heat_score order is now provided by the backend; no client-side resort needed.
     return list;
-  }, [allAccounts, heatFilter, heatScoreMap, sortOption]);
+  }, [allAccounts, heatFilter, heatScoreMap]);
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">

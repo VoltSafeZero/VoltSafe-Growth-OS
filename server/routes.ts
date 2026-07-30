@@ -1034,6 +1034,7 @@ export async function registerRoutes(
       getAccountActivityTimeline,
       getAccountOpenOpportunities,
       getThreadAccountMomentum,
+      refreshAccountHeatScores,
     } = await import("./services/revenue-intelligence");
 
     app.get("/api/revenue-intelligence/command-center", requireAuth, async (req, res) => {
@@ -1048,6 +1049,9 @@ export async function registerRoutes(
         const limit = Math.min(Number(req.query.limit) || 50, 200);
         const data  = await getEngagementHeatmap(limit);
         res.json(data);
+        // Persist scores in background so accounts list can sort server-side.
+        // Fire-and-forget: response is already sent; errors are non-fatal.
+        refreshAccountHeatScores().catch(() => {});
       } catch (err: any) { res.status(500).json({ message: err.message }); }
     });
 
@@ -2982,6 +2986,13 @@ export async function registerRoutes(
 
   app.get("/api/accounts", requirePermission("crm", "view"), async (req, res) => {
     const { search, segment, leadStatus, priority, orgType, marketSegment, commStatus, type, country, state, page, limit, sortBy, sortOrder, onlyPromoted } = req.query;
+    // When sorting by heat score, ensure persisted scores are fresh.
+    // Fire-and-forget: response is not blocked; TTL prevents redundant refreshes.
+    if (sortBy === "heat_score") {
+      import("./services/revenue-intelligence")
+        .then(({ refreshAccountHeatScores: refresh }) => refresh())
+        .catch(() => {});
+    }
     res.json(await storage.getAccounts({
       search: search as string | undefined,
       segment: segment as string | undefined,

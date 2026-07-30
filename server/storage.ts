@@ -915,7 +915,13 @@ export class DatabaseStorage implements IStorage {
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     const accountSortColumns: Record<string, AnyColumn> = { name: accounts.name, segment: accounts.segment, region: accounts.region, slipCount: accounts.slipCount, createdAt: accounts.createdAt, updatedAt: accounts.updatedAt };
     const sortCol = options?.sortBy && accountSortColumns[options.sortBy];
-    const orderClause = sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(accounts.createdAt);
+
+    // heat_score sort: LEFT JOIN account_heat_scores, ORDER BY score DESC NULLS LAST
+    // Cold accounts (no row in account_heat_scores) are sorted after scored ones.
+    const isHeatSort = options?.sortBy === "heat_score";
+    const orderClause = isHeatSort
+      ? sql`COALESCE((SELECT score FROM account_heat_scores WHERE account_id = ${accounts.id}), 0) DESC`
+      : sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(accounts.createdAt);
 
     const [data, countResult] = await Promise.all([
       db.select().from(accounts).where(where).orderBy(orderClause).limit(limit).offset(offset),
