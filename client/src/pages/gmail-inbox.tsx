@@ -7908,10 +7908,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // While Smart Inbox is open and the loaded unread count is below the server total,
   // keep paging automatically — without waiting for the scroll sentinel — so all
   // unread messages reach the grouper.  Safety caps: ≤10 cycles OR ≤500 messages.
+  // Only fires in Unread mode: in All mode the user sees both read and unread messages
+  // via normal scroll pagination, so forced convergence is unnecessary and causes a
+  // persistent "Loading remaining unread emails…" spinner on every auto-load cycle.
   const smartUnreadLoaderRef = useRef<{ key: string; cycles: number }>({ key: "", cycles: 0 });
   useEffect(() => {
     // Only fire in Smart view, on the inbox tab, without an active search query.
     if (!isSmartView || tab !== "inbox" || searchQuery) return;
+    // Only auto-load in Unread mode — All mode uses normal scroll pagination.
+    if (crmFilter !== "unread") return;
     // Need a next page and must not already be loading.
     if (!inboxNextToken || loadingMoreInbox) return;
     // Stop when server count is unknown (health/category query still loading).
