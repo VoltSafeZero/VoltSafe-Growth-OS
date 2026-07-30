@@ -66,7 +66,10 @@ async function main() {
   let leadViaCtId   = null;   // thread via contact only (contact-path)
   let leadDirectId  = null;   // thread via primary_lead_id (direct path)
   let leadStaleId   = null;   // stale thread (> 30 days)
+  let leadMultiA    = null;   // L5: first lead linked to shared contact
+  let leadMultiB    = null;   // L5: second lead linked to same shared contact
   let contactId     = null;
+  let contactMultiId = null;  // L5: contact shared across two leads
   const threadGuids = [];
 
   console.log(`=== Lead commStatus contact-path expansion ===`);
@@ -134,7 +137,36 @@ async function main() {
       [g3, leadStaleId]
     );
 
+    // ── L5 setup: two leads sharing one contact, one thread ──────────────
+    [leadMultiA, leadMultiB] = await Promise.all([ins("multi_a"), ins("multi_b")]);
+
+    const ctMultiRow = await pool.query(
+      `INSERT INTO contacts (account_id, name, email)
+       VALUES (1, '${PREFIX}multi_contact', '${PREFIX}multi@testlead.invalid') RETURNING id`
+    );
+    contactMultiId = ctMultiRow.rows[0].id;
+
+    await pool.query(
+      `INSERT INTO lead_contacts (lead_id, contact_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [leadMultiA, contactMultiId]
+    );
+    await pool.query(
+      `INSERT INTO lead_contacts (lead_id, contact_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [leadMultiB, contactMultiId]
+    );
+
+    // Single thread whose primary_contact_id is the shared contact
+    const gMulti = `${PREFIX}t_multi`;
+    threadGuids.push(gMulti);
+    await pool.query(
+      `INSERT INTO email_threads (gmail_thread_id, primary_contact_id, primary_lead_id,
+                                   last_outbound_at, created_at, updated_at)
+       VALUES ($1, $2, NULL, NOW(), NOW(), NOW()) ON CONFLICT (gmail_thread_id) DO NOTHING`,
+      [gMulti, contactMultiId]
+    );
+
     console.log(`  leads: none=${leadNoneId} via_ct=${leadViaCtId} direct=${leadDirectId} stale=${leadStaleId}`);
+    console.log(`  multi leads: a=${leadMultiA} b=${leadMultiB} contact=${contactMultiId}`);
     console.log(`  contact=${contactId}  threads: ${threadGuids.join(", ")}\n`);
 
     // ── Helper: fetch lead IDs for a commStatus, scoped to our PREFIX ─────
@@ -216,6 +248,35 @@ async function main() {
         bad("L4b: stale-thread lead absent from recently_contacted", `id=${leadStaleId}`);
     }
 
+    // ── L5: One contact linked to two leads — both must appear ───────────
+    // This pins the behavior that the contact-path subquery has no LIMIT,
+    // so ALL leads that share a contacted contact are correctly surfaced.
+    console.log("\n── L5: one contact linked to two leads (multi-lead contact-path) ──");
+    {
+      const recentIds = await fetchIds("recently_contacted");
+      const neverIds  = await fetchIds("never_contacted");
+
+      if (recentIds.has(leadMultiA))
+        ok("L5a: first lead (multi_a) appears in recently_contacted via shared contact");
+      else
+        bad("L5a: first lead (multi_a) in recently_contacted", `id=${leadMultiA}; set=${[...recentIds]}`);
+
+      if (recentIds.has(leadMultiB))
+        ok("L5b: second lead (multi_b) appears in recently_contacted via shared contact");
+      else
+        bad("L5b: second lead (multi_b) in recently_contacted", `id=${leadMultiB}; set=${[...recentIds]}`);
+
+      if (!neverIds.has(leadMultiA))
+        ok("L5c: first lead (multi_a) absent from never_contacted");
+      else
+        bad("L5c: first lead (multi_a) absent from never_contacted", `id=${leadMultiA} incorrectly present`);
+
+      if (!neverIds.has(leadMultiB))
+        ok("L5d: second lead (multi_b) absent from never_contacted");
+      else
+        bad("L5d: second lead (multi_b) absent from never_contacted", `id=${leadMultiB} incorrectly present`);
+    }
+
   } catch (err) {
     console.error("FATAL:", err.message, err.stack?.split("\n")[1]);
     failed++;
@@ -224,9 +285,11 @@ async function main() {
     for (const g of threadGuids) {
       await pool.query(`DELETE FROM email_threads WHERE gmail_thread_id = $1`, [g]).catch(() => {});
     }
-    if (contactId)  await pool.query(`DELETE FROM lead_contacts WHERE contact_id = $1`, [contactId]).catch(() => {});
-    if (contactId)  await pool.query(`DELETE FROM contacts WHERE id = $1`, [contactId]).catch(() => {});
-    for (const id of [leadNoneId, leadViaCtId, leadDirectId, leadStaleId].filter(Boolean)) {
+    if (contactId)      await pool.query(`DELETE FROM lead_contacts WHERE contact_id = $1`, [contactId]).catch(() => {});
+    if (contactId)      await pool.query(`DELETE FROM contacts WHERE id = $1`, [contactId]).catch(() => {});
+    if (contactMultiId) await pool.query(`DELETE FROM lead_contacts WHERE contact_id = $1`, [contactMultiId]).catch(() => {});
+    if (contactMultiId) await pool.query(`DELETE FROM contacts WHERE id = $1`, [contactMultiId]).catch(() => {});
+    for (const id of [leadNoneId, leadViaCtId, leadDirectId, leadStaleId, leadMultiA, leadMultiB].filter(Boolean)) {
       await pool.query(`DELETE FROM leads WHERE id = $1`, [id]).catch(() => {});
     }
     await pool.end();
