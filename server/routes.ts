@@ -6496,7 +6496,7 @@ export async function registerRoutes(
       const gate = await requireSectionView(userId, "crm");
       if (!gate.ok) return res.status(403).json({ message: "Not authorized" });
 
-      const { search, useCase, category, visibility, objectType } = req.query;
+      const { search, useCase, category, visibility, objectType, stale } = req.query;
 
       // Mirror getAllDocuments predicate logic exactly (same column names,
       // same strict equality — no COALESCE defaults that would drift from list).
@@ -6519,6 +6519,9 @@ export async function registerRoutes(
       if (objectType && objectType !== "all") {
         conditions.push(`a.object_type = $${pi++}`);
         params.push(String(objectType));
+      }
+      if (stale === "true") {
+        conditions.push(`a.created_at <= NOW() - INTERVAL '180 days'`);
       }
       if (search) {
         conditions.push(`(a.original_name ILIKE $${pi} OR a.title ILIKE $${pi} OR a.notes ILIKE $${pi})`);
@@ -6550,7 +6553,7 @@ export async function registerRoutes(
   // and they should be looking at /api/tickets/:id/attachments for those).
   app.get("/api/documents", requireAuth, async (req, res) => {
     try {
-      const { category, useCase, visibility, objectType, search, limit, offset, noOwner } = req.query;
+      const { category, useCase, visibility, objectType, search, limit, offset, noOwner, stale } = req.query;
       const userId = (req.session as any).userId as number;
       const section = objectType
         ? attachmentSectionFor(String(objectType))
@@ -6564,6 +6567,7 @@ export async function registerRoutes(
         objectType: objectType as string,
         search: search as string,
         noOwner: noOwner === "true",
+        stale: stale === "true",
         limit: limit ? Number(limit) : 50,
         offset: offset ? Number(offset) : 0,
       });

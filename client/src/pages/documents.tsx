@@ -756,6 +756,7 @@ export default function DocumentsPage() {
   const [visibilityFilter, setVisibilityFilter] = useState("all");
   const [objectTypeFilter, setObjectTypeFilter] = useState("all");
   const [noOwnerFilter, setNoOwnerFilter] = useState(false);
+  const [staleFilter, setStaleFilter] = useState(false);
   const [noOwnerBannerDismissed, setNoOwnerBannerDismissed] = useState(false);
   const [staleSheetOpen, setStaleSheetOpen] = useState(false);
   const [page, setPage] = useState(0);
@@ -774,11 +775,12 @@ export default function DocumentsPage() {
   if (visibilityFilter !== "all") queryParams.set("visibility", visibilityFilter);
   if (objectTypeFilter !== "all") queryParams.set("objectType", objectTypeFilter);
   if (noOwnerFilter) queryParams.set("noOwner", "true");
+  if (staleFilter) queryParams.set("stale", "true");
   queryParams.set("limit", String(limit));
   queryParams.set("offset", String(page * limit));
 
   const { data, isLoading } = useQuery<{ documents: DocRow[]; total: number }>({
-    queryKey: ["/api/documents", search, useCaseFilter, categoryFilter, visibilityFilter, objectTypeFilter, noOwnerFilter, page],
+    queryKey: ["/api/documents", search, useCaseFilter, categoryFilter, visibilityFilter, objectTypeFilter, noOwnerFilter, staleFilter, page],
     queryFn: async () => {
       const res = await fetch(`/api/documents?${queryParams}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load documents");
@@ -808,7 +810,7 @@ export default function DocumentsPage() {
   const clearAllFilters = () => {
     setSearch(""); setUseCaseFilter("all"); setCategoryFilter("all");
     setVisibilityFilter("all"); setObjectTypeFilter("all");
-    setNoOwnerFilter(false); setPage(0); setSelectedIds(new Set());
+    setNoOwnerFilter(false); setStaleFilter(false); setPage(0); setSelectedIds(new Set());
   };
 
   const toggleDocCheck = (id: number, checked: boolean) => {
@@ -836,6 +838,7 @@ export default function DocumentsPage() {
       if (categoryFilter !== "all") params.set("category", categoryFilter);
       if (visibilityFilter !== "all") params.set("visibility", visibilityFilter);
       if (objectTypeFilter !== "all") params.set("objectType", objectTypeFilter);
+      if (staleFilter) params.set("stale", "true");
       const res = await fetch(`/api/documents/no-owner-ids?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load all no-owner IDs");
       const { ids } = await res.json() as { ids: number[]; total: number };
@@ -851,7 +854,7 @@ export default function DocumentsPage() {
   const clearSelection = () => setSelectedIds(new Set());
 
   const hasActiveFilters = search || useCaseFilter !== "all" || categoryFilter !== "all"
-    || visibilityFilter !== "all" || objectTypeFilter !== "all" || noOwnerFilter;
+    || visibilityFilter !== "all" || objectTypeFilter !== "all" || noOwnerFilter || staleFilter;
 
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="page-documents">
@@ -1027,6 +1030,17 @@ export default function DocumentsPage() {
               {OBJECT_TYPES.map(t => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}
             </SelectContent>
           </Select>
+          {staleFilter && (
+            <button
+              onClick={() => { setStaleFilter(false); setPage(0); }}
+              data-testid="chip-stale-filter"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border bg-amber-500/15 text-amber-400 border-amber-500/30 shadow-sm hover:bg-amber-500/25 transition-colors"
+            >
+              <Clock className="h-3 w-3" />
+              Stale only
+              <X className="h-2.5 w-2.5 ml-0.5" />
+            </button>
+          )}
           {hasActiveFilters && (
             <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={clearAllFilters} data-testid="button-clear-filters">
               Clear
@@ -1147,6 +1161,7 @@ export default function DocumentsPage() {
             setCategoryFilter(key);
             setUseCaseFilter("all");
           }
+          setStaleFilter(true);
           setPage(0);
           setStaleSheetOpen(false);
         }}
