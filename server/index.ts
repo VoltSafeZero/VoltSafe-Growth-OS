@@ -497,6 +497,12 @@ app.use((req, res, next) => {
   void (async () => {
 
   // ── Schema migrations ────────────────────────────────────────────────────────
+  // Gated by RUN_STARTUP_MIGRATIONS environment variable.
+  // Set RUN_STARTUP_MIGRATIONS=true to allow migrations to run on startup.
+  // If absent or any other value, migrations are skipped and a log line is emitted.
+  // This gate is required for staging boots against a production-schema DB to prevent
+  // migration numbering conflicts introduced after 0dc8f604.
+  //
   // Migrations run in PARALLEL BATCHES to cut sequential DB round-trips.
   // Old pattern: ~35 sequential awaits (worst-case ~1.5–3s before server listens).
   // New pattern: 5 batches where each batch's independent migrations run in parallel.
@@ -506,6 +512,9 @@ app.use((req, res, next) => {
   // Batch 3 (parallel):   schemas that depend on email-signatures or campaign-tracking.
   // Batch 4 (parallel):   schemas that depend on Batch 3 output.
   // Batch 5 (parallel):   final CTA column migrations.
+  if (process.env.RUN_STARTUP_MIGRATIONS !== "true") {
+    log(`[startup] migrations SKIPPED — set RUN_STARTUP_MIGRATIONS=true to enable (current value: ${process.env.RUN_STARTUP_MIGRATIONS ?? "(unset)"})`);
+  } else {
   const _migStart = Date.now();
   try {
     const {
@@ -813,24 +822,30 @@ app.use((req, res, next) => {
       constraint: migErr?.constraint, // pg violated constraint
     });
   }
+  } // end RUN_STARTUP_MIGRATIONS gate
 
   // ── Startup complete — mark readiness and start background jobs ──────────────
   _startupComplete = true;
   log(`[perf:startup] server fully initialized — ${Date.now() - PROC_START}ms from proc start`);
 
   // ── Seed production data: fire-and-forget, delayed 8 s ──────────────────────
-  // Runs after the first user requests can already be served.
+  // CALL-SITE GUARD (defense in depth — seedProductionData() also has its own kill-switch).
+  // Never seed in production. Require ALLOW_DESTRUCTIVE_SEED=true as an explicit opt-in.
   // seedProductionData / seedSampleProjects are idempotent insert-if-missing calls.
-  setTimeout(async () => {
-    try {
-      const { seedProductionData, seedSampleProjects } = await import("./seed-production");
-      await seedProductionData();
-      await seedSampleProjects();
-      log("[startup] seed complete");
-    } catch (err) {
-      console.error("[startup] Seed error (non-fatal):", err);
-    }
-  }, 8_000);
+  if (process.env.NODE_ENV === "production" || process.env.ALLOW_DESTRUCTIVE_SEED !== "true") {
+    log(`[startup] seed call-site SKIPPED — NODE_ENV=${process.env.NODE_ENV ?? "(unset)"}, ALLOW_DESTRUCTIVE_SEED=${process.env.ALLOW_DESTRUCTIVE_SEED ?? "(unset)"}`);
+  } else {
+    setTimeout(async () => {
+      try {
+        const { seedProductionData, seedSampleProjects } = await import("./seed-production");
+        await seedProductionData();
+        await seedSampleProjects();
+        log("[startup] seed complete");
+      } catch (err) {
+        console.error("[startup] Seed error (non-fatal):", err);
+      }
+    }, 8_000);
+  }
 
   // ── Background schedulers ─────────────────────────────────────────────────────
   // Gated by ENABLE_BACKGROUND_JOBS (default: enabled).

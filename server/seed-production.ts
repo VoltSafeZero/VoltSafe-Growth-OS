@@ -221,6 +221,18 @@ export async function migrateEmailSchema(): Promise<void> {
 }
 
 export async function seedProductionData(): Promise<void> {
+  // ── KILL-SWITCH (defense in depth — also enforced at call site in index.ts) ──
+  // These guards execute before any destructive operation can be reached.
+  // No DB query, no table inspection, no destructive restore — nothing runs
+  // unless both conditions below are satisfied.
+  if (process.env.NODE_ENV === "production") {
+    console.warn("[seed] BLOCKED: automatic production seeding is disabled. NODE_ENV=production.");
+    return;
+  }
+  if (process.env.ALLOW_DESTRUCTIVE_SEED !== "true") {
+    console.log("[seed] Skipped: ALLOW_DESTRUCTIVE_SEED=true is required to run seed operations.");
+    return;
+  }
   try {
     const result = await db.execute(sql`SELECT COUNT(*) as cnt FROM leads`);
     const count = Number((result.rows[0] as any).cnt);
