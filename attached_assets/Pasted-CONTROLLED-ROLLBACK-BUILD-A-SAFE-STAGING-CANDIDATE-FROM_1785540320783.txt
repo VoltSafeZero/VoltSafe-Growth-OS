@@ -1,0 +1,282 @@
+CONTROLLED ROLLBACK — BUILD A SAFE STAGING CANDIDATE FROM 0dc8f604
+
+Do not publish to production.
+Do not push to origin/main.
+Do not alter the production database.
+Do not roll back database migrations.
+Do not restore a database snapshot.
+Do not merge the contaminated branch.
+Do not reintroduce the recent Mail campaign.
+
+Confirmed rollback candidate:
+
+Branch: recovery/pre-mail-stable
+SHA: 0dc8f604
+Timestamp: 2026-07-27 08:05:24 UTC
+
+This is the last deployed commit before the Mail campaign began. It contains the original full Currents module and the major CMS modules.
+
+==================================================
+1. CREATE A STAGING-SAFETY BRANCH
+==================================================
+
+From recovery/pre-mail-stable at 0dc8f604, create:
+
+recovery/pre-mail-stable-staging
+
+Confirm:
+
+- base SHA = 0dc8f604
+- original client/src/pages/current.tsx is present
+- replacement client/src/pages/currents.tsx is absent
+- git status is clean
+- no Mail campaign commits are included
+
+Do not push yet.
+
+==================================================
+2. DISABLE AUTOMATIC PRODUCTION SEEDING
+==================================================
+
+Implement defense in depth.
+
+A. At the call site in server/index.ts:
+
+- production must never call seedProductionData()
+- only call it when NODE_ENV !== "production"
+- also require ALLOW_DESTRUCTIVE_SEED=true
+
+B. Inside seedProductionData():
+
+Make the first executable statements:
+
+if (process.env.NODE_ENV === "production") {
+  console.warn("[seed] BLOCKED: automatic production seeding is disabled");
+  return;
+}
+
+if (process.env.ALLOW_DESTRUCTIVE_SEED !== "true") {
+  console.log("[seed] Skipped: ALLOW_DESTRUCTIVE_SEED=true is required");
+  return;
+}
+
+These checks must execute before:
+
+- any DB query
+- lead-count check
+- dump-file inspection
+- DATABASE_URL inspection
+- TRUNCATE
+- pg_restore
+
+Do not redesign the seed system in this task.
+Do not remove seed-data.dump yet.
+Do not execute the seed function.
+
+Add tests proving production cannot reach:
+
+- a DB query
+- TRUNCATE
+- pg_restore
+- seed-data.dump inspection
+
+==================================================
+3. DISABLE AUTOMATIC MIGRATION EXECUTION FOR FIRST STAGING BOOT
+==================================================
+
+Audit every startup migration path.
+
+Add a temporary staging-only gate:
+
+RUN_STARTUP_MIGRATIONS=true
+
+Requirements:
+
+- if absent or false, startup logs that migrations were skipped
+- no migration runs automatically
+- production behavior is not changed yet
+- no migration files are deleted or renamed
+- no schema changes are made
+
+This is required because migration numbering changed after 0dc8f604.
+
+List every startup migration mechanism and every schema mutation that normally runs during boot.
+
+==================================================
+4. SCHEMA COMPATIBILITY AUDIT
+==================================================
+
+Read-only only.
+
+Compare the schema expected by 0dc8f604 against the current production schema.
+
+For each migration from 0001 through 0033 in 0dc8f604, report:
+
+- filename
+- purpose
+- expected tables/columns
+- whether production already has those tables/columns
+- whether the production migration history records it
+- whether filename numbering conflicts with the newer branch
+- whether the old code can operate safely without rerunning it
+
+Pay special attention to:
+
+- 0017_crm_intelligence_context.sql
+- 0018_crm_email_identifiers.sql
+- 0021_private_channels.sql
+- 0026_current_custom_emojis.sql
+- 0027_mailbox_visibility.sql
+- migrations 0017–0033 generally
+
+Do not run any migration.
+
+==================================================
+5. VERIFY ORIGINAL CURRENTS DATA CONTRACT
+==================================================
+
+Against a clone or read-only copy of production, confirm existence and row counts for:
+
+- current_channels
+- current_messages
+- current_reactions
+- current_pins
+- current_conversations
+- current_conversation_members
+- current_channel_members
+- current_thread_replies
+- current_structured_items
+- current_notification_prefs
+- current_custom_emojis
+- channel_read_state
+
+Also confirm the incident replacement tables are absent or isolated:
+
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+Do not create or modify tables.
+
+==================================================
+6. BUILD AND START LOCALLY WITHOUT WRITES
+==================================================
+
+Run:
+
+npm install
+npm run build
+
+Start the candidate with:
+
+- NODE_ENV=staging
+- RUN_STARTUP_MIGRATIONS=false
+- ALLOW_DESTRUCTIVE_SEED=false
+
+Use a staging or cloned database only.
+
+Verify startup logs contain:
+
+- seed disabled/skipped
+- migrations skipped
+- no TRUNCATE
+- no pg_restore
+- no CREATE TABLE
+- no ALTER TABLE
+- no DELETE or backfill job
+
+==================================================
+7. FUNCTIONAL STAGING WALKTHROUGH
+==================================================
+
+Verify these modules load:
+
+- Currents
+- VoltSafe Mail
+- Leads
+- Accounts
+- Contacts
+- Opportunities
+- Tasks
+- Calendar
+- Cortex
+- Today
+- Work
+- Mission Control
+
+For Currents specifically verify:
+
+- public channels
+- private channels
+- DMs
+- group DMs
+- threads
+- mentions
+- reactions
+- pins
+- attachments
+- search
+- files tab
+- member management
+- task creation
+- CRM-linked feeds
+- read/unread state
+
+For Mail, only verify the pre-campaign version loads and basic mailbox switching works.
+Do not add or repair features during this validation.
+
+==================================================
+8. IDENTIFY SECURITY FIXES TO REAPPLY LATER
+==================================================
+
+Read-only comparison only.
+
+Review these later commits:
+
+- f47ee9e7
+- 34aa69f9
+- 9dd58310
+
+Report the smallest isolated security changes worth reapplying without importing the Mail rewrite.
+
+Do not cherry-pick yet.
+
+==================================================
+9. FINAL REPORT
+==================================================
+
+Staging branch:
+Base SHA:
+Current SHA:
+Files changed:
+
+Seed blocked in production: YES/NO
+Seed requires explicit flag: YES/NO
+TRUNCATE reachable in production: YES/NO
+pg_restore reachable in production: YES/NO
+
+Startup migrations gated: YES/NO
+Migration compatibility audit complete: YES/NO
+Conflicting migration numbers:
+Schema changes executed: NONE
+
+Original Currents tables present:
+Original Currents row counts:
+Replacement Currents tables present:
+
+Build result:
+Staging startup result:
+Modules verified:
+Currents verified:
+Mail basic load verified:
+
+Security commits suitable for later selective reapplication:
+
+Ready to push staging branch: YES/NO
+Ready to deploy to staging: YES/NO
+Ready for production rollback: NO
+
+Do not push.
+Do not publish.
+Stop after the report.
