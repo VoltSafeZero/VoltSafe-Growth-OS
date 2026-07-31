@@ -1,0 +1,214 @@
+CONTROLLED CODE ROLLBACK DISCOVERY — DO NOT DEPLOY OR MODIFY DATABASE
+
+Goal: identify the last stable VoltSafe CMS build from immediately before the five-day VoltSafe Mail repair campaign.
+
+Do not:
+
+- run git reset --hard
+- alter main
+- run migrations
+- restore or roll back the database
+- run seedProductionData()
+- publish
+- push
+- recreate modules
+
+The contaminated workspace is already preserved on:
+
+incident-contaminated-workspace-2026-07-31
+
+==================================================
+1. BUILD THE CANDIDATE TIMELINE
+==================================================
+
+Fetch all Git history, remote branches, backup branches, reflog and deployment commits.
+
+Search from July 23 through July 28, 2026.
+
+Produce a chronological table:
+
+SHA
+timestamp
+branch
+commit message
+whether it was deployed
+deployment ID if known
+whether it contains original Currents
+whether it contains VoltSafe Mail
+whether it predates the recent Mail repair campaign
+
+Include:
+
+- main
+- origin/main
+- gitsafe-backup/main
+- all subrepl branches
+- reflog
+- Replit publish auto-commits
+- deployment source snapshots where available
+
+==================================================
+2. FEATURE-FINGERPRINT EACH CANDIDATE
+==================================================
+
+For each serious candidate verify whether it contains:
+
+Original Currents:
+
+- client/src/pages/current.tsx
+- client/src/components/current/*
+- client/src/components/currents/*
+- /api/current/*
+- route /current
+- current_* tables/migrations
+- DMs
+- private channels
+- threads
+- mentions
+- reactions
+- pins
+- attachments
+- search
+- member management
+- task creation
+
+Reject any candidate whose only Currents implementation is:
+
+- client/src/pages/currents.tsx
+- /api/currents/*
+- currents_posts
+- currents_channels
+
+Also verify presence of:
+
+- VoltSafe Mail
+- Leads
+- Accounts
+- Contacts
+- Opportunities
+- Tasks
+- Calendar
+- Cortex
+- Today
+- Work
+- Mission Control
+
+==================================================
+3. IDENTIFY THE MAIL CAMPAIGN BOUNDARY
+==================================================
+
+Find the first commit in the recent five-day period that began the large VoltSafe Mail repair campaign.
+
+Report:
+
+- first Mail campaign commit
+- its parent SHA
+- every Mail-related commit after it
+- every unrelated verified feature/fix that would be lost by returning to its parent
+
+The parent is a candidate, not automatically the winner.
+
+==================================================
+4. IDENTIFY THE LAST KNOWN-GOOD DEPLOYMENT
+==================================================
+
+From Replit deployment history, identify the newest deployment before the Mail campaign where:
+
+- original Currents existed;
+- the major CMS modules were visible;
+- users did not report widespread regressions;
+- the build started successfully;
+- the production database connection remained unchanged.
+
+Report the deployment ID, source SHA/snapshot and timestamp.
+
+Do not assume origin/main equals the deployed source.
+
+==================================================
+5. CREATE A CLEAN LOCAL RECOVERY BRANCH
+==================================================
+
+After identifying the recommended candidate, create locally:
+
+recovery/pre-mail-stable
+
+from that exact SHA.
+
+Do not move main.
+
+Confirm:
+
+- branch name
+- base SHA
+- git status
+- replacement Currents absent
+- original Currents present
+
+Do not push.
+
+==================================================
+6. COMPARE AGAINST CURRENT MAIN
+==================================================
+
+Produce:
+
+git diff <candidate>..origin/main --stat
+git diff <candidate>..origin/main --name-status
+
+Categorize every difference:
+
+- Mail work to exclude
+- safe unrelated fixes worth reapplying later
+- database/schema changes
+- Currents changes
+- Cortex changes
+- permission/security changes
+- deployment/startup changes
+
+==================================================
+7. DATABASE-SAFETY CHECK
+==================================================
+
+This is a code rollback only.
+
+Do not roll back database migrations or data.
+
+Before any future deployment, confirm whether the candidate contains automatic seedProductionData() execution.
+
+The recovery build must include a production kill-switch preventing automatic:
+
+- TRUNCATE
+- pg_restore
+- destructive seed restoration
+
+Do not implement or deploy it yet; report the required patch.
+
+==================================================
+8. FINAL REPORT
+==================================================
+
+First Mail campaign commit:
+Parent SHA:
+Recommended stable SHA:
+Recommended deployment ID:
+Recommended timestamp:
+
+Original Currents present: YES/NO
+Replacement Currents absent: YES/NO
+Major CMS modules present: YES/NO
+Production DB rollback required: NO
+Schema compatibility risk:
+Features/fixes that would be temporarily lost:
+
+Recovery branch created: YES/NO
+Recovery branch:
+Recovery branch SHA:
+
+Seed kill-switch required: YES/NO
+
+Ready for staging test: YES/NO
+Ready for production rollback: NO
+
+Do not push.
+Do not publish.
+Stop after the report.
