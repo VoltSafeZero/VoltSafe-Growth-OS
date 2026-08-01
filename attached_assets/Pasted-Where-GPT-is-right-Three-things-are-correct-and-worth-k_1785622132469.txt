@@ -1,0 +1,75 @@
+Where GPT is right
+
+Three things are correct and worth keeping:
+
+"Comm Status" → activity/waiting semantics. Renaming it so the cell tells a rep what to do rather than what happened is the single highest-value change on the list.
+Progressive disclosure. Ship few columns, let power users add. The 10-column hard cap you already have is the best decision in the current UI — keep it.
+Contact doesn't belong in the default table. Right for a reason GPT didn't name: your data shows "Marina Contact" placeholders on 4 of 6 visible rows. A column that's mostly a placeholder string is worse than absent.
+Where it's wrong for you specifically
+
+Owner in the default view is wrong at your size. You have 22 leads and, I'd guess, one or two people. Every row will read "Trevor." General rule: never default a column where >80% of rows share a value — it's pure horizontal cost. Add Owner automatically when the account has a 2nd active rep. GPT gave you generic enterprise CRM advice here.
+
+Three revenue columns is fantasy right now. Deal $ is empty in every visible row, yet the header claims "$400,000 pipeline" — the table can't substantiate its own headline. Adding Expected Value + Probability on top makes three empty columns. Instead: derive Est. Value = Slip Count × your ASP per pedestal, so it's never blank, and let users override manually. Slip Count is your real deal-size proxy; lean on it.
+
+Don't cut Location entirely. For marinas, geography is a qualification signal (utility jurisdiction, shore-power infrastructure, site-visit clustering), not just a nice-to-have. But "Westbank, British Columbia" wrapping to two lines is what's actually hurting you. Fix the format, not the column: Westbank, BC, single line, truncate.
+
+The three "frameworks" aren't alternatives — they're presets. You already have "Save view" in the UI. GPT framed as a choice what should be a shipped set. Don't pick one.
+
+Don't list columns you have no data for. Email Opens, Replies, Meetings, Cortex Score, Buying Intent — these need an email integration and an AI layer you haven't built. Putting them in the picker as permanently-empty columns reads as broken. Gate them until the data source exists.
+
+My additions
+
+Fix the three overlapping quality axes. You currently have Priority, Quality, and Stage doing partly the same job, which is why "Quality" feels vague. Name them so they can't collide:
+
+Fit — how good is this account inherently (slips, shore power, ICP match). Ideally auto-scored.
+Priority — how much do I care right now. Manual.
+Stage — where it is in the pipeline. Process.
+
+"Lead Score" is the wrong pick from GPT's list because it implies an algorithm you'd then have to build and defend.
+
+The filter bar is your bigger problem, not the columns. Ten dropdowns across two rows for 22 records is heavier than the dataset. Collapse to four visible (Search, Segment, Stage, Waiting On) plus a "More filters" popover, and render active filters as removable chips below. Also: Marine / Marina / Prospect are three dropdowns doing one job — merge into a single Segment facet until volume justifies splitting.
+
+Cut the Sort menu roughly in half. A→Z, Z→A, Deal $ High→Low and Low→High duplicate the column header arrows. Keep: Smart (rename "Default" — it's meaningless), Longest Silence First, Last Contact, Slip Count, Recently Added. And "Longest Silence First" is your best sort — consider making it the actual default.
+
+Keep the rich Activity Status cell to one line. GPT's mockup is three lines tall, which fights the work-queue goal by cutting rows-per-screen in half. Do: 🟠 We owe reply · 14d with the detail on hover. Same information, a third of the height.
+
+Leads and Accounts should not share a default. GPT treated them as one page. An Account is a closed customer — Stage and Priority are meaningless there. Accounts wants: Health, Installed Pedestals, MRR/ARR, Renewal Date, Last QBR, Expansion Potential.
+
+Two frameworks
+A. Presets, not frameworks (recommended — cheapest to build)
+
+One table, three shipped saved views, user-switchable, default = My Work:
+
+My Work (default) — ☐ · Marina · Waiting On · Stage · Priority · Last Contact · Slips · Est. Value · Actions
+
+Pipeline — ☐ · Marina · Stage · Est. Value · Probability · Target Close · Last Contact · Waiting On · Actions
+
+Prospecting — ☐ · Marina · Location · Slips · Shore Power · Fit · Waiting On · Source · Actions
+
+Marina + Actions are pinned in all three. Everything else is user-editable, and edits save as a personal view. Low build cost — it's a config array plus persistence.
+
+B. Queue-first (more ambitious, better fit for 22 leads)
+
+The table stops being the default. Leads opens as three collapsible buckets with live counts:
+
+Needs You (4) — you owe a reply, task overdue, or stage-stalled
+Waiting on Them (9) — with days-waiting and auto-nudge suggestions
+Never Contacted (9) — sorted by Fit descending
+
+Each row is one line: marina, slips, why it's in this bucket. Table view becomes a toggle (you already have list/grid/map icons — this is a 4th, or it replaces list-as-default). At 22 leads this is unambiguously better than a spreadsheet; it degrades past ~200, at which point A becomes the default and B becomes a dashboard.
+
+Column picker taxonomy
+
+Group as: Identity (Marina, Location, Contact fields) · Status (Stage, Priority, Fit, Waiting On, Owner) · Opportunity (Est. Value, Probability, Target Close, Cycle Days) · Marina Profile (Slips, Pedestals, Shore Power, Type, Utility) · Engagement (Last Contact, Last Outbound/Inbound, Next Task) · System (Source, Created, Updated).
+
+Two behaviors worth the build: auto-suggest hiding any column that's 100% empty across the current filter, and show a live column count against the cap while picking.
+
+Build order, cheapest first
+Rename Comm Status → Waiting On; single-line status cell with color + day count (hours)
+Trim sort menu; single-line location format; drop Owner from default (hours)
+Est. Value derived from slip count (half day)
+Collapse filter bar to 4 + popover with chips (1 day)
+Three presets + per-user saved views (1–2 days)
+Queue view (3–4 days — do only after 1–5 prove out)
+
+Items 1–3 are most of the perceived improvement for under a day of agent time. I'd resist the AI-score columns entirely until the pipeline is 10x bigger — scoring 22 leads is something you can do in your head more accurately than a model can.

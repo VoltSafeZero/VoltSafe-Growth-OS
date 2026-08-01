@@ -1,0 +1,508 @@
+RUN 0 — LEADS & ACCOUNTS NEXT-ACTION SCHEMA AUDIT
+
+READ-ONLY INVESTIGATION ONLY.
+
+Make no code changes.
+Create no migrations.
+Modify no database rows.
+Do not deploy.
+Do not publish.
+Do not create branches or commits unless needed only to save the final report.
+
+The purpose of this run is to determine the exact existing VoltSafe CMS architecture before designing the Next Action / Waiting On system.
+
+==================================================
+1. DATABASE IDENTITY AND ENVIRONMENT
+==================================================
+
+Report which database environment is being inspected:
+
+- development or production
+- current_database()
+- current_user
+- host fingerprint without credentials
+- PostgreSQL version
+
+Do not query or modify production unless the available connection is explicitly read-only.
+
+==================================================
+2. IDENTIFIER TYPES
+==================================================
+
+Report the exact data type, primary key, sequence/default, and foreign-key conventions for:
+
+- leads.id
+- accounts.id
+- users.id
+- contacts.id
+- opportunities.id
+- tasks.id
+- activities.id
+
+For each, report:
+
+- integer, bigint, UUID, text, or other
+- nullable or not
+- generated/default behavior
+- existing foreign keys referencing it
+- whether soft deletion is used
+
+Answer:
+
+- What identifier type should next_actions.id use?
+- What identifier type should lead_id use?
+- What identifier type should account_id use?
+- What identifier type should owner_user_id and created_by_user_id use?
+
+Do not recommend UUIDs merely because they are fashionable. Match the existing CMS.
+
+==================================================
+3. TENANCY / ORGANIZATION MODEL
+==================================================
+
+Audit whether VoltSafe CMS has a real canonical organization, workspace, tenant, or company model.
+
+Search for:
+
+- orgs
+- organizations
+- workspaces
+- tenants
+- company_id
+- org_id
+- workspace_id
+- tenant_id
+- organization_id
+
+Report:
+
+- which tables exist
+- whether they are actively used
+- whether users belong to one or multiple organizations
+- whether Leads and Accounts are tenant-scoped
+- whether existing routes enforce tenancy
+- whether any tenancy table is vestigial or demo-only
+
+Answer:
+
+- Should next_actions include a tenant/org/workspace foreign key?
+- If yes, which exact key?
+- If no, explicitly say not to invent one.
+
+==================================================
+4. EXISTING OWNER / ASSIGNMENT MODEL
+==================================================
+
+Audit Leads and Accounts for:
+
+- owner_user_id
+- assigned_to
+- assigned_user_id
+- owner_id
+- account_manager_id
+- sales_rep_id
+- created_by
+- updated_by
+
+For each relevant field report:
+
+- table
+- column
+- data type
+- foreign key
+- nullability
+- current row coverage
+- number of distinct owners
+- percentage of rows sharing the same owner
+
+Answer:
+
+- Which existing field should Next Action ownership use?
+- Is there already a shared owner-assignment helper or permission check?
+
+==================================================
+5. CURRENT COMMUNICATION STATUS MODEL
+==================================================
+
+Audit the existing Leads and Accounts communication/activity status implementation.
+
+Report every relevant field, computed field, helper, view, materialized view, route, and UI label for:
+
+- Comm Status
+- Activity Status
+- Waiting on Customer
+- VoltSafe Owes Reply
+- Recently Contacted
+- Dormant
+- Never Contacted
+- Last Contact
+- Last Inbound
+- Last Outbound
+- communication counts
+
+For each database field, report:
+
+- table and column
+- type
+- nullability
+- distinct values with counts
+- whether stored or derived
+- source query/helper
+- frontend component consuming it
+
+Do not rename, drop, migrate, or alter the legacy Comm Status field.
+
+The legacy field remains live and untouched until a later UI phase.
+
+==================================================
+6. COMMUNICATION / EMAIL SOURCE OF TRUTH
+==================================================
+
+Audit all tables that may prove first contact, last inbound, or last outbound:
+
+- email_messages
+- email_threads
+- activities
+- messages
+- conversations
+- meeting notes
+- calendar events
+- call logs
+- SMS tables, if any
+- lead/account communication summary views or CTEs
+
+Report:
+
+- table names
+- relevant timestamp columns
+- inbound/outbound direction columns
+- lead/account/contact linkage
+- thread linkage
+- whether emails are linked directly or through contacts
+- whether deleted/spam/draft messages are excluded
+- whether historical coverage is complete
+
+Determine whether the following can be reliably derived per Lead and Account:
+
+- first_contact_at
+- last_inbound_at
+- last_outbound_at
+- last_meaningful_contact_at
+- communication count
+
+For each, return one of:
+
+- RELIABLY DERIVABLE
+- PARTIALLY DERIVABLE
+- NOT DERIVABLE
+
+Include the exact recommended query or source path.
+
+Do not add stored timestamp columns if the value can be reliably derived.
+
+==================================================
+7. EXISTING TASK / ACTION / REMINDER INFRASTRUCTURE
+==================================================
+
+Audit all existing tables and services for:
+
+- tasks
+- subtasks
+- reminders
+- follow-ups
+- action items
+- activities
+- due dates
+- blockers
+- snooze
+- completion history
+- record-linked tasks
+- task ownership
+- recurring tasks
+
+For each relevant table report:
+
+- schema
+- relationship to Leads and Accounts
+- whether one task may link to multiple records
+- status values
+- due-date behavior
+- completion behavior
+- blocker support
+- snooze support
+- history/audit support
+- permissions
+- indexes
+
+Answer:
+
+- Is there an existing table that should be extended for Next Actions?
+- Would extending it create unwanted coupling?
+- Is a dedicated next_actions table cleaner?
+- Does the CMS already use a safe polymorphic-reference pattern?
+- If yes, show the exact proven pattern.
+- If no, recommend separate nullable lead_id and account_id foreign keys.
+
+Do not implement anything.
+
+==================================================
+8. SETTINGS INFRASTRUCTURE
+==================================================
+
+Audit existing settings tables, routes, and UI for:
+
+- organization settings
+- application settings
+- user settings
+- system configuration
+- feature flags
+- thresholds
+- timezone
+- currency
+- pricing assumptions
+
+Report:
+
+- canonical settings table, if any
+- key/value typing model
+- per-user vs organization-wide scope
+- JSON vs typed columns
+- audit/history behavior
+- permission model
+- existing admin settings page
+- startup defaults or seed behavior
+
+Determine where these proposed settings should live:
+
+- critical_overdue_days
+- customer_wait_nudge_days
+- org_timezone
+- ev_hardware_revenue_per_pedestal
+- ev_connectors_per_pedestal
+- ev_saas_per_connector_month
+- ev_shore_power_pct
+- ev_replacement_pct
+- ev_penetration_pct
+
+Do not create a new settings system if a canonical one already exists.
+
+==================================================
+9. EXISTING LEAD / ACCOUNT FIELDS
+==================================================
+
+For Leads and Accounts, report whether each field EXISTS or DOES NOT EXIST.
+
+Include:
+
+- exact table
+- exact column
+- type
+- nullability
+- current population count
+- distinct values where relevant
+- frontend usage
+
+Fields:
+
+- first_contact_at
+- last_inbound_at
+- last_outbound_at
+- fit
+- quality
+- priority
+- stage/status
+- slip_count
+- slip_count_int
+- pedestal_count
+- estimated_pedestal_count
+- shore_power_coverage_pct
+- shore_power status
+- deal_amount
+- deal_value_override
+- hardware value
+- software value
+- services value
+- probability
+- target close date
+- location fields
+- lifecycle/account status
+
+Specifically determine:
+
+- whether Fit should reuse or rename an existing Quality field
+- whether Priority already exists and is reliable
+- whether pedestal_count already exists under another name
+- whether deal_amount is manual, derived, or mixed
+- whether Accounts already contain installed-pedestal or lifecycle fields
+
+Do not rename fields during this audit.
+
+==================================================
+10. SAFE NEXT_ACTIONS REFERENCE MODEL
+==================================================
+
+Compare these two options against the real schema.
+
+OPTION A — polymorphic:
+
+- subject_type
+- subject_id
+
+OPTION B — explicit foreign keys:
+
+- lead_id nullable FK
+- account_id nullable FK
+- CHECK exactly one is non-null
+
+For each, assess:
+
+- database enforcement
+- query simplicity
+- indexes
+- ORM compatibility
+- route compatibility
+- migration risk
+- future extensibility
+
+Unless the CMS already has a proven, enforced polymorphic pattern, recommend Option B.
+
+Also evaluate the required partial unique indexes:
+
+- one open action per lead
+- one open action per account
+
+Report whether PostgreSQL and the current migration tooling support them cleanly.
+
+==================================================
+11. WAITING TIMER ANCHOR
+==================================================
+
+Audit whether any existing field already captures when responsibility changed between VoltSafe and the customer.
+
+Look for:
+
+- waiting_since_at
+- status_changed_at
+- reply_status_changed_at
+- awaiting_reply_since
+- ownership timestamps
+- activity timestamps
+- audit logs
+
+Determine whether customer-wait timing should use:
+
+- an existing trustworthy field, or
+- a new next_actions.waiting_since_at field
+
+Do not recommend last_outbound_at as the permanent authoritative timer unless you prove unrelated outbound messages cannot reset it incorrectly.
+
+Recommended behavior to assess:
+
+- waiting_since_at set when waiting_on is created
+- waiting_since_at reset when waiting_on changes
+- customer nudge derives from calendar days since waiting_since_at
+- unrelated communications do not silently reset it
+
+==================================================
+12. DUE DATE STORAGE
+==================================================
+
+Audit existing due-date conventions across tasks and reminders.
+
+Report:
+
+- timestamp vs date
+- nullable vs non-null
+- default behavior
+- timezone handling
+- how “Due Today” is computed
+- whether America/Vancouver is already used
+- DST handling
+
+Recommend whether next_actions.due_at should be:
+
+- timestamptz NOT NULL DEFAULT now()
+- date NOT NULL DEFAULT current date in org timezone
+- another existing convention
+
+The product behavior is locked:
+
+- leaving due date blank means immediately due
+- customer nudge timing uses waiting_since_at, not due_at
+- date boundaries use America/Vancouver calendar days, not raw hour subtraction
+
+==================================================
+13. PRODUCTION DATA PROFILE — READ ONLY
+==================================================
+
+Using the safest available read-only environment, report:
+
+- Lead count
+- Account count
+- distinct legacy Comm Status values and counts
+- distinct Stage values and counts
+- distinct Priority values and counts
+- distinct Quality/Fit values and counts
+- rows with slip count
+- rows with pedestal count
+- rows with deal amount
+- rows with probability
+- rows with target close
+- distinct owners
+- records with no communications
+- records with inbound newer than outbound
+- records with outbound newer than inbound
+- records currently classified Dormant
+- records currently classified Never Contacted
+
+Do not modify or backfill anything.
+
+==================================================
+14. RECOMMENDATION
+==================================================
+
+Return a precise recommendation for Run 1:
+
+1. Exact identifier types
+2. Exact next_actions reference model
+3. Whether tenancy key is required
+4. Exact settings storage location
+5. Fields to add
+6. Fields to derive
+7. Fields to reuse
+8. Legacy fields to leave untouched
+9. Whether waiting_since_at is required
+10. Exact due_at type/default
+11. Partial unique-index strategy
+12. Communication source-of-truth query
+13. Risks and blockers
+14. Any Run 1 prompt wording that must change
+
+==================================================
+FINAL REPORT FORMAT
+==================================================
+
+Database environment:
+Identifier types:
+Tenancy model:
+Owner model:
+Legacy Comm Status:
+Communication source of truth:
+First contact derivation:
+Last inbound derivation:
+Last outbound derivation:
+Existing action/task infrastructure:
+Settings infrastructure:
+Existing Lead fields:
+Existing Account fields:
+Recommended Next Action reference model:
+Recommended waiting_since_at:
+Recommended due_at:
+Indexes supported:
+Production data profile:
+Risks:
+Run 1 changes required:
+Ready for Run 1: YES or NO
+
+Stop after the report.
+Make no changes.
