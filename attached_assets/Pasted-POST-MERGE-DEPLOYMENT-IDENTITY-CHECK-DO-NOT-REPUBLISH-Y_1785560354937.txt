@@ -1,0 +1,109 @@
+POST-MERGE DEPLOYMENT IDENTITY CHECK — DO NOT REPUBLISH YET
+
+The Replit deployment panel shows production was published about 7 hours ago.
+
+Do not click Publish or Republish.
+Do not create another deployment.
+Do not commit anything.
+Do not modify production data.
+
+Current intended routing-fix SHA:
+
+4ef5bcd37c10a2cbffde8e49b1cb170632f918ca
+
+Before asking Trevor to republish, determine exactly which build is currently live.
+
+==================================================
+1. IDENTIFY THE CURRENT LIVE BUILD
+==================================================
+
+Report:
+
+- current production URL
+- currently deployed SHA, if exposed
+- deployment start timestamp
+- build ID or deployment ID, if exposed
+- current origin/main SHA
+- whether the live deployment predates or postdates commit 4ef5bcd3
+
+Use deployment metadata, build markers, asset hashes, or startup logs.
+
+Do not infer deployed SHA from the workspace HEAD.
+
+If the exact deployed SHA cannot be proven, say UNKNOWN.
+
+==================================================
+2. RUN THE ROUTING ACCEPTANCE TESTS NOW
+==================================================
+
+Against the currently live production URL, run:
+
+GET /api/leads
+GET /api/current/channels
+GET /api/current/search?q=test
+GET /api/current/files
+GET /api/current/channels/general/messages
+GET /api/current/attachments
+GET /api/currents/channels
+GET /current
+
+Required responses for the fixed deployment:
+
+- /api/leads → 401 application/json
+- /api/current/channels → 401 application/json
+- /api/current/search?q=test → 401 application/json
+- /api/current/files → 401 application/json
+- /api/current/channels/general/messages → 401 application/json
+- /api/current/attachments → 404 application/json
+- /api/currents/channels → 404 application/json
+- /current → 200 text/html
+
+Report:
+
+- status
+- Content-Type
+- first 100 characters of body
+
+No /api/* route may return text/html or the SPA index shell.
+
+==================================================
+3. CHECK FOR THE ROUTING-FIX BUILD MARKERS
+==================================================
+
+Search current production startup logs for:
+
+- [currents-routes] registration block entered
+- [currents-routes] registration complete — 55 routes
+- [routes] registerRoutes complete
+
+Also verify whether the deployed .replit configuration has publicDir removed.
+
+If logs are unavailable, say so.
+
+==================================================
+4. DECISION
+==================================================
+
+If all routing acceptance tests already pass:
+
+- do not republish
+- state that the routing fix is already live
+- proceed to authenticated Currents verification
+
+If /api/current/* still returns HTML:
+
+- state that the routing fix is not live
+- confirm deployed SHA is older than 4ef5bcd3 or UNKNOWN
+- then ask Trevor to click Republish exactly once
+
+Return:
+
+Current deployed SHA:
+Current origin/main SHA:
+Routing-fix SHA:
+Routing tests:
+Registration probes observed:
+publicDir active:
+Republish required: YES/NO
+
+Stop after the report.
