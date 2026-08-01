@@ -1,0 +1,124 @@
+POST-REPUBLISH CURRENTS ROUTING ACCEPTANCE TEST
+
+The routing fix has now been republished.
+
+Expected deployed SHA:
+
+4ef5bcd37c10a2cbffde8e49b1cb170632f918ca
+
+Do not republish again.
+Do not modify code.
+Do not modify production data.
+
+Run the live production acceptance checks immediately.
+
+Production URL:
+
+https://image-linker-burgesstrevor76.replit.app
+
+==================================================
+1. CONFIRM THE NEW BUILD IS LIVE
+==================================================
+
+Report:
+
+- deployment start timestamp
+- deployed SHA, if available
+- build result
+- first successful health response
+- whether the deployment completed without restart loops
+
+Search startup logs for:
+
+- [currents-routes] registration block entered
+- [currents-routes] registration complete — 55 routes
+- [routes] registerRoutes complete
+
+==================================================
+2. RUN THE ROUTING MATRIX
+==================================================
+
+Test:
+
+GET /api/leads
+GET /api/current/channels
+GET /api/current/search?q=test
+GET /api/current/files
+GET /api/current/channels/general/messages
+GET /api/current/attachments
+GET /api/currents/channels
+GET /current
+
+Required:
+
+- /api/leads → 401 application/json
+- /api/current/channels → 401 application/json
+- /api/current/search?q=test → 401 application/json
+- /api/current/files → 401 application/json
+- /api/current/channels/general/messages → 401 application/json
+- /api/current/attachments → 404 application/json
+- /api/currents/channels → 404 application/json
+- /current → 200 text/html
+
+For every request report:
+
+- status
+- Content-Type
+- first 100 characters of response body
+
+No /api/* route may return text/html or the SPA index shell.
+
+==================================================
+3. DATABASE RECONCILIATION
+==================================================
+
+Read-only checks only.
+
+Confirm:
+
+- current_channels = 15
+- current_messages = 43
+- current_reactions = 2
+- current_pins = 1
+- current_conversations = 7
+- current_channel_members = 6
+
+Confirm these replacement tables remain absent:
+
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+Confirm database size remains approximately 1,511 MB and no unexplained row loss occurred.
+
+==================================================
+4. FINAL VERDICT
+==================================================
+
+Return:
+
+Deployed SHA:
+Registration probes observed:
+GET /api/current/channels:
+GET /api/current/search:
+GET /api/current/files:
+GET /api/current/attachments:
+GET /api/currents/channels:
+Any /api/* HTML responses:
+Database counts unchanged:
+Replacement tables absent:
+HTTP 500 count:
+Database error count:
+
+State exactly one:
+
+CURRENTS ROUTING RECOVERY COMPLETE
+
+or
+
+CURRENTS ROUTING RECOVERY INCOMPLETE
+
+Do not fix anything during this verification.
+Do not republish again.
+Stop after the report.
