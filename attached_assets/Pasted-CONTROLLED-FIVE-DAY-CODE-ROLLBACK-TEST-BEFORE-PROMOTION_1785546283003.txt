@@ -1,0 +1,170 @@
+CONTROLLED FIVE-DAY CODE ROLLBACK — TEST BEFORE PROMOTION
+
+We are proceeding with the pre-Mail stable candidate:
+
+Commit: 0dc8f604
+Timestamp: 2026-07-27 08:05:24 UTC
+Branch already prepared: recovery/pre-mail-stable-staging
+
+Do NOT modify production.
+Do NOT restore the production database.
+Do NOT publish.
+Do NOT merge to main yet.
+
+GOAL:
+Validate the five-day-old code candidate against a clone of the current production database. We are rolling back CODE first while preserving current production data.
+
+STEP 1 — VERIFY RECOVERY BRANCH
+
+Confirm:
+- current branch is recovery/pre-mail-stable-staging
+- branch contains commit 0dc8f604 plus the startup safety commits
+- client/src/pages/current.tsx exists
+- client/src/pages/currents.tsx does not exist
+- original /api/current/* routes exist
+- replacement /api/currents/* routes do not exist
+- git status is clean
+
+Report exact HEAD SHA and parent chain.
+
+STEP 2 — DATABASE CLONE ONLY
+
+Use ROLLBACK_CLONE_DB_URL only.
+
+Hard-fail if:
+- ROLLBACK_CLONE_DB_URL is missing
+- it equals DATABASE_URL
+- it equals the production connection string
+- current_database(), host, or endpoint identity matches production
+
+Before starting the app, print sanitized clone identity:
+- current_database()
+- current_user
+- inet_server_addr()
+- pg_size_pretty(pg_database_size(current_database()))
+- lead count
+- account count
+- contact count
+- email_messages count
+- current_channels count
+- current_messages count
+
+Do not print credentials.
+
+STEP 3 — READ-ONLY STARTUP
+
+Launch using:
+
+NODE_ENV=staging
+ROLLBACK_VALIDATION_READ_ONLY=true
+RUN_STARTUP_MIGRATIONS=false
+ALLOW_DESTRUCTIVE_SEED=false
+DATABASE_URL=$ROLLBACK_CLONE_DB_URL
+
+Confirm from logs:
+- all startup writers are skipped
+- startup migrations are skipped
+- seed is skipped
+- no CREATE, ALTER, DROP, TRUNCATE, INSERT, UPDATE, DELETE, pg_restore, or backfill executes
+- server reaches HTTP 200
+
+Stop immediately if any write occurs.
+
+STEP 4 — AUTHENTICATED FUNCTIONAL WALKTHROUGH
+
+Use a temporary test login on the clone only. Do not alter production users.
+
+Test and capture screenshots for:
+
+1. Login
+2. Today
+3. Work
+4. Mission Control
+5. Leads
+6. Accounts
+7. Contacts
+8. Opportunities
+9. Tasks
+10. Calendar
+11. Cortex
+12. Original Currents:
+   - public channels
+   - private channels
+   - direct messages
+   - group DMs
+   - threads
+   - reactions
+   - mentions
+   - pins
+   - attachments
+   - search
+   - member management
+   - task creation from message
+13. VoltSafe Mail:
+   - primary inbox loads
+   - private inboxes load
+   - Sales inbox loads
+   - Support inbox loads
+   - sent, drafts, spam, pinned
+   - opening a message works
+   - no endless spinner
+   - no positive badge with an empty list
+   - no cross-mailbox leakage
+
+Do not fix failures during this walkthrough. Record them.
+
+STEP 5 — DATABASE COMPATIBILITY
+
+Compare the clone schema against what this branch expects.
+
+Report:
+- missing tables
+- missing columns
+- type mismatches
+- duplicate migration-number conflicts
+- original current_* tables present
+- replacement currents_* tables present
+- any query failures in logs
+
+Do not run migrations.
+
+STEP 6 — ACCEPTANCE GATE
+
+PASS requires:
+- all major CMS modules open
+- original Currents works
+- no destructive writes
+- no startup crashes
+- no schema incompatibility blocking normal use
+- Mail is at least as stable as it was before the July 27 campaign
+- no core module disappears
+- no 500 errors in the walkthrough
+
+If PASS:
+- create branch recovery/five-day-validated from the tested HEAD
+- create annotated tag five-day-stable-validated
+- prepare, but do not execute, the controlled mainline promotion commands
+- list every post-July-27 security fix worth selectively reapplying later
+
+If FAIL:
+- do not promote
+- report each failure with module, URL, error, log excerpt, and likely cause
+
+STEP 7 — FINAL REPORT
+
+Return:
+- tested HEAD SHA
+- clone identity and size
+- production untouched: YES/NO
+- startup writers skipped count
+- migrations skipped: YES/NO
+- seed skipped: YES/NO
+- modules passed/failed
+- Currents status
+- Mail status
+- schema compatibility verdict
+- exact blockers
+- PASS or FAIL
+- safe to make new mainline: YES/NO
+
+Stop after the report.
