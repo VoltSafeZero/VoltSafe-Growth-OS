@@ -1,0 +1,282 @@
+CONTROLLED RECOVERY — PROMOTE VALIDATED ROLLBACK BRANCH TO MAINLINE AND RETIRE VALIDATION ENVIRONMENT
+
+Trevor has personally completed the authenticated production-data walkthrough.
+
+CONFIRMED PASS:
+
+- Today
+- Work
+- Mission Control
+- Leads
+- Accounts
+- Contacts
+- Opportunities
+- Tasks
+- Calendar
+- Cortex
+- Mail
+- Original Currents at /current
+- Historical production data is present
+- No critical regressions were observed
+- Read-only validation protections worked
+- Production deployment remained untouched
+
+FULL GREEN LIGHT TO PROMOTE THE VALIDATED RECOVERY BRANCH TO THE NEW GITHUB MAINLINE.
+
+Do not publish or redeploy production in this prompt.
+This prompt promotes GitHub main and safely retires the temporary validation environment only.
+
+SOURCE BRANCH:
+
+recovery/pre-mail-stable-staging
+
+The exact validated source SHA must be discovered and reported before promotion. Do not assume an older SHA from a previous report.
+
+==================================================
+PHASE 1 — FREEZE AND VERIFY THE VALIDATED SOURCE
+==================================================
+
+1. Stop making feature changes.
+2. Report:
+   - current repository root
+   - git remote -v
+   - current branch
+   - current HEAD SHA
+   - origin/main SHA
+   - git status --short
+3. Confirm the current branch is:
+   recovery/pre-mail-stable-staging
+4. Confirm the working tree contains no uncommitted production-code changes.
+5. Untracked attached_assets incident documents may remain uncommitted, but report them.
+6. Confirm the validated branch still contains:
+   - client/src/pages/current.tsx
+   - original /current route
+   - original /api/current/* routes
+   - rollback startup guards
+   - seed kill-switch
+   - rollback-gate regression tests
+7. Confirm it does not contain:
+   - client/src/pages/currents.tsx
+   - /api/currents/*
+   - executable /currents links
+   - currents_channels
+   - currents_posts
+   - currents_reactions
+   - currents_read_state
+
+If any verification fails, STOP.
+
+==================================================
+PHASE 2 — FINAL AUTOMATED GATE
+==================================================
+
+Run, at minimum:
+
+- node tests/rollback-gate.test.cjs
+- node tests/seed-kill-switch.test.cjs
+- npm run build
+
+Also run any dedicated Currents tests present on this branch, including where available:
+
+- node tests/currents-search.test.cjs
+- node tests/currents-attachments.test.cjs
+- node tests/channel-add-member.test.cjs
+
+Report exact passed/failed totals and exit codes.
+
+Required result:
+
+- every required test passes
+- build exits 0
+- no new compilation errors
+- git status remains clean
+
+If anything fails, STOP.
+
+==================================================
+PHASE 3 — CREATE IMMUTABLE RECOVERY TAGS
+==================================================
+
+First preserve the currently validated recovery state with an annotated tag:
+
+validated-recovery-mainline-2026-08-01
+
+Tag the exact validated recovery HEAD.
+
+Then preserve the current GitHub main before replacing it with:
+
+pre-recovery-main-2026-08-01
+
+Tag the exact current origin/main SHA.
+
+If either tag already exists:
+
+- verify it points to the correct SHA
+- do not silently move or overwrite it
+- stop if it points somewhere else
+
+Push both tags to origin only after verification.
+
+Do not delete any earlier incident or recovery tags.
+
+==================================================
+PHASE 4 — PRESERVE THE RECOVERY BRANCH ON GITHUB
+==================================================
+
+Push the validated branch to GitHub as:
+
+origin/recovery/pre-mail-stable-staging
+
+Verify the remote branch points to the exact validated source SHA.
+
+Do not push main yet.
+
+==================================================
+PHASE 5 — CREATE A HISTORY-PRESERVING PROMOTION COMMIT
+==================================================
+
+A normal merge of the current broken main into the recovery tree could reintroduce the regressions we are removing.
+
+Do not perform a content merge that changes the validated recovery tree.
+
+Instead, preserve both histories with a controlled ancestry-only merge:
+
+1. Start from the validated recovery branch.
+2. Create a merge commit that records origin/main as the second parent while retaining the validated recovery branch tree exactly.
+
+Use a strategy equivalent to:
+
+git merge -s ours --no-ff origin/main \
+  -m "Recovery: promote validated pre-Mail baseline as new mainline"
+
+Important:
+
+- The resulting commit must have two parents:
+  - parent 1 = validated recovery branch HEAD
+  - parent 2 = previous origin/main
+- The resulting file tree must be byte-identical to the validated recovery tree immediately before the merge.
+- No files from the broken current main may be reintroduced.
+- Do not resolve conflicts by accepting origin/main content.
+- Do not use a destructive reset.
+- Do not force-push.
+
+After creating the merge commit, prove:
+
+- git diff <validated-recovery-SHA>..<promotion-merge-SHA> returns no production file differences
+- the promotion commit has both expected parents
+- original Currents remains present
+- replacement Currents remains absent
+- rollback guards and tests remain present
+
+If the resulting tree differs from the validated recovery tree, STOP and undo only the unpushed promotion merge commit.
+
+==================================================
+PHASE 6 — UPDATE GITHUB MAIN WITHOUT FORCE-PUSH
+==================================================
+
+Because the promotion merge commit contains the old origin/main as a parent, origin/main should now be able to fast-forward to it.
+
+Push the promotion commit to:
+
+origin/main
+
+Requirements:
+
+- no --force
+- no --force-with-lease
+- no deletion of history
+- no rebasing away incident history
+- no resetting the remote
+- push must be a normal fast-forward update
+
+After pushing, verify using git ls-remote:
+
+- origin/main points to the promotion merge SHA
+- origin/recovery/pre-mail-stable-staging points to the validated recovery SHA
+- both annotated tags exist remotely and point to the expected commits
+
+==================================================
+PHASE 7 — RETIRE THE TEMPORARY VALIDATION ENVIRONMENT
+==================================================
+
+Only after origin/main is confirmed updated:
+
+1. Stop the validation-deployment workflow.
+2. Confirm:
+   - port 5099 is no longer serving
+   - the temporary :3003 validation URL no longer responds
+   - the normal production deployment is still healthy and untouched
+3. Remove the temporary validation workflow and port mapping from .replit if they exist only for this validation exercise.
+4. Remove the temporary validation-only CSRF_ALLOWED_HOSTS entry.
+5. Remove the temporary validation connection file:
+   - .validation.env
+6. Remove any temporary validation wrapper script only if it exists solely to launch the temporary read-only validation server.
+7. Never print the read-only database password or connection string.
+8. Do not remove:
+   - server/startup-guard.ts
+   - rollback startup protections
+   - seed kill-switch
+   - rollback regression tests
+   - permanent production safety logic
+9. Keep the PostgreSQL role:
+   rollback_validation_readonly
+10. Do not revoke or delete that role. It will be retained for future production validation.
+11. Confirm the validation app no longer has any active connection using that role.
+
+If cleanup requires a code commit, commit it on the new mainline only after proving it removes validation-only plumbing and does not remove permanent guards.
+
+Push that cleanup commit normally to origin/main with no force.
+
+==================================================
+PHASE 8 — SECURITY HOUSEKEEPING
+==================================================
+
+Do not automatically change Trevor’s password.
+
+Report prominently that Trevor must change the password that appeared in the earlier screenshot.
+
+Do not expose, copy, log, or rotate credentials automatically unless explicitly instructed.
+
+==================================================
+PHASE 9 — FINAL REPORT
+==================================================
+
+Return:
+
+Validated source branch:
+Validated source SHA:
+Previous origin/main SHA:
+Promotion merge SHA:
+New origin/main SHA:
+Promotion commit parent 1:
+Promotion commit parent 2:
+Force-push used:
+Fast-forward push succeeded:
+Recovery branch pushed:
+Remote tags created:
+Tree identical to validated recovery tree:
+Original Currents present:
+Replacement Currents references:
+Rollback tests:
+Seed tests:
+Currents tests:
+Build result:
+
+Validation workflow stopped:
+Port 5099 stopped:
+Temporary validation URL offline:
+Temporary CSRF allowlist removed:
+Temporary validation env file removed:
+Temporary wrapper removed or retained with reason:
+rollback_validation_readonly role retained:
+Production deployment changed:
+Production database business records changed:
+Git status:
+
+Final verdict:
+- NEW MAINLINE RECOVERY COMPLETE: YES/NO
+- READY FOR CONTROLLED PRODUCTION DEPLOYMENT: YES/NO
+
+Do not publish or redeploy production yet.
+
+Stop after the report and wait for Trevor’s explicit approval to deploy the recovered mainline.

@@ -14,10 +14,6 @@ localPort = 5001
 externalPort = 3002
 
 [[ports]]
-localPort = 5099
-externalPort = 3003
-
-[[ports]]
 localPort = 5904
 externalPort = 3000
 
@@ -78,15 +74,6 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
-
-[[workflows.workflow]]
-name = "validation-deployment"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "bash scripts/start-validation.sh"
-waitForPort = 5099
 
 [[workflows.workflow]]
 name = "permissions"
