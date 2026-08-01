@@ -1,0 +1,208 @@
+TASK #221 FINAL UI ACCEPTANCE AND PUBLISH PREPARATION
+
+The database, API, migration, schema-diff, isolation, test, and build checks have passed.
+
+Do not change any schema.
+Do not modify Currents.
+Do not add features.
+Do not publish until the browser acceptance checks below pass.
+
+SECURITY FIRST
+
+The credentials used in the prior report were exposed in plaintext.
+
+Do not repeat or log either password again.
+
+Trevor will rotate those passwords separately. Do not store them in code, tests, documentation, screenshots, commits, or task reports.
+
+==================================================
+PART 1 — VERIFY CURRENT GIT STATE
+==================================================
+
+Report:
+
+- current branch
+- current HEAD SHA
+- origin/main SHA
+- git status
+- whether correction SHA 2e5e417c is committed
+- whether it is pushed
+- whether it is deployed
+
+Do not make unrelated commits.
+
+==================================================
+PART 2 — AUTHENTICATED LEADS UI VERIFICATION
+==================================================
+
+Use an authenticated development browser session.
+
+Open the Leads table/list view.
+
+Verify visually and functionally:
+
+1. The Columns button is visible.
+2. The Columns popover opens.
+3. Every expected Leads column appears.
+4. Company and Stage are visibly locked and cannot be hidden.
+5. Hide Location.
+6. Confirm the Location header disappears.
+7. Confirm Location cells disappear from every row.
+8. Move Deal $ left or right.
+9. Confirm the header and all corresponding row cells move together.
+10. Refresh the browser.
+11. Confirm the hidden/reordered layout persists.
+12. Navigate away and return.
+13. Confirm the layout persists.
+14. Log out and log back in.
+15. Confirm the layout persists.
+16. Click Reset to default.
+17. Confirm the original default order returns.
+18. Confirm filters still work.
+19. Confirm sorting still works.
+20. Confirm pagination still works.
+21. Confirm clicking a row still opens the correct record.
+22. Confirm board/pipeline view is unchanged.
+
+Capture screenshots of:
+
+- default Leads layout
+- Leads Columns popover
+- hidden-column layout
+- reordered layout
+- persisted layout after refresh
+- restored default layout
+
+==================================================
+PART 3 — AUTHENTICATED ACCOUNTS UI VERIFICATION
+==================================================
+
+Repeat the complete browser verification independently for Accounts.
+
+Verify:
+
+1. Columns button appears.
+2. Popover opens.
+3. Company and Stage remain locked.
+4. Hide an optional column.
+5. Header and row cells both disappear.
+6. Reorder another column.
+7. Header and row cells move together.
+8. Refresh preserves the Accounts layout.
+9. Logout/login preserves it.
+10. Reset restores the Accounts defaults.
+11. Accounts changes do not alter Leads.
+12. Leads changes do not alter Accounts.
+13. Filters, sorting, pagination, saved views, and row navigation still work.
+
+Capture equivalent Accounts screenshots.
+
+==================================================
+PART 4 — SECOND-USER UI ISOLATION
+==================================================
+
+Use a second authenticated test user without exposing credentials.
+
+Verify:
+
+- the second user initially sees their own default layout
+- Trevor’s saved layout is not visible
+- the second user can save a different Leads layout
+- the second user can save a different Accounts layout
+- Trevor’s layouts remain unchanged
+- switching back to Trevor restores Trevor’s own preferences
+
+Do not include passwords in the report.
+
+==================================================
+PART 5 — CURRENTS NON-REGRESSION CHECK
+==================================================
+
+Open Currents at /current.
+
+Confirm:
+
+- historical channels remain visible
+- historical messages remain visible
+- DMs remain visible
+- no Currents schema warning appears
+- no /api/currents/* requests occur
+- no Currents data was modified by Task #221
+
+Task #221 must not change Currents behavior.
+
+==================================================
+PART 6 — FINAL SCHEMA CONFIRMATION
+==================================================
+
+Generate the publish schema comparison again without publishing.
+
+Required exact result:
+
+UNCHANGED:
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+ADD:
+- user_column_prefs
+
+There must be no:
+
+- Currents deletion
+- Currents rename
+- Currents data-loss warning
+- suggested conversion of a Currents table into user_column_prefs
+
+Capture the schema comparison screenshot.
+
+==================================================
+PART 7 — FINAL TEST GATE
+==================================================
+
+Run:
+
+- tests/user-column-prefs.test.cjs
+- tests/rollback-gate.test.cjs
+- tests/seed-kill-switch.test.cjs
+- tests/currents-routing.test.cjs
+- tests/currents-search.test.cjs
+- tests/currents-attachments.test.cjs
+- tests/channel-add-member.test.cjs
+- tests/accounts-list-default.test.cjs
+- tests/accounts-primary-contact.test.cjs
+- npm run build
+
+All must pass.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+Current branch:
+Current SHA:
+Origin/main SHA:
+Files changed:
+Leads UI verified:
+Accounts UI verified:
+Second-user isolation verified:
+Persistence after refresh:
+Persistence after logout/login:
+Reset verified:
+Filters/sorting/pagination preserved:
+Currents unchanged:
+Fresh schema comparison:
+Currents deletion proposed:
+Currents rename proposed:
+user_column_prefs added separately:
+Tests:
+Build:
+Screenshots captured:
+Ready to merge:
+Ready to publish:
+
+Do not publish automatically.
+Stop after the report.
