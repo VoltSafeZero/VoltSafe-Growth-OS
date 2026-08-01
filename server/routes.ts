@@ -20650,6 +20650,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   // ── Category-folder counts ─────────────────────────────────────────────────
   // ── Marine Related tables — idempotent startup migration ─────────────────
+  if (!skipInReadOnlyMode("marine-related-email-tags-migration")) {
   try {
     await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS marine_related_email_tags (
@@ -20681,6 +20682,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   } catch (e: any) {
     console.warn("[marine] startup migration warning:", e.message);
   }
+  } // end marine-related-email-tags-migration gate
 
   // GET /api/gmail/marine-related/data?asAccountId=<id|all>
   // Returns the set of marine-tagged thread IDs and sender emails for the current user.
@@ -36669,13 +36671,13 @@ export function registerConfluenceRoutes(app: Express) {
   // ── Current: internal team communication layer ───────────────────────────────
 
   // Additive migration: channel management columns
-  db.execute(sql.raw(`
+  if (!skipInReadOnlyMode("currents-channel-management-migration")) db.execute(sql.raw(`
     ALTER TABLE current_channels ADD COLUMN IF NOT EXISTS archived_by INTEGER REFERENCES users(id);
     ALTER TABLE current_channels ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
   `)).catch(() => {});
 
   // Additive migration: per-user Currents badge preferences (Phase 10B)
-  db.execute(sql.raw(`
+  if (!skipInReadOnlyMode("currents-badge-preferences-migration")) db.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS current_user_preferences (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -36686,7 +36688,7 @@ export function registerConfluenceRoutes(app: Express) {
   `)).catch(() => {});
 
   // Additive migration: per-user channel notification preferences
-  db.execute(sql.raw(`
+  if (!skipInReadOnlyMode("currents-notification-preferences-migration")) db.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS current_channel_preferences (
       id SERIAL PRIMARY KEY,
       channel_id INTEGER NOT NULL REFERENCES current_channels(id) ON DELETE CASCADE,
@@ -36705,7 +36707,7 @@ export function registerConfluenceRoutes(app: Express) {
   //   @voltsafe.com + is_shared=false → company_managed
   //   non-@voltsafe.com               → private_personal, is_shared=false (ALWAYS)
   // Non-@voltsafe.com can NEVER be is_shared=true or team_shared or business_visible.
-  db.execute(sql.raw(`
+  if (!skipInReadOnlyMode("mailbox-visibility-migration")) db.execute(sql.raw(`
     ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS visibility_type TEXT DEFAULT 'private_personal';
     -- STEP 1: Enforce domain rule — non-@voltsafe.com accounts can never be shared/team/business-visible.
     UPDATE email_accounts
@@ -36745,7 +36747,7 @@ export function registerConfluenceRoutes(app: Express) {
   // email_account_id is nullable so pre-existing user-level signatures keep working
   // unscoped (treated as fallback/legacy). New signatures created from a specific
   // mailbox are scoped to that email_accounts row.
-  db.execute(sql.raw(`
+  if (!skipInReadOnlyMode("email-signatures-account-migration")) db.execute(sql.raw(`
     ALTER TABLE email_signatures ADD COLUMN IF NOT EXISTS email_account_id INTEGER REFERENCES email_accounts(id) ON DELETE CASCADE;
     CREATE INDEX IF NOT EXISTS idx_email_signatures_account ON email_signatures(email_account_id);
   `)).catch((e: any) => console.error("[migration] email_signatures.email_account_id error:", e.message));
@@ -36757,7 +36759,7 @@ export function registerConfluenceRoutes(app: Express) {
   //   provider outside our own OAuth app (e.g. shared/other-org)  → external_calendar (same busy-only treatment as private_personal)
   // calendar_events.connection_id links an event back to its source connection so visibility can be
   // resolved without re-deriving it from externalProvider/externalCalendarId string matching.
-  db.execute(sql.raw(`
+  if (!skipInReadOnlyMode("calendar-visibility-migration")) db.execute(sql.raw(`
     ALTER TABLE calendar_connections ADD COLUMN IF NOT EXISTS visibility_type TEXT;
     UPDATE calendar_connections
       SET visibility_type = 'company_managed'
@@ -43745,6 +43747,7 @@ ${contextText}`;
 
   // Auto-seed starter snippets on startup if none exist yet (covers production deploys)
   (async () => {
+    if (skipInReadOnlyMode("email-snippets-starter-seed")) return;
     try {
       const count = await db.execute(sql.raw(`SELECT COUNT(*) AS c FROM email_snippets WHERE is_starter = TRUE`));
       if (Number((count.rows[0] as any).c) === 0) {

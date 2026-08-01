@@ -214,6 +214,104 @@ async function runTests() {
       "startFollowupScheduler guarded by skipInReadOnlyMode (Req 3)");
   }
 
+  // ── §3b ─────────────────────────────────────────────────────────────────
+  console.log("\n§3b  Part 1 hardening — eight new startup writers gated");
+
+  /**
+   * Verify that the skipInReadOnlyMode gate call for `writerName` is present,
+   * and that the first DDL/DML SQL marker appears within `afterWindow` chars
+   * AFTER the gate.  This proves the guard fires before any mutation.
+   */
+  function assertGatedBeforeSQL(src, writerName, sqlMarker, afterWindow) {
+    afterWindow = afterWindow || 400;
+    var gateStr = 'skipInReadOnlyMode("' + writerName + '")';
+    var gateIdx = src.indexOf(gateStr);
+    assert(gateIdx !== -1, writerName + ": skipInReadOnlyMode gate call present");
+    if (gateIdx === -1) return;
+    var afterGate = src.slice(gateIdx, gateIdx + afterWindow);
+    assert(afterGate.includes(sqlMarker),
+      writerName + ": first DDL/DML appears within " + afterWindow + " chars after the gate");
+  }
+
+  // 1. marine-related-email-tags-migration
+  assertGatedBeforeSQL(routesSrc,
+    "marine-related-email-tags-migration",
+    "CREATE TABLE IF NOT EXISTS marine_related_email_tags", 300);
+
+  // 2. currents-channel-management-migration
+  assertGatedBeforeSQL(routesSrc,
+    "currents-channel-management-migration",
+    "ALTER TABLE current_channels ADD COLUMN IF NOT EXISTS archived_by", 200);
+
+  // 3. currents-badge-preferences-migration
+  assertGatedBeforeSQL(routesSrc,
+    "currents-badge-preferences-migration",
+    "CREATE TABLE IF NOT EXISTS current_user_preferences", 200);
+
+  // 4. currents-notification-preferences-migration
+  assertGatedBeforeSQL(routesSrc,
+    "currents-notification-preferences-migration",
+    "CREATE TABLE IF NOT EXISTS current_channel_preferences", 200);
+
+  // 5. mailbox-visibility-migration
+  assertGatedBeforeSQL(routesSrc,
+    "mailbox-visibility-migration",
+    "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS visibility_type", 200);
+
+  // 6. email-signatures-account-migration
+  assertGatedBeforeSQL(routesSrc,
+    "email-signatures-account-migration",
+    "ALTER TABLE email_signatures ADD COLUMN IF NOT EXISTS email_account_id", 200);
+
+  // 7. calendar-visibility-migration
+  assertGatedBeforeSQL(routesSrc,
+    "calendar-visibility-migration",
+    "ALTER TABLE calendar_connections ADD COLUMN IF NOT EXISTS visibility_type", 200);
+
+  // 8. email-snippets-starter-seed (guard is inside the IIFE; INSERT follows within ~600 chars)
+  assertGatedBeforeSQL(routesSrc,
+    "email-snippets-starter-seed",
+    "INSERT INTO email_snippets (title", 600);
+
+  // Comprehensive startup inventory: zero fire-and-forget db.execute at 2-space indent remain
+  // without a skipInReadOnlyMode guard immediately before them.
+  // After all 8 fixes, every `  db.execute(sql.raw(` line is prefixed by `if (!skipInReadOnlyMode...`.
+  {
+    var ffMatches = Array.from(routesSrc.matchAll(/^  db\.execute\(sql\.raw\(/gm));
+    var ungatedCount = 0;
+    for (var mi = 0; mi < ffMatches.length; mi++) {
+      var m = ffMatches[mi];
+      var pre = routesSrc.slice(Math.max(0, m.index - 250), m.index);
+      if (!pre.includes("skipInReadOnlyMode")) ungatedCount++;
+    }
+    assert(ungatedCount === 0,
+      "Startup inventory: all fire-and-forget db.execute at 2-space indent are gated (" +
+      ungatedCount + " ungated found; expected 0)");
+  }
+
+  // ROLLBACK_VALIDATION_READ_ONLY alone is sufficient (OR-logic in guard)
+  {
+    var gfStart = guardSrc.indexOf("export function skipInReadOnlyMode");
+    var gfEnd   = guardSrc.indexOf("}", gfStart + 10) + 1;
+    var gfBody  = guardSrc.slice(gfStart, gfEnd);
+    assert(gfBody.includes('ROLLBACK_VALIDATION_READ_ONLY === "true"'),
+      "skipInReadOnlyMode: ROLLBACK_VALIDATION_READ_ONLY=true alone triggers skip (Req §0)");
+  }
+
+  // ROLLBACK_FIRST_BOOT_READ_ONLY alone is sufficient (OR-logic in guard)
+  {
+    var gfStart2 = guardSrc.indexOf("export function skipInReadOnlyMode");
+    var gfEnd2   = guardSrc.indexOf("}", gfStart2 + 10) + 1;
+    var gfBody2  = guardSrc.slice(gfStart2, gfEnd2);
+    assert(gfBody2.includes('ROLLBACK_FIRST_BOOT_READ_ONLY === "true"'),
+      "skipInReadOnlyMode: ROLLBACK_FIRST_BOOT_READ_ONLY=true alone triggers skip (Req §0)");
+  }
+
+  // Normal mode: guard must return false (allow writes) when neither flag is set.
+  // startup-guard.ts is a small single-purpose module; scanning the full file is unambiguous.
+  assert(guardSrc.includes("return false"),
+    "skipInReadOnlyMode: returns false (allow writes) when neither env flag is set");
+
   // ── §4 ──────────────────────────────────────────────────────────────────
   console.log("\n§4  server/routes-tasks.ts — startup migration writers");
   assert(routesTasksSrc.includes('from "./startup-guard"'),
