@@ -1,0 +1,195 @@
+VALIDATION DEPLOYMENT — REQUIRE DATABASE-ENFORCED READ-ONLY BEFORE LOGIN
+
+Do not let Trevor log in yet.
+
+The current validation server is connected to the live production database as neondb_owner. The report confirms:
+
+- default_transaction_read_only = off
+- the role has INSERT / UPDATE / DELETE privileges
+- the first validation boot already executed UPDATE statements on production email_threads
+- several password/auth mutation routes remain available
+
+This is not acceptable for a production-data validation walkthrough.
+
+==================================================
+1. STOP THE CURRENT VALIDATION PROCESS
+==================================================
+
+Stop the validation-deployment workflow immediately.
+
+Confirm:
+
+- port 5099 is no longer serving
+- the temporary validation URL no longer responds
+- the normal production deployment remains running
+- no further validation-process requests appear in logs
+
+Do not stop or modify the normal production deployment.
+
+==================================================
+2. CREATE A DEDICATED READ-ONLY PRODUCTION ROLE
+==================================================
+
+Create a PostgreSQL role used only by this temporary validation deployment.
+
+Preferred role name:
+
+rollback_validation_readonly
+
+The role must have:
+
+- LOGIN
+- CONNECT to neondb
+- USAGE on schema public
+- SELECT on all existing public tables
+- SELECT on required sequences only if reads require them
+- default_transaction_read_only = on
+
+The role must NOT have:
+
+- ownership of any application object
+- CREATE on database or schema
+- INSERT
+- UPDATE
+- DELETE
+- TRUNCATE
+- REFERENCES
+- TRIGGER
+- CREATE TABLE
+- CREATE INDEX
+- ALTER
+- DROP
+- EXECUTE on mutating functions
+
+Revoke CREATE on schema public for this role explicitly.
+
+Do not expose its password or connection string in logs or chat.
+
+Creating this role may modify PostgreSQL security metadata only. It must not alter any VoltSafe business records.
+
+==================================================
+3. PROVE DATABASE-LEVEL READ-ONLY
+==================================================
+
+Connect using the new role and report:
+
+- current_user
+- default_transaction_read_only
+- has_database_privilege(..., 'CONNECT')
+- has_schema_privilege(..., 'USAGE')
+- has_schema_privilege(..., 'CREATE')
+- table privilege checks for SELECT / INSERT / UPDATE / DELETE
+
+Run harmless attempted writes inside a transaction against disposable/nonexistent targets and confirm PostgreSQL rejects them:
+
+- INSERT
+- UPDATE
+- DELETE
+- CREATE TABLE
+- ALTER TABLE
+- TRUNCATE
+
+Required result:
+
+- SELECT succeeds
+- every write fails with a PostgreSQL read-only or permission error
+
+Do not test against a real record ID.
+
+==================================================
+4. NARROW THE APPLICATION AUTH EXCEPTIONS
+==================================================
+
+In PRODUCTION_READONLY_MODE=true, allow only the exact minimum endpoints needed for login and logout.
+
+Allowed exceptions may include only:
+
+- the specific password-login endpoint
+- session establishment using MemoryStore
+- logout
+- any exact GET endpoint needed to read the authenticated user
+
+Block all other mutation endpoints, including:
+
+- change password
+- forced password change
+- forgot password
+- password reset
+- OAuth connect/reconnect
+- token refresh that writes
+- timezone update
+- notification/read-state changes
+- WebAuthn registration
+- settings/preferences updates
+
+Do not exempt broad prefixes such as:
+
+- /api/auth
+- /api/session
+- /api/oauth
+- /api/google
+
+Use exact route exceptions instead.
+
+Login must continue to skip:
+
+- last_login UPDATE
+- timezone UPDATE
+- database-backed session writes
+- audit/activity writes
+
+==================================================
+5. RESTART WITH THE READ-ONLY ROLE
+==================================================
+
+Build and run the validation deployment using the new read-only connection string:
+
+NODE_ENV=production
+ROLLBACK_FIRST_BOOT_READ_ONLY=true
+ROLLBACK_VALIDATION_READ_ONLY=true
+RUN_STARTUP_MIGRATIONS=false
+ALLOW_DESTRUCTIVE_SEED=false
+PRODUCTION_READONLY_MODE=true
+ENABLE_BACKGROUND_JOBS=false
+
+The validation app must no longer use neondb_owner.
+
+Confirm:
+
+- current_user = rollback_validation_readonly
+- default_transaction_read_only = on
+- production bundle serves /
+- /api/version returns 200
+- all startup writers skipped
+- computeAwaitingReply skipped
+- GET /api/mentions performs no UPDATE
+- non-SELECT startup SQL count = 0
+
+==================================================
+6. FINAL LOGIN SAFETY VERDICT
+==================================================
+
+Return:
+
+Validation workflow stopped before changes: YES/NO
+Read-only role created: YES/NO
+Validation app still uses neondb_owner: YES/NO
+default_transaction_read_only: on/off
+SELECT works: YES/NO
+INSERT rejected by PostgreSQL: YES/NO
+UPDATE rejected by PostgreSQL: YES/NO
+DELETE rejected by PostgreSQL: YES/NO
+DDL rejected by PostgreSQL: YES/NO
+Broad auth-prefix exceptions removed: YES/NO
+Password-management mutations blocked: YES/NO
+OAuth mutations blocked: YES/NO
+Login writes to production: 0 / list them
+Startup production writes: 0 / list them
+Safe for Trevor to log in: YES/NO
+
+Only answer YES if database-level read-only enforcement is proven.
+
+Do not promote.
+Do not push main.
+Do not deploy production.
+Stop after the report.
