@@ -1,0 +1,497 @@
+CONTROLLED VOLTSAFE CMS RECOVERY — VALIDATE 0dc8f604 AND, ONLY IF IT PASSES, MAKE IT THE NEW MAINLINE
+
+Development is frozen.
+
+Proceed through the gates in order. Do not skip a failed or blocked gate.
+
+DO NOT:
+
+- deploy or publish to production
+- connect the rollback application to the live writable production database
+- run migrations
+- run seedProductionData()
+- run cleanup, retention, sync, backfill or repair writers
+- restore or roll back the production database
+- delete branches, commits, tables or records
+- force-push
+- reset origin/main
+- rewrite Git history
+- merge the contaminated incident branch
+- include the replacement Currents implementation
+- fix unrelated defects during validation
+
+Known recovery information:
+
+Stable application baseline:
+  0dc8f604
+  "Published your App"
+  2026-07-27 08:05:24 UTC
+
+Hardened rollback candidate:
+  branch: recovery/pre-mail-stable-staging
+  current SHA: e71a0d20
+  base application: 0dc8f604
+
+Contaminated work preserved at:
+  branch: incident-contaminated-workspace-2026-07-31
+  SHA: 7f401925
+
+Current GitHub main:
+  origin/main: 18a59dbe
+
+Original Currents:
+  page: client/src/pages/current.tsx
+  route: /current
+  API: /api/current/*
+  tables: current_*
+
+Incident replacement Currents — MUST remain excluded:
+  client/src/pages/currents.tsx
+  /currents
+  /api/currents/*
+  currents_channels
+  currents_posts
+  currents_reactions
+  currents_read_state
+
+Production DB facts already found:
+  database: neondb
+  PostgreSQL: 16.14
+  current size: approximately 1,511 MB
+  original current_* tables exist
+  replacement currents_* tables do not exist
+
+======================================================================
+GATE 1 — PERMANENTLY TAG AND PRESERVE THE BASELINE
+======================================================================
+
+Verify these commits and branches still exist:
+
+- 0dc8f604
+- e71a0d20
+- incident-contaminated-workspace-2026-07-31 at 7f401925
+- origin/main at 18a59dbe
+
+Create local annotated tags:
+
+pre-mail-stable-2026-07-27         → 0dc8f604
+pre-mail-stable-hardened-staging   → e71a0d20
+incident-preserved-2026-07-31      → 7f401925
+pre-recovery-github-main           → 18a59dbe
+
+Tag messages must explain what each tag represents.
+
+Do not push the tags yet.
+
+Report:
+
+- tag name
+- target full SHA
+- annotation
+- whether each target is reachable
+- git status
+
+If any target is missing, STOP.
+
+======================================================================
+GATE 2 — CREATE A REAL PRODUCTION DATABASE CLONE
+======================================================================
+
+Use Neon’s branch/clone functionality from the actual production project.
+
+Do not use the development helium database as a substitute.
+
+Do not point the rollback app at the live production database.
+
+Create an isolated branch/database named similar to:
+
+rollback-validation-2026-07-31
+
+Report without exposing credentials:
+
+- Neon project identifier
+- source production branch
+- clone branch name
+- clone database name
+- clone creation timestamp
+- source timestamp
+- clone endpoint fingerprint
+- clone size
+- confirmation production was not modified
+
+If Neon credentials or permissions are unavailable:
+
+- do not improvise
+- do not use production directly
+- output the exact human steps Trevor must perform in Neon
+- STOP before Gate 3
+
+======================================================================
+GATE 3 — VERIFY THE CLONE MATCHES PRODUCTION
+======================================================================
+
+Run read-only queries against production and the clone.
+
+For both report:
+
+SELECT current_database();
+SELECT version();
+SELECT pg_size_pretty(pg_database_size(current_database()));
+
+Counts:
+
+SELECT COUNT(*) FROM users;
+SELECT COUNT(*) FROM leads;
+SELECT COUNT(*) FROM accounts;
+SELECT COUNT(*) FROM contacts;
+SELECT COUNT(*) FROM activities;
+SELECT COUNT(*) FROM tasks;
+SELECT COUNT(*) FROM email_accounts;
+SELECT COUNT(*) FROM email_messages;
+SELECT COUNT(*) FROM current_channels;
+SELECT COUNT(*) FROM current_messages;
+SELECT COUNT(*) FROM current_reactions;
+SELECT COUNT(*) FROM current_pins;
+
+Also compare the full list of public tables and column definitions.
+
+Pass requirements:
+
+- all listed counts match exactly
+- table names match
+- column definitions match
+- original current_* tables exist
+- replacement currents_* tables are absent
+- clone size is reasonably consistent with production
+
+If the clone does not match, STOP.
+
+======================================================================
+GATE 4 — ENFORCE DATABASE-LEVEL READ-ONLY ACCESS
+======================================================================
+
+Create or use a dedicated read-only role for the clone.
+
+The rollback application must not connect as neondb_owner.
+
+Prove the clone connection rejects:
+
+- INSERT
+- UPDATE
+- DELETE
+- CREATE TABLE
+- ALTER TABLE
+- TRUNCATE
+
+Use only disposable test statements inside a transaction and confirm PostgreSQL rejects them before execution.
+
+Application environment:
+
+NODE_ENV=staging
+ROLLBACK_VALIDATION_READ_ONLY=true
+RUN_STARTUP_MIGRATIONS=false
+ALLOW_DESTRUCTIVE_SEED=false
+
+Confirm:
+
+- production seed blocked at call site
+- production seed blocked inside seedProductionData()
+- all 27 known startup writers skipped
+- explicit migrations skipped
+- database itself rejects writes
+
+If database-level read-only cannot be enforced, STOP.
+
+======================================================================
+GATE 5 — BUILD AND START THE ROLLBACK CANDIDATE
+======================================================================
+
+Use branch:
+
+recovery/pre-mail-stable-staging
+
+Verify its HEAD is e71a0d20 or a direct descendant containing only approved rollback-safety work.
+
+Run:
+
+npm ci
+npm run build
+
+Start against the read-only production clone.
+
+Capture complete startup logs.
+
+Required startup evidence:
+
+- HTTP /health returns 200
+- application startup completes
+- seed blocked/skipped
+- migrations skipped
+- all startup writers skipped
+- zero successful DDL or DML
+- no TRUNCATE
+- no pg_restore
+- no CREATE / ALTER / DROP
+- no INSERT / UPDATE / DELETE
+- no sync writes
+- no cleanup or retention writes
+- no unhandled exceptions
+
+Any unexpected database write attempt must be listed.
+
+If the application cannot boot against the clone, STOP.
+
+======================================================================
+GATE 6 — AUTHENTICATED FUNCTIONAL WALKTHROUGH
+======================================================================
+
+Use an authenticated staging session against the production clone.
+
+Do not rely only on source grep, static tests, SQL counts or unauthenticated screenshots.
+
+Capture screenshots, browser console output and Network requests.
+
+Verify each module:
+
+1. Original Currents
+   - navigation shows Currents
+   - URL is /current
+   - original full UI loads
+   - 15 production channels appear
+   - existing messages render
+   - public channels work
+   - private channel permissions work
+   - direct messages load
+   - group DMs load
+   - threads load
+   - @mentions render
+   - reactions render
+   - pins load
+   - attachments load
+   - files tab loads
+   - message history pagination works
+   - search works
+   - member management opens
+   - task creation dialog opens
+   - CRM-linked Currents feed loads
+   - read/unread indicators render
+
+2. VoltSafe Mail — pre-campaign version only
+   - Trevor mailbox loads
+   - Sales mailbox loads
+   - Support mailbox loads
+   - private mailboxes load if supported by this version
+   - mailbox switching does not leak rows
+   - inbox messages render
+   - basic read/unread behavior works
+   - no endless spinner
+   - no HTTP 500
+   - no Local mailbox query failed error
+
+3. Core CMS
+   - Today
+   - Work
+   - Mission Control
+   - Leads
+   - Accounts
+   - Contacts
+   - Opportunities
+   - Tasks
+   - Calendar
+   - Cortex
+   - Admin
+   - Permissions
+
+For every failure record:
+
+- module
+- exact click sequence
+- screenshot
+- request URL
+- HTTP status
+- response body
+- browser-console error
+- server error
+- database error
+- whether it is blocking or non-blocking
+
+Do not fix failures during this gate.
+
+======================================================================
+GATE 7 — ACCEPTANCE DECISION
+======================================================================
+
+Classify the candidate:
+
+PASS:
+- all critical modules load
+- original Currents works with production-clone data
+- no critical permission or data-isolation failure
+- no startup write occurs
+- no destructive path is reachable
+- no schema incompatibility blocks normal operation
+- Mail is at least as usable as it was before the five-day repair campaign
+
+CONDITIONAL PASS:
+- only small, localized, non-data-destructive defects exist
+- each defect has a clear compatibility-only fix
+- no architectural or data risk exists
+
+FAIL:
+- Currents cannot use existing data
+- core CRM modules fail
+- permission boundaries fail
+- schema incompatibilities are broad
+- the application requires migrations to boot
+- writes cannot be fully blocked
+- rollback produces more severe regressions than current production
+
+Produce a PASS / CONDITIONAL PASS / FAIL verdict with evidence.
+
+Do not advance on FAIL.
+
+On CONDITIONAL PASS, list the minimum fixes and STOP for approval.
+
+Only advance automatically on a clean PASS.
+
+======================================================================
+GATE 8 — CREATE A FORWARD-MOVING NEW MAINLINE
+======================================================================
+
+ONLY IF GATE 7 = PASS.
+
+Do not force-push and do not reset origin/main backward.
+
+Create a new branch from the current GitHub main:
+
+git switch -c recovery/new-mainline origin/main
+
+Preserve the current main tree in a local safety branch and tag:
+
+branch:
+  archive/pre-recovery-main-2026-07-31
+
+tag:
+  pre-recovery-github-main → 18a59dbe
+
+Now replace the working tree on recovery/new-mainline with the complete, validated tree from:
+
+recovery/pre-mail-stable-staging
+
+This must create a normal forward-moving recovery commit on top of origin/main history.
+
+Important:
+
+- preserve .git
+- exclude attached incident files unless intentionally required
+- exclude client/src/pages/currents.tsx
+- exclude /api/currents/*
+- exclude replacement currents_* schema code
+- include original current.tsx and /api/current/*
+- include seed kill-switch
+- include migration gate
+- include rollback startup-writer gate only if approved for the recovery release
+- do not include Mail tracing from the contaminated branch
+- do not include unreviewed Cortex restoration
+- do not include unrelated incident-time changes
+
+Before committing, run:
+
+git diff --stat origin/main
+git diff --name-status origin/main
+npm ci
+npm run build
+all deterministic tests applicable to this baseline
+
+Commit message:
+
+recovery: restore stable pre-Mail CMS baseline with original Currents
+
+Report the full recovery commit SHA.
+
+======================================================================
+GATE 9 — PUSH THE RECOVERY MAINLINE SAFELY
+======================================================================
+
+ONLY IF:
+
+- Gate 7 = PASS
+- Gate 8 build passes
+- tests pass
+- diff contains only the validated recovery tree
+- no replacement Currents code exists
+- no destructive startup path exists
+
+Push the recovery branch first:
+
+git push origin recovery/new-mainline
+
+Do not force-push main.
+
+Then create a normal merge or pull request from:
+
+recovery/new-mainline → main
+
+If this environment can perform a standard non-force merge into main safely and branch protection allows it, merge it.
+
+If review/PR approval is required, STOP and provide the exact GitHub PR URL or human steps.
+
+After successful merge, verify:
+
+origin/main points to the new forward-moving recovery commit
+the four recovery tags remain correct
+the contaminated incident branch remains isolated
+no production deployment has occurred
+
+Push the annotated recovery tags only after the recovery branch is safely on GitHub.
+
+======================================================================
+GATE 10 — FINAL REPORT
+======================================================================
+
+Stable baseline tag created:
+Hardened baseline tag created:
+Incident preservation tag created:
+Pre-recovery main tag created:
+
+Production clone created:
+Clone name:
+Clone source timestamp:
+Clone matches production:
+
+Database-level read-only enforced:
+Rejected write tests:
+Startup writers skipped:
+Unexpected writes:
+
+Functional verdict: PASS / CONDITIONAL PASS / FAIL
+
+Original Currents:
+Currents production data visible:
+VoltSafe Mail basic behavior:
+Core CMS modules:
+Permission isolation:
+Schema compatibility:
+
+New mainline branch created:
+Recovery commit SHA:
+Build:
+Tests:
+Diff reviewed:
+
+Recovery branch pushed:
+GitHub PR created:
+GitHub main updated:
+Force-push used: NO
+
+Production deployed: NO
+
+Current origin/main SHA:
+Contaminated branch preserved:
+Tags pushed:
+
+Ready for production deployment:
+- NO unless a separate production deployment approval is given by Trevor.
+
+Do not publish to production.
+Stop after the report.
