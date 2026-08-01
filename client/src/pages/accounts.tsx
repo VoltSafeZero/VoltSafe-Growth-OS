@@ -122,20 +122,28 @@ function getOrgTypeLabel(value: string | null | undefined) {
 
 export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [, setLocation] = useLocation();
+  // Restore last-used filter selections from localStorage so the user's preferred
+  // filters survive page navigation and future sessions.
+  const [_storedAccountsPrefs] = useState<Record<string, string>>(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem("vs_accounts_filters_v1") || "{}"); }
+    catch { return {}; }
+  });
+
   const [search, setSearch] = useState("");
-  const [industryFilter, setIndustryFilter] = useState("__all__");
-  const [marketSegmentFilter, setMarketSegmentFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [countryFilter, setCountryFilter] = useState("all");
-  const [regionFilter, setRegionFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [industryFilter, setIndustryFilter] = useState(_storedAccountsPrefs.industry ?? "__all__");
+  const [marketSegmentFilter, setMarketSegmentFilter] = useState(_storedAccountsPrefs.marketSegment ?? "all");
+  const [typeFilter, setTypeFilter] = useState(_storedAccountsPrefs.type ?? "all");
+  const [countryFilter, setCountryFilter] = useState(_storedAccountsPrefs.country ?? "all");
+  const [regionFilter, setRegionFilter] = useState(_storedAccountsPrefs.state ?? "all");
+  const [priorityFilter, setPriorityFilter] = useState(_storedAccountsPrefs.priority ?? "all");
   const regionOptions = countryFilter !== "all" ? getRegionsForCountry(countryFilter) : [];
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [view, setView] = useState<"list" | "grid" | "pipeline" | "map">("list");
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
-  const [sortOption, setSortOption] = useState("name:asc");
+  const [sortOption, setSortOption] = useState(_storedAccountsPrefs.sort ?? "name:asc");
   const [isPotentialInvestorFilter, setIsPotentialInvestorFilter] = useState(false);
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState("");
@@ -195,6 +203,12 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     industry: industryFilter, marketSegment: marketSegmentFilter, type: typeFilter,
     country: countryFilter, state: regionFilter, priority: priorityFilter, sort: sortOption,
   });
+
+  // Auto-persist filter selections — any change is immediately saved so the next
+  // visit (same day or future session) starts with the filters left where they were.
+  useEffect(() => {
+    localStorage.setItem("vs_accounts_filters_v1", currentFiltersJson);
+  }, [currentFiltersJson]);
 
   const isFiltered = industryFilter !== "__all__" || marketSegmentFilter !== "all" || typeFilter !== "all"
     || countryFilter !== "all" || regionFilter !== "all" || priorityFilter !== "all" || isPotentialInvestorFilter || sortOption !== "name:asc" || search !== "";
@@ -335,6 +349,17 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      {/* Leads ↔ Accounts section tabs */}
+      <div className="flex items-center gap-1">
+        <Link href="/opportunities">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none">
+            Leads
+          </span>
+        </Link>
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold bg-primary/10 text-primary border border-primary/20 select-none">
+          Accounts
+        </span>
+      </div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <div>

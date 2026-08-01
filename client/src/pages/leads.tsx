@@ -167,18 +167,27 @@ function getStageLabel(value: string) {
 }
 
 export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: { canEdit?: boolean; lockedStatus?: string; pageTitle?: string }) {
+  // Restore last-used filter selections from localStorage so the user's preferred
+  // filters survive page navigation and future sessions. Skipped when the page is
+  // locked to a specific status (e.g. "Accounts Won" page).
+  const [_storedLeadsPrefs] = useState<Record<string, string>>(() => {
+    if (lockedStatus || typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem("vs_leads_filters_v1") || "{}"); }
+    catch { return {}; }
+  });
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(lockedStatus ?? "all");
-  const [countryFilter, setCountryFilter] = useState("all");
-  const [stateFilter, setStateFilter] = useState("all");
-  const [industryFilter, setIndustryFilter] = useState("marine");
-  const [marketSegmentFilter, setMarketSegmentFilter] = useState("marina");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [shorePowerFilter, setShorePowerFilter] = useState("all");
-  const [commStatusFilter, setCommStatusFilter] = useState("all");
+  const [countryFilter, setCountryFilter] = useState(_storedLeadsPrefs.country ?? "all");
+  const [stateFilter, setStateFilter] = useState(_storedLeadsPrefs.state ?? "all");
+  const [industryFilter, setIndustryFilter] = useState(_storedLeadsPrefs.primaryIndustry ?? "marine");
+  const [marketSegmentFilter, setMarketSegmentFilter] = useState(_storedLeadsPrefs.marketSegment ?? "marina");
+  const [typeFilter, setTypeFilter] = useState(_storedLeadsPrefs.type ?? "all");
+  const [priorityFilter, setPriorityFilter] = useState(_storedLeadsPrefs.priority ?? "all");
+  const [shorePowerFilter, setShorePowerFilter] = useState(_storedLeadsPrefs.shorePower ?? "all");
+  const [commStatusFilter, setCommStatusFilter] = useState(_storedLeadsPrefs.commStatus ?? "all");
   const [isPotentialInvestorFilter, setIsPotentialInvestorFilter] = useState(false);
-  const [sortOption, setSortOption] = useState("name:asc");
+  const [sortOption, setSortOption] = useState(_storedLeadsPrefs.sort ?? "name:asc");
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
     const v = new URLSearchParams(window.location.search).get("view");
@@ -428,6 +437,13 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
 
   const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter, primaryIndustry: industryFilter, marketSegment: marketSegmentFilter, type: typeFilter, priority: priorityFilter, shorePower: shorePowerFilter, commStatus: commStatusFilter, sort: sortOption }), [statusFilter, countryFilter, stateFilter, industryFilter, marketSegmentFilter, typeFilter, priorityFilter, shorePowerFilter, commStatusFilter, sortOption]);
 
+  // Auto-persist filter selections — any change is immediately saved so the next
+  // visit (same day or future session) starts with the filters left where they were.
+  useEffect(() => {
+    if (lockedStatus) return; // Don't persist for locked-status pages
+    localStorage.setItem("vs_leads_filters_v1", currentFiltersJson);
+  }, [currentFiltersJson, lockedStatus]);
+
   const applyView = (sv: SavedView) => {
     setActiveViewId(sv.id);
     if (sv.filtersJson) {
@@ -453,6 +469,17 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      {/* Leads ↔ Accounts section tabs */}
+      <div className="flex items-center gap-1">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold bg-primary/10 text-primary border border-primary/20 select-none">
+          Leads
+        </span>
+        <Link href="/accounts">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none">
+            Accounts
+          </span>
+        </Link>
+      </div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <div>
