@@ -272,13 +272,16 @@ console.log("\n── Channel notification respects preferences ──");
 assertIn(
   "CN1. syncCurrentMentions checks channel mute preference",
   ROUTES,
-  "Check if user has muted this channel (skip notification if muted)"
+  // Phase 2 rewrite: mute check uses resolvedChannelId (pre-resolved once per call)
+  // and only applies to @all-expanded users; direct @user always notifies.
+  "if (!isDirectMention && resolvedChannelId !== null)"
 );
 
 assertIn(
   "CN2. Muted channel preference check queries current_channel_preferences",
   ROUTES,
-  /SELECT notification_level FROM current_channel_preferences WHERE channel_id = \$\{chanId\} AND user_id = \$\{mid\}/
+  // Phase 2: uses resolvedChannelId (pre-fetched before the user loop)
+  /SELECT notification_level FROM current_channel_preferences WHERE channel_id = \$\{resolvedChannelId\} AND user_id = \$\{mid\}/
 );
 
 assertIn(

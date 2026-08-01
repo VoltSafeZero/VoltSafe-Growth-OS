@@ -167,13 +167,16 @@ const CURRENT_TSX = fs.readFileSync(
 );
 
 check(
-  "New DM picker uses /api/current/users endpoint",
-  CURRENT_TSX.includes("/api/current/users") &&
+  "New DM picker uses canonical useCurrentUsers hook (wraps /api/current/users)",
+  // After Phase 2 refactor, direct fetches were replaced by the canonical hook.
+  // NewDmDialog now calls useCurrentUsers(debouncedQ, open, false).
+  CURRENT_TSX.includes("useCurrentUsers") &&
   CURRENT_TSX.includes("dm-user-search-input")
 );
 check(
-  "Mention autocomplete uses /api/current/users endpoint",
-  CURRENT_TSX.includes("/api/current/users") &&
+  "Mention autocomplete uses canonical useCurrentUsers hook (wraps /api/current/users)",
+  // useComposerMentions now calls useCurrentUsers(mentionQuery, mentionActive, true)
+  CURRENT_TSX.includes("useCurrentUsers") &&
   CURRENT_TSX.includes("mentionQuery")
 );
 check(
