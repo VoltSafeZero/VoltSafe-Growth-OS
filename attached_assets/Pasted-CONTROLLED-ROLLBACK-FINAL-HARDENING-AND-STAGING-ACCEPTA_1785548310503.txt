@@ -1,0 +1,218 @@
+CONTROLLED ROLLBACK — FINAL HARDENING AND STAGING ACCEPTANCE
+
+Proceed on branch:
+
+recovery/pre-mail-stable-staging
+
+Do NOT deploy or push to main yet.
+
+The read-only verification report is encouraging, but I am NOT accepting the conclusion that the branch is production-safe while 25 startup writers and one UPDATE can still execute automatically in production.
+
+For the rollback deployment, the required standard is:
+
+ZERO automatic database writes on first production boot.
+
+Complete the following in order.
+
+==================================================
+PART 1 — FIX THE THREE CURRENTS ROUTING DEFECTS
+==================================================
+
+Make only these routing corrections:
+
+1. server/routes.ts
+   Change:
+   /api/currents/files
+   To:
+   /api/current/files
+
+2. server/routes.ts
+   Change the smart-inbox link:
+   /currents
+   To:
+   /current
+
+3. client/src/components/today/ceo-cockpit-sections.tsx
+   Change all three Currents links:
+   /currents...
+   To:
+   /current...
+
+Search the entire codebase afterward and report every remaining occurrence of:
+
+- "/currents"
+- "/api/currents"
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+The expected result for executable production code is zero replacement-Currents references. Do not remove historical documentation or incident reports merely because they contain those strings.
+
+==================================================
+PART 2 — MAKE FIRST-BOOT VALIDATION STRICTLY READ-ONLY
+==================================================
+
+For the rollback release, all automatic startup database writers must be disabled when either of these is true:
+
+- ROLLBACK_VALIDATION_READ_ONLY=true
+- ROLLBACK_FIRST_BOOT_READ_ONLY=true
+
+Use the existing centralized startup guard. Do not create scattered one-off checks.
+
+Requirements:
+
+1. Every startup migration, schema repair, seed, backfill, default-row insert, cleanup UPDATE, index creation, scheduler bootstrap write, and startup IIFE that can issue DDL or DML must exit before its first database write.
+
+2. This includes the existing avatar cleanup UPDATE. It must not execute during rollback first-boot validation.
+
+3. Background jobs that can write to the database must not start while either read-only flag is enabled.
+
+4. Normal authenticated API writes may remain available only after validation mode is removed. During the first-boot validation process, do not exercise mutating API endpoints.
+
+5. Do not rely on:
+   - IF NOT EXISTS
+   - ON CONFLICT DO NOTHING
+   - the production schema already being complete
+   - NODE_ENV alone
+
+The acceptance condition is zero attempted startup writes, not merely zero harmful writes.
+
+==================================================
+PART 3 — ADD HARD REGRESSION TESTS
+==================================================
+
+Extend the rollback gate tests to prove:
+
+1. Every known startup writer is behind the centralized guard.
+2. The avatar cleanup UPDATE is guarded.
+3. Every background scheduler or worker capable of writing is blocked.
+4. seedProductionData() is blocked when NODE_ENV=production, regardless of ALLOW_DESTRUCTIVE_SEED.
+5. seedProductionData() is blocked when ALLOW_DESTRUCTIVE_SEED is absent, regardless of NODE_ENV.
+6. RUN_STARTUP_MIGRATIONS must equal the exact string "true" before explicit migrations can run.
+7. With ROLLBACK_FIRST_BOOT_READ_ONLY=true, no code path can reach:
+   - TRUNCATE
+   - DELETE
+   - UPDATE
+   - INSERT
+   - ALTER
+   - CREATE TABLE
+   - CREATE INDEX
+   - DROP
+   - pg_restore
+8. No executable code references the replacement Currents routes, page, or tables.
+9. Original Currents remains wired at:
+   - page: client/src/pages/current.tsx
+   - route: /current
+   - API namespace: /api/current/*
+10. The application still builds.
+
+Do not create tests that merely search a nearby comment. Scope each assertion to the actual function or startup call block.
+
+==================================================
+PART 4 — RUN A STRICT STAGING BOOT
+==================================================
+
+Boot using:
+
+NODE_ENV=production
+ROLLBACK_FIRST_BOOT_READ_ONLY=true
+ROLLBACK_VALIDATION_READ_ONLY=true
+RUN_STARTUP_MIGRATIONS=false
+ALLOW_DESTRUCTIVE_SEED=false
+
+Use the staging/dev database, never the real production database.
+
+Capture and report:
+
+- server boot exit status
+- HTTP status for /
+- HTTP status for /readyz
+- HTTP status for /api/version
+- every startup writer and whether it was skipped
+- every background job and whether it was skipped
+- every SQL statement attempted during startup, grouped as:
+  SELECT
+  INSERT
+  UPDATE
+  DELETE
+  DDL
+- total non-SELECT startup statements
+
+Required result:
+
+non-SELECT startup statements = 0
+
+If any non-SELECT statement occurs, FAIL and stop.
+
+==================================================
+PART 5 — FUNCTIONAL READ-ONLY WALKTHROUGH
+==================================================
+
+Using an authenticated test session, verify without modifying records:
+
+- Today loads
+- Work loads
+- Mission Control loads
+- Leads loads
+- Accounts loads
+- Contacts loads
+- Opportunities loads
+- Tasks loads
+- Calendar loads
+- Cortex loads
+- Mail loads
+- Currents loads at /current
+
+For Currents verify:
+
+- public channels appear
+- private channels appear only when authorized
+- direct messages appear
+- threads open
+- reactions render
+- mentions render
+- attachments render
+- Files tab opens
+- search opens and returns results
+- channel member UI opens
+- task creation dialog opens, but do not submit it
+
+Confirm the browser never requests:
+
+- /currents
+- /api/currents/*
+- currents_* replacement resources
+
+==================================================
+PART 6 — GIT AND PROMOTION REPORT
+==================================================
+
+If and only if all gates pass:
+
+1. Commit the routing fixes and read-only hardening to:
+   recovery/pre-mail-stable-staging
+
+2. Do not deploy yet.
+
+3. Report:
+
+- branch name
+- final SHA
+- parent SHA
+- exact files changed
+- test totals
+- build result
+- startup non-SELECT SQL count
+- original Currents verification result
+- replacement Currents reference count
+- functional module results
+- git status
+- whether the branch is ready to become the new mainline
+
+Stop after the report and wait for explicit approval to replace main.
+
+Do not push to origin/main.
+Do not deploy.
+Do not run migrations.
+Do not modify production data.
