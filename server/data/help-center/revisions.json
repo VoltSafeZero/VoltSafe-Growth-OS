@@ -1,33 +1,5 @@
 [
   {
-    "ranAt": "2026-04-19T06:58:00.434Z",
-    "localDate": "2026-04-18",
-    "action": "refreshed",
-    "bootTime": "2026-04-19T06:37:55.706Z",
-    "republishedToday": true,
-    "filesUpdated": [
-      "quick-start-guide.md",
-      "operations-manual.md",
-      "training-handbook.md",
-      "ai-knowledge-base.json"
-    ],
-    "trigger": "scheduled"
-  },
-  {
-    "ranAt": "2026-04-20T06:58:00.674Z",
-    "localDate": "2026-04-19",
-    "action": "refreshed",
-    "bootTime": "2026-04-20T06:27:16.914Z",
-    "republishedToday": true,
-    "filesUpdated": [
-      "quick-start-guide.md",
-      "operations-manual.md",
-      "training-handbook.md",
-      "ai-knowledge-base.json"
-    ],
-    "trigger": "scheduled"
-  },
-  {
     "ranAt": "2026-04-22T06:58:00.216Z",
     "localDate": "2026-04-21",
     "action": "refreshed",
@@ -1293,5 +1265,30 @@
       "ai-knowledge-base.json"
     ],
     "trigger": "startup"
+  },
+  {
+    "ranAt": "2026-08-01T06:56:23.090Z",
+    "localDate": "2026-07-31",
+    "action": "refreshed",
+    "bootTime": "2026-08-01T06:56:20.336Z",
+    "deploymentId": "b15d7bc29d4fcd0d5491cba8532d3ed50707106d",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "startup"
+  },
+  {
+    "ranAt": "2026-08-01T06:58:00.845Z",
+    "localDate": "2026-07-31",
+    "action": "skipped_no_rebuild_needed",
+    "bootTime": "2026-08-01T06:56:20.336Z",
+    "deploymentId": "b15d7bc29d4fcd0d5491cba8532d3ed50707106d",
+    "republishedToday": true,
+    "trigger": "scheduled",
+    "reason": "deployment IDs match and previous rebuild succeeded"
   }
 ]
