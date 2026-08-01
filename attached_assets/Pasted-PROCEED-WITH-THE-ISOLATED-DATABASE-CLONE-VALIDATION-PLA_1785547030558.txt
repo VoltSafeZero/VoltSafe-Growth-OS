@@ -1,0 +1,112 @@
+PROCEED WITH THE ISOLATED DATABASE CLONE VALIDATION PLAN, BUT DO NOT CREATE OR MODIFY ANY DATABASE YET.
+
+This is still a controlled recovery operation. Complete the following PRE-FLIGHT GATE first and stop with a PASS/FAIL report.
+
+ABSOLUTE RULES
+
+- Do not use Point-in-Time Restore.
+- Do not alter, restore, pause, branch, rename, delete, or write to the production database.
+- Do not modify heliumdb.
+- Do not create rollback_validation_2026_07_31 until every pre-flight check passes.
+- Never print or expose database passwords or full connection strings.
+- Do not deploy, publish, push, reset, merge, or modify main.
+- Do not run application migrations or startup jobs.
+- Do not use PROD_DATABASE_URL unless it is confirmed to be a valid PostgreSQL URL. It is currently believed to contain the production application URL, not database credentials.
+
+PRE-FLIGHT GATE 1 — IDENTIFY THE REAL PRODUCTION DATABASE CONNECTION
+
+1. Inspect available Replit deployment secrets and database integrations without printing secret values.
+2. Determine whether the production deployment has a valid PostgreSQL DATABASE_URL.
+3. Report only:
+   - whether it exists,
+   - URI scheme,
+   - hostname with sensitive portions redacted,
+   - database name,
+   - port,
+   - whether it differs from the dev database host and database name.
+4. Do not run pg_dump yet.
+5. If no valid PostgreSQL production connection string is accessible, HARD FAIL and stop. Tell Trevor exactly where in the Replit deployment UI to locate and securely add it as:
+   PRODUCTION_DATABASE_URL
+6. Never substitute the public Replit application URL.
+
+PRE-FLIGHT GATE 2 — DEV CLUSTER CAPACITY
+
+Run read-only checks and report:
+
+- current dev database identity,
+- current dev database size,
+- free filesystem space available to PostgreSQL,
+- free filesystem space available in /tmp,
+- estimated production dump size,
+- estimated restored clone size,
+- required safety margin.
+
+Require at least:
+
+- 2× the estimated restored production database size free on the PostgreSQL data volume, plus
+- enough temporary space for the compressed dump, or a streaming dump/restore plan that avoids storing two full copies.
+
+If capacity is not safely sufficient, HARD FAIL and stop. Recommend the fresh external Neon project fallback instead.
+
+PRE-FLIGHT GATE 3 — CLIENT AND VERSION COMPATIBILITY
+
+Confirm:
+
+- pg_dump version,
+- pg_restore version,
+- production PostgreSQL major version,
+- dev PostgreSQL major version,
+- whether the client version is compatible with the production server,
+- required extensions installed in production,
+- whether those extensions are available on the dev cluster.
+
+Do not assume compatibility.
+
+PRE-FLIGHT GATE 4 — ISOLATION PROOF
+
+Before creating anything, prove the proposed clone will be isolated:
+
+- proposed database name:
+  rollback_validation_2026_07_31
+- dev source database:
+  heliumdb
+- production source database:
+  report redacted identity
+- confirm the target name does not already exist,
+- confirm no application environment variable currently points to the proposed clone,
+- confirm no background service or scheduled job can connect to it,
+- confirm the clone will not be used by the running dev or production app.
+
+PRE-FLIGHT GATE 5 — SAFE DUMP/RESTORE COMMAND PLAN
+
+Write the exact commands you propose to use, but do not execute them yet.
+
+Requirements:
+
+- pg_dump must be read-only against production.
+- Use custom format.
+- Use --no-owner and --no-acl unless ownership restoration is explicitly required.
+- Do not use --clean against production.
+- Restore only into rollback_validation_2026_07_31.
+- Include ON_ERROR_STOP or equivalent failure handling.
+- Capture exit codes.
+- Stop immediately if dump or restore fails.
+- Never fall back to heliumdb.
+- Before restore, query current_database() on the target connection and require it to equal rollback_validation_2026_07_31.
+- After restore, validate schema and row counts before setting ROLLBACK_CLONE_DB_URL.
+
+PRE-FLIGHT OUTPUT
+
+Return a table:
+
+Gate | Result | Evidence | Blocker
+
+Then state exactly one of:
+
+READY TO CREATE ISOLATED CLONE
+
+or
+
+HARD FAIL — DO NOT CREATE CLONE
+
+Stop after the pre-flight report. Make no changes.
