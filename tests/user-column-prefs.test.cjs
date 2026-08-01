@@ -43,21 +43,39 @@ check(
   "migrateUserColumnPrefs exists in seed-production.ts",
   SEED.includes("export async function migrateUserColumnPrefs")
 );
+// migrateUserColumnPrefs() must not touch Currents tables.
+// migrateCurrentsReplacementSchema() intentionally restores them for schema parity.
+// Check the body of migrateUserColumnPrefs specifically, not the whole file.
+const ucpFnStart = SEED.indexOf("export async function migrateUserColumnPrefs");
+const ucpFnEnd   = SEED.indexOf("\nexport async function", ucpFnStart + 1);
+const ucpBody    = ucpFnEnd === -1 ? SEED.slice(ucpFnStart) : SEED.slice(ucpFnStart, ucpFnEnd);
 check(
-  "seed-production.ts migration does NOT reference currents_channels",
-  !SEED.includes("currents_channels")
+  "migrateUserColumnPrefs() does NOT reference currents_channels",
+  !ucpBody.includes("currents_channels")
 );
 check(
-  "seed-production.ts migration does NOT reference currents_posts",
-  !SEED.includes("currents_posts")
+  "migrateUserColumnPrefs() does NOT reference currents_posts",
+  !ucpBody.includes("currents_posts")
 );
 check(
-  "seed-production.ts migration does NOT reference currents_reactions",
-  !SEED.includes("currents_reactions")
+  "migrateUserColumnPrefs() does NOT reference currents_reactions",
+  !ucpBody.includes("currents_reactions")
 );
 check(
-  "seed-production.ts migration does NOT reference currents_read_state",
-  !SEED.includes("currents_read_state")
+  "migrateUserColumnPrefs() does NOT reference currents_read_state",
+  !ucpBody.includes("currents_read_state")
+);
+check(
+  "migrateCurrentsReplacementSchema() exists in seed-production.ts (schema parity restoration)",
+  SEED.includes("export async function migrateCurrentsReplacementSchema")
+);
+check(
+  "migrateCurrentsReplacementSchema() references currents_channels for restoration",
+  SEED.includes("currents_channels")
+);
+check(
+  "index.ts calls migrateCurrentsReplacementSchema() inside migration gate",
+  INDEX.includes("migrateCurrentsReplacementSchema()")
 );
 
 // ── 2. No currents_* table is renamed or dropped ─────────────────────────────
@@ -308,6 +326,114 @@ check(
 check(
   "migration includes REFERENCES users(id) ON DELETE CASCADE",
   SEED.includes("REFERENCES users(id) ON DELETE CASCADE")
+);
+
+// ── 13. Migration gating proof ────────────────────────────────────────────────
+// Proves the SQL is unreachable when RUN_STARTUP_MIGRATIONS is absent/false or
+// when rollback read-only mode is active.
+console.log("\n── 13. Migration gating proof ──");
+
+const INDEX_SRC = fs.readFileSync(path.join(__dirname, "../server/index.ts"), "utf8");
+const gateStart = INDEX_SRC.indexOf('process.env.RUN_STARTUP_MIGRATIONS !== "true"');
+const gateEnd   = INDEX_SRC.indexOf("} // end RUN_STARTUP_MIGRATIONS gate");
+
+check(
+  "RUN_STARTUP_MIGRATIONS gate exists in index.ts",
+  gateStart !== -1 && gateEnd !== -1 && gateEnd > gateStart
+);
+
+function isInsideGate(fnCall) {
+  const idx = INDEX_SRC.indexOf(fnCall);
+  return idx !== -1 && idx > gateStart && idx < gateEnd;
+}
+
+check(
+  "migrateUserColumnPrefs() is inside the RUN_STARTUP_MIGRATIONS gate",
+  isInsideGate("migrateUserColumnPrefs()")
+);
+check(
+  "migrateUserColumnPrefsConstraints() is inside the RUN_STARTUP_MIGRATIONS gate",
+  isInsideGate("migrateUserColumnPrefsConstraints()")
+);
+check(
+  "migrateCurrentsReplacementSchema() is inside the RUN_STARTUP_MIGRATIONS gate",
+  isInsideGate("migrateCurrentsReplacementSchema()")
+);
+check(
+  "routes.ts has NO startup CREATE TABLE for user_column_prefs (fire-and-forget removed)",
+  !ROUTES.includes("CREATE TABLE IF NOT EXISTS user_column_prefs")
+);
+check(
+  "rollback-guard skipInReadOnlyMode is NOT used for user_column_prefs in routes.ts",
+  !ROUTES.includes('skipInReadOnlyMode("user-column-prefs-migration")')
+);
+check(
+  "seed-production.ts migrateUserColumnPrefs has no fire-and-forget .catch(()=>{})",
+  (() => {
+    const fnStart = SEED.indexOf("export async function migrateUserColumnPrefs");
+    const fnEnd   = SEED.indexOf("\nexport async function", fnStart + 1);
+    const body    = fnEnd === -1 ? SEED.slice(fnStart) : SEED.slice(fnStart, fnEnd);
+    // The function uses try/catch, not fire-and-forget .catch(()=>{})
+    return !body.includes(".catch(() => {})");
+  })()
+);
+check(
+  "seed-production.ts migrateUserColumnPrefsConstraints handles duplicate_object error (42710)",
+  SEED.includes("42710") || SEED.includes("already exists")
+);
+
+// ── 14. Currents tables schema parity (dev = production) ─────────────────────
+console.log("\n── 14. Currents tables restored in dev schema ──");
+
+check(
+  "migrateCurrentsReplacementSchema creates currents_channels",
+  (() => {
+    const fnStart = SEED.indexOf("export async function migrateCurrentsReplacementSchema");
+    const fnEnd   = SEED.indexOf("\nexport async function", fnStart + 1);
+    const body    = fnEnd === -1 ? SEED.slice(fnStart) : SEED.slice(fnStart, fnEnd);
+    return body.includes("currents_channels");
+  })()
+);
+check(
+  "migrateCurrentsReplacementSchema creates currents_posts",
+  (() => {
+    const fnStart = SEED.indexOf("export async function migrateCurrentsReplacementSchema");
+    const fnEnd   = SEED.indexOf("\nexport async function", fnStart + 1);
+    const body    = fnEnd === -1 ? SEED.slice(fnStart) : SEED.slice(fnStart, fnEnd);
+    return body.includes("currents_posts");
+  })()
+);
+check(
+  "migrateCurrentsReplacementSchema creates currents_reactions with UNIQUE(post_id,user_id,emoji)",
+  (() => {
+    const fnStart = SEED.indexOf("export async function migrateCurrentsReplacementSchema");
+    const fnEnd   = SEED.indexOf("\nexport async function", fnStart + 1);
+    const body    = fnEnd === -1 ? SEED.slice(fnStart) : SEED.slice(fnStart, fnEnd);
+    return body.includes("currents_reactions") && body.includes("post_id, user_id, emoji");
+  })()
+);
+check(
+  "migrateCurrentsReplacementSchema creates currents_read_state with composite PK",
+  (() => {
+    const fnStart = SEED.indexOf("export async function migrateCurrentsReplacementSchema");
+    const fnEnd   = SEED.indexOf("\nexport async function", fnStart + 1);
+    const body    = fnEnd === -1 ? SEED.slice(fnStart) : SEED.slice(fnStart, fnEnd);
+    return body.includes("currents_read_state") && body.includes("PRIMARY KEY  (user_id, channel_id)");
+  })()
+);
+check(
+  "migrateCurrentsReplacementSchema has no DROP or RENAME or TRUNCATE",
+  (() => {
+    const fnStart = SEED.indexOf("export async function migrateCurrentsReplacementSchema");
+    const fnEnd   = SEED.indexOf("\nexport async function", fnStart + 1);
+    const body    = fnEnd === -1 ? SEED.slice(fnStart) : SEED.slice(fnStart, fnEnd);
+    return !body.match(/\bDROP\b|\bRENAME\b|\bTRUNCATE\b/i);
+  })()
+);
+check(
+  "user_column_prefs has no FK or JOIN to any currents_* table",
+  !ROUTES.includes("currents_channels") && !ROUTES.includes("currents_posts") &&
+  !ROUTES.includes("currents_reactions") && !ROUTES.includes("currents_read_state")
 );
 
 // ─────────────────────────────────────────────────────────────────────────────

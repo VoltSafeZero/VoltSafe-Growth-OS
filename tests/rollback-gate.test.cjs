@@ -524,13 +524,32 @@ async function runTests() {
       `Req 8c: no hardcoded href/to="/currents..." in client/src/ (${hits.length} hit(s): ${hits.slice(0, 2).join("; ")})`);
   }
 
-  // 8d: Replacement Currents table names absent from all source files
+  // 8d: Replacement Currents table names absent from client and routes files.
+  // seed-production.ts is intentionally allowed to reference them via
+  // migrateCurrentsReplacementSchema() — that migration restores dev schema parity.
+  // The check here confirms no client code or routes.ts ever touches these tables.
   {
     const tableNames = ["currents_channels", "currents_posts", "currents_reactions", "currents_read_state"];
+    const nonSeedFiles = allSrcFiles.filter(f =>
+      !f.includes("seed-production") && !f.includes("drop-replacement-currents")
+    );
     for (const tbl of tableNames) {
-      const hits = scanFiles(allSrcFiles, (ln) => ln.includes(tbl));
+      const hits = scanFiles(nonSeedFiles, (ln) => ln.includes(tbl));
       assert(hits.length === 0,
-        `Req 8d: replacement table "${tbl}" absent from all source files (${hits.length} hit(s))`);
+        `Req 8d: replacement table "${tbl}" absent from client/routes source files (${hits.length} hit(s))`);
+    }
+    // Also verify seed-production.ts only references them inside the designated restoration function
+    const seedSrc = fs.readFileSync("server/seed-production.ts", "utf8");
+    const restoFnIdx = seedSrc.indexOf("migrateCurrentsReplacementSchema");
+    assert(restoFnIdx !== -1,
+      "Req 8d: migrateCurrentsReplacementSchema exists in seed-production.ts (restoration function present)");
+    // The migrateUserColumnPrefs function must NOT mention any currents_* table
+    const ucpFnStart = seedSrc.indexOf("export async function migrateUserColumnPrefs");
+    const ucpFnEnd   = seedSrc.indexOf("\nexport async function", ucpFnStart + 1);
+    const ucpBody    = ucpFnEnd === -1 ? seedSrc.slice(ucpFnStart) : seedSrc.slice(ucpFnStart, ucpFnEnd);
+    for (const tbl of tableNames) {
+      assert(!ucpBody.includes(tbl),
+        `Req 8d: migrateUserColumnPrefs must not reference ${tbl}`);
     }
   }
 

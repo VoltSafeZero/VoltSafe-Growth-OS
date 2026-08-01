@@ -2537,3 +2537,78 @@ export async function migrateUserColumnPrefs(): Promise<void> {
     console.error("[migration] migrateUserColumnPrefs error (non-fatal):", err);
   }
 }
+
+// ── Replacement currents_* tables (schema-parity with production) ─────────────
+// These four tables were created by a publish-time schema diff. They must exist
+// in dev so that Replit does not propose deleting them during publish.
+// Zero data is copied — this is schema-only.
+// Dependency order: channels → posts → reactions; channels + posts → read_state.
+export async function migrateCurrentsReplacementSchema(): Promise<void> {
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS currents_channels (
+        id           SERIAL PRIMARY KEY,
+        name         TEXT NOT NULL UNIQUE,
+        description  TEXT NOT NULL DEFAULT '',
+        channel_type TEXT NOT NULL DEFAULT 'public',
+        created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        is_archived  BOOLEAN NOT NULL DEFAULT false
+      );
+    `));
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS currents_posts (
+        id          SERIAL PRIMARY KEY,
+        channel_id  INTEGER NOT NULL REFERENCES currents_channels(id) ON DELETE CASCADE,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        content     TEXT NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        is_deleted  BOOLEAN NOT NULL DEFAULT false,
+        reply_to_id INTEGER REFERENCES currents_posts(id) ON DELETE SET NULL
+      );
+    `));
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS currents_reactions (
+        id         SERIAL PRIMARY KEY,
+        post_id    INTEGER NOT NULL REFERENCES currents_posts(id) ON DELETE CASCADE,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        emoji      TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (post_id, user_id, emoji)
+      );
+    `));
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS currents_read_state (
+        user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        channel_id   INTEGER NOT NULL REFERENCES currents_channels(id) ON DELETE CASCADE,
+        last_read_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY  (user_id, channel_id)
+      );
+    `));
+    console.log("[migration] migrateCurrentsReplacementSchema: complete.");
+  } catch (err) {
+    console.error("[migration] migrateCurrentsReplacementSchema error (non-fatal):", err);
+  }
+}
+
+// ── Add CHECK constraint to existing user_column_prefs (idempotent) ───────────
+// CREATE TABLE IF NOT EXISTS does not add constraints to already-existing tables.
+// This migration adds the view_type CHECK if it is absent.
+export async function migrateUserColumnPrefsConstraints(): Promise<void> {
+  try {
+    await db.execute(sql.raw(`
+      ALTER TABLE user_column_prefs
+        ADD CONSTRAINT user_column_prefs_view_type_check
+        CHECK (view_type IN ('leads', 'accounts'));
+    `));
+    console.log("[migration] migrateUserColumnPrefsConstraints: CHECK constraint added.");
+  } catch (err: any) {
+    // 42710 = duplicate_object — constraint already exists, safe to ignore
+    if (err?.code === "42710" || /already exists/i.test(err?.message ?? "")) {
+      console.log("[migration] migrateUserColumnPrefsConstraints: constraint already present, skipped.");
+    } else {
+      console.error("[migration] migrateUserColumnPrefsConstraints error (non-fatal):", err);
+    }
+  }
+}
