@@ -265,6 +265,15 @@ const pgStore = new PgStore({
   },
 });
 
+// In validation mode (PRODUCTION_READONLY_MODE=true) switch to an in-memory
+// session store so that login never writes to the production session table.
+// Sessions are lost on restart, which is acceptable for a short walkthrough.
+const isValidationMode = process.env.PRODUCTION_READONLY_MODE === "true";
+const sessionStore = isValidationMode ? new session.MemoryStore() : pgStore;
+if (isValidationMode) {
+  console.log("[readonly-mode] session store → MemoryStore (production session table will not be written)");
+}
+
 const isProduction = process.env.NODE_ENV === "production";
 
 // SESSION_SECRET enforcement — refuse to start in production without a real secret.
@@ -285,7 +294,7 @@ if (!isProduction && !SESSION_SECRET) {
 
 app.use(
   session({
-    store: pgStore,
+    store: sessionStore,
     secret: effectiveSessionSecret,
     resave: false,
     saveUninitialized: false,

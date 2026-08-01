@@ -1428,7 +1428,10 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Account is not active. Contact your administrator." });
     }
 
-    await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
+    // Skip last_login write in validation mode — production data must not be mutated.
+    if (process.env.PRODUCTION_READONLY_MODE !== "true") {
+      await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
+    }
 
     // Session fixation defense: regenerate the session ID before stamping the
     // authenticated identity. Anyone holding the pre-login cookie can no longer
@@ -1805,14 +1808,17 @@ export async function registerRoutes(
       // Store in session for fast access on subsequent requests
       (req.session as any).detectedTimezone = timezone;
 
-      // Persist to DB (non-blocking — never fails the response)
-      db.execute(sql`
-        UPDATE users
-        SET last_detected_timezone = ${timezone},
-            last_detected_timezone_at = NOW(),
-            last_detected_timezone_offset_minutes = ${offsetMinutes}
-        WHERE id = ${userId}
-      `).catch((err: unknown) => console.error("[timezone] DB write failed:", err));
+      // Persist to DB (non-blocking — never fails the response).
+      // Skipped in validation mode to avoid mutating production user records.
+      if (process.env.PRODUCTION_READONLY_MODE !== "true") {
+        db.execute(sql`
+          UPDATE users
+          SET last_detected_timezone = ${timezone},
+              last_detected_timezone_at = NOW(),
+              last_detected_timezone_offset_minutes = ${offsetMinutes}
+          WHERE id = ${userId}
+        `).catch((err: unknown) => console.error("[timezone] DB write failed:", err));
+      }
 
       res.json({ ok: true, timezone, offsetMinutes, detectedAt });
     } catch (e: any) {
@@ -2133,7 +2139,10 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Account is not active. Contact your administrator." });
       }
 
-      await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, result.user.id));
+      // Skip last_login write in validation mode — production data must not be mutated.
+      if (process.env.PRODUCTION_READONLY_MODE !== "true") {
+        await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, result.user.id));
+      }
 
       // Session fixation defense — same pattern as /api/auth/login.
       req.session.regenerate((regenErr) => {
@@ -44010,8 +44019,9 @@ ${contextText}`;
         LIMIT 200
       `));
 
-      // Auto-mark unread as viewed after fetching
-      if (rows.rows?.length) {
+      // Auto-mark unread as viewed after fetching.
+      // Skipped in validation mode to avoid mutating production mention state.
+      if (rows.rows?.length && process.env.PRODUCTION_READONLY_MODE !== "true") {
         const unreadIds = (rows.rows as any[])
           .filter((r: any) => r.status === "unread")
           .map((r: any) => r.id);
@@ -44213,5 +44223,11 @@ ${contextText}`;
   });
 
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
-  computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
+  // Skipped in validation/read-only mode: this function issues 3 UPDATEs on
+  // email_threads and must not run against a production database under observation.
+  if (process.env.PRODUCTION_READONLY_MODE !== "true") {
+    computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
+  } else {
+    console.log("[readonly-mode] computeAwaitingReply boot call SKIPPED (PRODUCTION_READONLY_MODE=true)");
+  }
 }
