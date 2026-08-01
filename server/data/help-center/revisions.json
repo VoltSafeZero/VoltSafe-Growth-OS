@@ -1,19 +1,5 @@
 [
   {
-    "ranAt": "2026-04-16T20:59:16.487Z",
-    "localDate": "2026-04-16",
-    "action": "refreshed",
-    "bootTime": "2026-04-16T20:58:55.789Z",
-    "republishedToday": true,
-    "filesUpdated": [
-      "quick-start-guide.md",
-      "operations-manual.md",
-      "training-handbook.md",
-      "ai-knowledge-base.json"
-    ],
-    "trigger": "manual"
-  },
-  {
     "ranAt": "2026-04-19T06:58:00.434Z",
     "localDate": "2026-04-18",
     "action": "refreshed",
@@ -1284,6 +1270,21 @@
     "action": "refreshed",
     "bootTime": "2026-08-01T05:53:47.908Z",
     "deploymentId": "dae46e82ac761ad984088880f7c5090079e7b384",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "startup"
+  },
+  {
+    "ranAt": "2026-08-01T06:01:05.815Z",
+    "localDate": "2026-07-31",
+    "action": "refreshed",
+    "bootTime": "2026-08-01T06:01:03.261Z",
+    "deploymentId": "b01de653472eb0bfe4a9742011cb81cb9169cd77",
     "republishedToday": true,
     "filesUpdated": [
       "quick-start-guide.md",
