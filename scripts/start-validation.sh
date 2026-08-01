@@ -33,4 +33,5 @@ exec env \
   PRODUCTION_READONLY_MODE=true \
   ENABLE_BACKGROUND_JOBS=false \
   SESSION_SECRET="$SESSION_SECRET" \
+  CSRF_ALLOWED_HOSTS="aa26361d-4bcc-405a-9191-bf656e0c05a2-00-iy2y4baleawk.janeway.replit.dev:3003" \
   node dist/index.cjs
