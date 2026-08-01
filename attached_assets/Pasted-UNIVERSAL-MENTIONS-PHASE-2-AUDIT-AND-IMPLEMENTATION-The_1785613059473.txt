@@ -1,0 +1,297 @@
+UNIVERSAL @MENTIONS — PHASE 2 AUDIT AND IMPLEMENTATION
+
+The two screenshot defects were fixed in commit:
+
+8a61c920
+
+Confirmed fixes:
+
+- New Direct Message search accepts @scott
+- Public-channel Members search returns active users
+- participants route now declares userId correctly
+
+Do not redo those fixes.
+Do not publish yet.
+Do not modify Mail.
+Do not alter unrelated Currents behavior.
+
+The broader universal @mention requirement is still incomplete.
+
+==================================================
+PART 1 — VERIFY THE CURRENT FIX
+==================================================
+
+Report:
+
+- full SHA for 8a61c920
+- current branch
+- origin/main SHA
+- whether 8a61c920 is pushed
+- whether it is deployed
+- exact files changed
+- exact API responses for:
+  - GET /api/current/users?q=scott
+  - GET /api/current/users?q=@scott
+  - public-channel participants search
+  - private-channel participants search
+
+Using an authenticated browser, capture proof that:
+
+- New DM search scott finds Scott Carlson
+- New DM search @scott finds Scott Carlson
+- Members search scott finds Scott Carlson
+- Members search @scott finds Scott Carlson
+- private-channel membership visibility remains restricted
+
+==================================================
+PART 2 — AUDIT EXISTING MENTION INFRASTRUCTURE
+==================================================
+
+Read-only audit first.
+
+Map the complete existing mention system:
+
+- global_mentions table
+- notifications table
+- Currents mention token format
+- message composer autocomplete
+- thread composer autocomplete
+- edit-message mention handling
+- @all implementation
+- Currents Mentions view
+- Today mention widget
+- Work / Daily Execution mention widget
+- Mission Control mention widget
+- deep-link fields
+- viewed/read state
+- permission checks
+
+For each path report:
+
+- frontend component
+- API endpoint
+- database table
+- stored user ID or plain text
+- notification creation path
+- deep-link format
+- read-state update path
+
+Identify whether Currents and CMS-wide mentions currently use one canonical system or multiple competing paths.
+
+Do not change code until this map is complete.
+
+==================================================
+PART 3 — CURRENTS MENTION NOTIFICATIONS
+==================================================
+
+Implement and prove:
+
+1. Selecting @user stores the selected user_id.
+2. A notification is created exactly once.
+3. Duplicate mentions of the same user in one message create one notification.
+4. Thread mentions link to the exact reply.
+5. Edited messages preserve mention identity.
+6. Removing a mention during edit does not create a new notification.
+7. Self-mentions do not notify unless explicitly intended.
+8. Direct mentions remain visible in the Currents Mentions view.
+9. Muted channels still surface direct mentions.
+10. Private-channel content is never exposed to non-members.
+11. Opening the notification rechecks current access.
+12. If access was removed, show a safe no-access state.
+
+Mentioning someone in a message must NOT automatically add them to a private channel.
+
+Only explicit channel creation or Add Member flows may change membership.
+
+==================================================
+PART 4 — CANONICAL USER SEARCH
+==================================================
+
+Create or reuse one canonical user-search helper for:
+
+- message composer
+- thread composer
+- edit-message composer
+- channel creation member picker
+- Add Member dialog
+- Members search
+- New Direct Message
+- Group DM picker
+- CMS-wide mention fields
+
+Rules:
+
+- strip one leading @
+- trim whitespace
+- case-insensitive
+- partial matching
+- match username, first name, last name, display name, and email prefix
+- active users only
+- deterministic ranking
+- deduplicate by user ID
+- dedicated search boxes accept both scott and @scott
+- @ alone lists eligible users
+- @all remains a virtual broadcast option, never a real user
+
+==================================================
+PART 5 — CMS-WIDE FIELD INVENTORY
+==================================================
+
+Produce a complete inventory of collaborative text fields across:
+
+- Leads
+- Accounts
+- Contacts
+- Opportunities
+- Tasks
+- Task comments
+- Mission Control
+- Today
+- Work / Daily Execution
+- Calendar
+- Meeting notes
+- Projects
+- Campaigns
+- Assets
+- Tickets
+- Quotes
+- Cortex collaborative notes
+
+Classify each field:
+
+- mention support already works
+- mention support missing
+- mention support inappropriate
+
+Do not add mention behavior to:
+
+- email-address fields
+- password fields
+- search fields
+- numeric inputs
+- API keys
+- private configuration fields
+
+==================================================
+PART 6 — SHARED CMS MENTION COMPONENT
+==================================================
+
+Implement one reusable mention-aware text component or extension.
+
+It must support:
+
+- @ autocomplete
+- keyboard navigation
+- mouse selection
+- multiple mentions
+- structured user IDs
+- editing
+- copy/paste
+- mobile input
+- no triggering inside email addresses
+- safe rendering
+- deactivated-user fallback
+- clickable mention after save
+
+Do not duplicate mention logic page by page.
+
+==================================================
+PART 7 — CANONICAL NOTIFICATION RECORD
+==================================================
+
+Each mention notification must store:
+
+- mentioned_user_id
+- author_user_id
+- source_type
+- source_record_id
+- source_subrecord_id where needed
+- exact route/deep link
+- safe excerpt
+- created_at
+- read/viewed state
+
+One canonical notification may be displayed in multiple widgets, but do not create duplicate records for Today, Work, Mission Control, and Notifications.
+
+==================================================
+PART 8 — PERMISSIONS
+==================================================
+
+At mention creation:
+
+- verify the target user is eligible for that record
+- do not silently grant record access
+- do not expose private content in notification previews
+
+At notification open:
+
+- recheck access
+- block unauthorized deep links
+- show a safe no-access message if permissions changed
+
+==================================================
+PART 9 — TESTS
+==================================================
+
+Add automated tests for:
+
+- scott and @scott search parity on every Currents picker
+- @ alone
+- @all scope
+- structured user_id persistence
+- duplicate notification suppression
+- thread deep links
+- edit preservation
+- inactive-user exclusion
+- private-channel access
+- access removal after mention
+- Lead mention
+- Account mention
+- Task comment mention
+- Opportunity mention
+- no trigger in email/password/search/numeric inputs
+- XSS escaping
+- user isolation
+- no duplicate notifications across widgets
+
+Run all existing:
+
+- Currents tests
+- mentions tests
+- notifications tests
+- permissions tests
+- Leads tests
+- Accounts tests
+- Tasks tests
+- rollback-gate tests
+- seed-kill-switch tests
+- npm run build
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+Current fix SHA:
+Pushed:
+Deployed:
+Screenshot bugs verified:
+Canonical user-search helper:
+Currents mention storage:
+Notification creation:
+Deep-link design:
+Permission recheck:
+@all behavior:
+CMS-wide field inventory:
+Shared component:
+Files changed:
+Migrations:
+Tests passed:
+Tests failed:
+Build:
+Browser verification:
+Ready to publish:
+
+Do not publish automatically.
+Stop after the report.

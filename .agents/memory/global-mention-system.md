@@ -1,37 +1,59 @@
 ---
 name: Global @mention system
-description: Architecture and key decisions for the CMS-wide @mention system (global_mentions table, saveMentions service, API routes, MentionInput component).
+description: Token format, saveMentions/refreshMentions, current_mentions, syncCurrentMentions — all mention persistence patterns
 ---
 
-## Token format
-`@[Name](user:ID)` stored verbatim in any text field. `@[all](user:0)` for team-wide. Parsed server-side by `parseMentionTokens()` in `server/services/mention-service.ts`.
+## Token format (shared everywhere)
+`@[Name](user:ID)` — regular user. `@[all](user:0)` — broadcast.
 
-## @all expansion
-`getAllActiveUserIds()` in mention-service caches active user IDs for 60s. Virtual @all user has `id: 0` — prepended by `/api/current/users` when query matches "all"/"everyone"/"team" or is empty.
+## saveMentions() — server/services/mention-service.ts
+- Parses tokens, expands @all via getAllActiveUserIds() (60s LRU cache)
+- Upserts to global_mentions with UNIQUE constraint: (entity_type, entity_id, mentioned_user_id)
+- ON CONFLICT (entity_type, entity_id, mentioned_user_id) DO UPDATE SET source_preview/deep_link_url/updated_at
+- Safe to call fire-and-forget (all errors caught + logged)
 
-## Fire-and-forget pattern
-`saveMentions()` must always be called with `.catch(() => {})` — it is fire-and-forget; caller must not await it in hot paths. This is intentional so a mention failure never breaks the primary write.
+## refreshMentions() — mention-service.ts
+- Diff-based: dismisses stale mentions (users removed from body → status='dismissed')
+- Then calls saveMentions() for remaining/new users
+- Use on edit routes, not on initial create
 
-## Author exclusion
-`saveMentions()` deletes `opts.authorId` from `mentionedUserIds` before inserting — author never gets their own mention notification.
+## syncCurrentMentions() — server/routes.ts (~line 38180)
+- Called for every channel/DM/record-current message (new + edit)
+- Uses parseCurrentMentionTokens() → returns { directIds, hasAll }
+- @all expands to all active users at runtime
+- MUTE RULE: @all-expanded targets respect muted-channel prefs; direct @user mentions ALWAYS notify (bypass mute)
+- Edit resync: DELETEs current_mention rows for users removed from message body
+- Self-mentions excluded
+- Notification: dedupe_key = `current_mention:${messageId}:${userId}` prevents re-notify on edit
+- Thread deep-link: includes both &thread=parentId and &message=msgId
 
-## Status lifecycle
-`unread` → `viewed` (auto on fetch) → `acknowledged` / `completed` / `dismissed`. `GET /api/mentions` auto-marks `unread` rows as `viewed` in a fire-and-forget UPDATE after returning results.
+## global_mentions unique constraint
+- Migration: migrateGlobalMentionsUniqueConstraint() in seed-production.ts
+- Wired in server/index.ts Batch 2 (parallel)
+- Applied to dev DB on 2026-08-01
+- Idempotent: 42710 guard + dedup step before ADD CONSTRAINT
 
-## ACL on PATCH
-`PATCH /api/mentions/:id` verifies `mentioned_user_id = userId` — users can only act on their own mentions.
+## Canonical client hook
+- client/src/hooks/use-current-users.ts — useCurrentUsers(rawQuery, enabled, includeAll)
+- normalizeUserQuery() strips leading @ (belt+suspenders; server also strips it)
+- includeAll=false for DM/Add Member pickers (no @all broadcast in 1:1 context)
+- @all virtual entry is client-side only (useMentionComposer prepends it, server doesn't return it)
 
-## Integration points
-- CURRENTS: `syncCurrentMentions()` in routes.ts calls saveMentions fire-and-forget at the top
-- Tasks: comment POST in routes-tasks.ts calls saveMentions fire-and-forget
-- More surfaces: call `saveMentions({ body, entityType, entityId, moduleKey, moduleLabel, authorId, deepLinkUrl? })` anywhere text with @tokens is persisted
+## CMS field inventory (Part 5 — as of 2026-08-01)
+Mention-enabled: Leads (Notes/Competitors/ROI Story), Tasks (description/completion notes/comments), notes-panel.tsx, comments-feed.tsx, timeline-tab.tsx, quick-log-modal.tsx
 
-## Deep link URL convention
-- Task comment: `/execution/tasks?task=ID`
-- CURRENTS channel: `/current?channel=SLUG&message=ID`
-- CURRENTS with linked object: `/accounts/ID?tab=current&message=ID`
+Plain (no mention yet — candidates for future wiring):
+- Accounts: notes textarea
+- Calendar: meeting notes, outcome notes
+- Projects: description, compliance notes
+- Quotes: customer notes, assumptions, exclusions
+- Marketing: campaign notes, template body, audience description
+- Tickets: description/comments
 
-## Frontend hook
-`useMentionComposer` in `client/src/hooks/use-mention-composer.ts` handles dropdown state + keyboard nav. Wraps `/api/current/users?q=` (which includes virtual @all). `MentionInput` + `renderMentionBody` are the shared UI primitives in `client/src/components/shared/mention-input.tsx`.
+NEVER mention: email, phone, search/filter inputs, numeric fields, API keys, dates, IDs
 
-**Why:** Single-token format avoids a separate mentions resolve step at render time; renderMentionBody is a pure regex transform (no async).
+## @mention notification surface — saveMentions vs. syncCurrentMentions
+- global_mentions (CMS-wide feed) ← saveMentions()
+- current_mentions (Currents Mentions panel) ← syncCurrentMentions()
+- notifications (bell dropdown) ← syncCurrentMentions() only
+- saveMentions does NOT create notifications rows — that's intentional

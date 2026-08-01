@@ -6,6 +6,9 @@
  *
  * Call saveMentions() from any route that accepts user-generated text.
  * It parses tokens, expands @all, and upserts global_mention rows.
+ *
+ * Call refreshMentions() on edits: it dismisses stale mentions (users
+ * whose tokens were removed) and upserts new ones.
  */
 
 import { db } from "../db";
@@ -32,7 +35,7 @@ export function parseMentionTokens(body: string): MentionToken[] {
   return tokens;
 }
 
-/** Get all active user IDs (for @all expansion). Cached 60s. */
+/** Get all active user IDs (for @all expansion). Cached 60 s. */
 let _allUserCache: { ids: number[]; at: number } | null = null;
 async function getAllActiveUserIds(): Promise<number[]> {
   const now = Date.now();
@@ -58,6 +61,8 @@ export interface SaveMentionsOptions {
 
 /**
  * Extract @mentions from `body`, resolve @all, and persist to global_mentions.
+ * The global_mentions table has a unique constraint on
+ * (entity_type, entity_id, mentioned_user_id) so repeated calls are idempotent.
  * Safe to call fire-and-forget — errors are logged, not thrown.
  */
 export async function saveMentions(opts: SaveMentionsOptions): Promise<void> {
@@ -102,7 +107,13 @@ export async function saveMentions(opts: SaveMentionsOptions): Promise<void> {
           (${uid}, ${opts.authorId}, ${entityType}, ${opts.entityId},
            ${moduleKey}, ${moduleLabel}, ${recordTitle}, ${preview},
            ${requestedAction}, ${deepLinkUrl}, ${hasAll}, 'unread')
-        ON CONFLICT DO NOTHING
+        ON CONFLICT (entity_type, entity_id, mentioned_user_id)
+        DO UPDATE SET
+          source_preview   = EXCLUDED.source_preview,
+          deep_link_url    = EXCLUDED.deep_link_url,
+          record_title     = EXCLUDED.record_title,
+          updated_at       = NOW()
+        WHERE global_mentions.status IN ('unread', 'viewed')
       `);
     }
   } catch (e: any) {
@@ -112,11 +123,55 @@ export async function saveMentions(opts: SaveMentionsOptions): Promise<void> {
 
 /**
  * Re-parse and refresh global_mentions for an edited entity.
- * Marks any removed mentions as dismissed; adds new ones.
+ *
+ * - Dismisses existing unread mentions for users whose tokens were REMOVED.
+ * - Upserts (or refreshes preview) for users still or newly mentioned.
+ * - Does NOT duplicate notifications — the ON CONFLICT handles idempotency.
  */
 export async function refreshMentions(opts: SaveMentionsOptions): Promise<void> {
-  // Simplest safe approach: insert new ones (duplicates ignored via ON CONFLICT DO NOTHING
-  // — note: our table has no unique constraint yet, but saveMentions is idempotent for
-  // fire-and-forget edit flows). For a full diff we'd need entity-scoped cleanup.
-  await saveMentions(opts);
+  try {
+    const tokens = parseMentionTokens(opts.body);
+
+    // Compute new set of mentioned user IDs
+    const newMentionedIds = new Set<number>();
+    for (const t of tokens) {
+      if (t.isAll) {
+        const ids = await getAllActiveUserIds();
+        ids.forEach(id => newMentionedIds.add(id));
+      } else if (t.userId > 0) {
+        newMentionedIds.add(t.userId);
+      }
+    }
+    newMentionedIds.delete(opts.authorId);
+
+    const entityType = opts.entityType.replace(/'/g, "''").slice(0, 80);
+    const entityId = Number(opts.entityId);
+
+    if (entityId > 0) {
+      if (newMentionedIds.size === 0) {
+        // All mentions removed — dismiss all existing unread rows for this entity
+        await db.execute(sql.raw(`
+          UPDATE global_mentions SET status = 'dismissed', updated_at = NOW()
+          WHERE entity_type = '${entityType}' AND entity_id = ${entityId}
+            AND status IN ('unread', 'viewed')
+        `));
+      } else {
+        // Dismiss mentions for users who were removed from the body
+        const keepList = [...newMentionedIds].join(",");
+        await db.execute(sql.raw(`
+          UPDATE global_mentions SET status = 'dismissed', updated_at = NOW()
+          WHERE entity_type = '${entityType}' AND entity_id = ${entityId}
+            AND status IN ('unread', 'viewed')
+            AND mentioned_user_id NOT IN (${keepList})
+        `));
+      }
+    }
+
+    // Upsert mentions for remaining / newly added users
+    if (newMentionedIds.size > 0) {
+      await saveMentions(opts);
+    }
+  } catch (e: any) {
+    console.error("[mention-service] refreshMentions error:", e?.message || e);
+  }
 }

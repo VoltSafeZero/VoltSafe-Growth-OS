@@ -2592,6 +2592,44 @@ export async function migrateCurrentsReplacementSchema(): Promise<void> {
   }
 }
 
+// ── global_mentions unique constraint (idempotent) ────────────────────────────
+// Without this constraint saveMentions() ON CONFLICT DO NOTHING is a no-op and
+// edits would create duplicate rows per user per entity. The constraint also lets
+// refreshMentions() safely upsert (ON CONFLICT … DO UPDATE).
+// Removes duplicate rows first so the ADD CONSTRAINT cannot fail on existing data.
+export async function migrateGlobalMentionsUniqueConstraint(): Promise<void> {
+  try {
+    // Step 1: de-duplicate existing rows, keeping the most-recent per triplet
+    await db.execute(sql.raw(`
+      DELETE FROM global_mentions gm
+      USING (
+        SELECT MAX(id) AS keep_id, entity_type, entity_id, mentioned_user_id
+        FROM global_mentions
+        GROUP BY entity_type, entity_id, mentioned_user_id
+        HAVING COUNT(*) > 1
+      ) dups
+      WHERE gm.entity_type    = dups.entity_type
+        AND gm.entity_id      = dups.entity_id
+        AND gm.mentioned_user_id = dups.mentioned_user_id
+        AND gm.id             <> dups.keep_id
+    `));
+    // Step 2: add the unique constraint
+    await db.execute(sql.raw(`
+      ALTER TABLE global_mentions
+        ADD CONSTRAINT global_mentions_entity_user_unique
+        UNIQUE (entity_type, entity_id, mentioned_user_id)
+    `));
+    console.log("[migration] migrateGlobalMentionsUniqueConstraint: constraint added.");
+  } catch (err: any) {
+    // 42710 = duplicate_object — already exists, safe to ignore
+    if (err?.code === "42710" || /already exists/i.test(err?.message ?? "")) {
+      console.log("[migration] migrateGlobalMentionsUniqueConstraint: already present, skipped.");
+    } else {
+      console.error("[migration] migrateGlobalMentionsUniqueConstraint error (non-fatal):", err);
+    }
+  }
+}
+
 // ── Add CHECK constraint to existing user_column_prefs (idempotent) ───────────
 // CREATE TABLE IF NOT EXISTS does not add constraints to already-existing tables.
 // This migration adds the view_type CHECK if it is absent.

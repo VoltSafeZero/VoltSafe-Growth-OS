@@ -38179,15 +38179,25 @@ export function registerConfluenceRoutes(app: Express) {
 
   // ── Current mention helpers ─────────────────────────────────────────────────
 
-  function parseCurrentMentionIds(body: string): number[] {
+  /**
+   * Parse @mention tokens from a message body.
+   * Returns { directIds, hasAll } so callers can distinguish individual
+   * mentions from @all broadcasts — which have different notification rules.
+   */
+  function parseCurrentMentionTokens(body: string): { directIds: number[]; hasAll: boolean } {
     const re = /@\[([^\]]+)\]\(user:(\d+)\)/g;
-    const ids: number[] = [];
+    const directIds: number[] = [];
+    let hasAll = false;
     let m: RegExpExecArray | null;
     while ((m = re.exec(body)) !== null) {
       const id = Number(m[2]);
-      if (id > 0 && !ids.includes(id)) ids.push(id);
+      if (id === 0) {
+        hasAll = true;
+      } else if (!directIds.includes(id)) {
+        directIds.push(id);
+      }
     }
-    return ids;
+    return { directIds, hasAll };
   }
 
   // Build a deep-link URL for a record Current mention notification
@@ -38208,6 +38218,21 @@ export function registerConfluenceRoutes(app: Express) {
     return `${base}?${suffix}`;
   }
 
+  /**
+   * Sync @mention side-effects for a Currents message (new, edit, or thread reply).
+   *
+   * What it does:
+   *  1. Writes to global_mentions for the CMS-wide feed (fire-and-forget).
+   *  2. Expands @all to every active org user (previously only direct IDs were handled).
+   *  3. Mute check: @all respects channel mute; direct @user mentions bypass mute
+   *     so a direct mention always notifies even in a muted channel.
+   *  4. Edit resync: removes stale current_mention rows for users no longer mentioned,
+   *     keeping the Currents Mentions feed accurate after edits.
+   *  5. Upserts current_mentions (idempotent via ON CONFLICT).
+   *  6. Creates notifications with per-user-per-message dedupe keys; edits never
+   *     create duplicate notifications for already-notified users.
+   *  7. Self-mentions: the sender is excluded from all target sets.
+   */
   async function syncCurrentMentions(
     messageId: number,
     senderUserId: number,
@@ -38217,7 +38242,7 @@ export function registerConfluenceRoutes(app: Express) {
     objectType?: string | null,
     objectId?: number | null
   ): Promise<void> {
-    // Fire-and-forget: also write to global_mentions for the CMS-wide @mentions feed
+    // 1. Global-mentions feed (CMS-wide, fire-and-forget)
     const _gmDeepLink = objectType && objectId
       ? (() => {
           if (objectType === "lead") return `/opportunities?selected=${objectId}&tab=current&message=${messageId}${parentMessageId ? `&thread=${parentMessageId}` : ""}`;
@@ -38226,52 +38251,93 @@ export function registerConfluenceRoutes(app: Express) {
         })()
       : channelSlug ? `/current?channel=${encodeURIComponent(channelSlug)}&message=${messageId}${parentMessageId ? `&thread=${parentMessageId}` : ""}` : undefined;
     saveMentions({ body, entityType: "current_message", entityId: messageId, moduleKey: "currents", moduleLabel: "CURRENTS", authorId: senderUserId, deepLinkUrl: _gmDeepLink }).catch(() => {});
-    const mentionedIds = parseCurrentMentionIds(body);
-    for (const mid of mentionedIds) {
-      if (mid === senderUserId) continue;
-      // Validate user exists and is not inactive
+
+    // 2. Parse tokens — separate direct mentions from @all
+    const { directIds, hasAll } = parseCurrentMentionTokens(body);
+
+    // 3. Build target set: @all expands to every active user; otherwise use directIds
+    let targetUserIds: number[];
+    if (hasAll) {
+      const allRows = await db.execute(sql.raw(
+        `SELECT id FROM users WHERE global_role NOT IN ('inactive') ORDER BY id`
+      ));
+      targetUserIds = (allRows.rows as any[]).map((r: any) => Number(r.id))
+        .filter(id => id !== senderUserId);
+    } else {
+      targetUserIds = directIds.filter(id => id !== senderUserId);
+    }
+    if (targetUserIds.length === 0) return;
+
+    // 4. Edit resync: remove current_mention rows for users no longer in the new body.
+    //    This keeps the Mentions feed accurate when a mention is deleted during an edit.
+    const existing = await db.execute(sql.raw(
+      `SELECT mentioned_user_id FROM current_mentions WHERE message_id = ${messageId}`
+    ));
+    if ((existing.rows as any[]).length > 0) {
+      const newSet = new Set(targetUserIds);
+      for (const row of existing.rows as any[]) {
+        const uid = Number(row.mentioned_user_id);
+        if (!newSet.has(uid)) {
+          await db.execute(sql.raw(
+            `DELETE FROM current_mentions WHERE message_id = ${messageId} AND mentioned_user_id = ${uid}`
+          ));
+        }
+      }
+    }
+
+    // Resolve channel ID once for mute checks (only needed for channel messages)
+    let resolvedChannelId: number | null = null;
+    if (channelSlug) {
+      const chanRow = await db.execute(sql.raw(
+        `SELECT id FROM current_channels WHERE slug = '${channelSlug.replace(/'/g, "''")}' LIMIT 1`
+      ));
+      if ((chanRow.rows as any[]).length) resolvedChannelId = Number((chanRow.rows[0] as any).id);
+    }
+
+    for (const mid of targetUserIds) {
+      // Validate: user must be active
       const userCheck = await db.execute(sql.raw(
         `SELECT id FROM users WHERE id = ${mid} AND global_role NOT IN ('inactive') LIMIT 1`
       ));
-      if (!userCheck.rows.length) continue;
-      // Check if user has muted this channel (skip notification if muted)
-      if (channelSlug) {
-        const chanRow = await db.execute(sql.raw(
-          `SELECT id FROM current_channels WHERE slug = '${channelSlug.replace(/'/g, "''")}' LIMIT 1`
+      if (!(userCheck.rows as any[]).length) continue;
+
+      // 5. Mute check — only @all respects mute; direct @user mentions always notify
+      const isDirectMention = directIds.includes(mid);
+      if (!isDirectMention && resolvedChannelId !== null) {
+        const prefRow = await db.execute(sql.raw(
+          `SELECT notification_level FROM current_channel_preferences WHERE channel_id = ${resolvedChannelId} AND user_id = ${mid} LIMIT 1`
         ));
-        if (chanRow.rows.length) {
-          const chanId = Number((chanRow.rows[0] as any).id);
-          const prefRow = await db.execute(sql.raw(
-            `SELECT notification_level FROM current_channel_preferences WHERE channel_id = ${chanId} AND user_id = ${mid} LIMIT 1`
-          ));
-          const level = (prefRow.rows[0] as any)?.notification_level;
-          if (level === 'muted') continue;
-        }
+        const level = (prefRow.rows[0] as any)?.notification_level;
+        if (level === 'muted') continue;
       }
-      // Insert mention record (idempotent)
+
+      // 6. Upsert current_mention (idempotent)
       await db.execute(sql.raw(`
         INSERT INTO current_mentions (message_id, mentioned_user_id, mentioned_by_user_id)
         VALUES (${messageId}, ${mid}, ${senderUserId})
         ON CONFLICT (message_id, mentioned_user_id) DO NOTHING
       `));
-      // Build notification URL and title
+
+      // 7. Build notification deep-link and title
       let actionUrl: string;
       let title: string;
       if (objectType && objectId) {
         actionUrl = buildRecordCurrentUrl(objectType, objectId, messageId, parentMessageId);
-        title = `Mentioned you in Currents`;
+        title = isDirectMention ? `Mentioned you in Currents` : `@all mention in Currents`;
       } else {
         const slug = channelSlug || "";
         const escapedSlug = slug.replace(/'/g, "''");
+        // Thread replies get a thread anchor so the notification opens exactly at the reply
         actionUrl = parentMessageId
           ? `/current?channel=${escapedSlug}&thread=${parentMessageId}&message=${messageId}`
           : `/current?channel=${escapedSlug}&message=${messageId}`;
-        title = `Mentioned in #${slug}`;
+        title = isDirectMention ? `Mentioned in #${slug}` : `@all in #${slug}`;
       }
       const preview = body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, '@$1').slice(0, 100);
       const escapedPreview = preview.replace(/'/g, "''");
       const escapedTitle = title.replace(/'/g, "''");
       const escapedUrl = actionUrl.replace(/'/g, "''");
+      // Dedupe key is per-user per-message (not per-edit) so edits never re-notify
       const dedupeKey = `current_mention:${messageId}:${mid}`;
       await db.execute(sql.raw(`
         INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
