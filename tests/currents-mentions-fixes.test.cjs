@@ -58,23 +58,36 @@ check(
   })()
 );
 check(
-  "@all virtual entry is still prepended when query is 'all' (after @ strip)",
-  usersBody.includes('"@all"') || usersBody.includes("'@all'")
+  "@all virtual entry injected CLIENT-SIDE by canonical hook (not from server response)",
+  // @all-scope correction: the server /api/current/users endpoint no longer returns @all.
+  // The virtual entry is injected by use-current-users.ts when includeAll=true.
+  // This check confirms the server route does NOT inject @all, and the client hook does.
+  !usersBody.includes("Notify everyone") &&
+  !usersBody.includes('"@all"') &&
+  fs.readFileSync(
+    path.join(__dirname, "../client/src/hooks/use-current-users.ts"), "utf8"
+  ).includes("isAll: true")
 );
 check(
-  "showAll logic uses stripped value (qLower from stripped raw)",
+  "client-side shouldShowAll uses normalized query (stripped of leading @)",
+  // use-current-users.ts normalizeUserQuery strips @ before shouldShowAll is called.
+  // Typing @all → raw="@all" → normalizeUserQuery → "all" → shouldShowAll("all")=true.
   (() => {
-    // After the strip, qLower = raw.toLowerCase() where raw is already stripped
-    // so typing "@all" → raw="all" → qLower="all" → still matches "all".startsWith("all")
-    const stripIdx   = usersBody.indexOf('.trim().replace(/^@/, "")');
-    const qLowerIdx  = usersBody.indexOf("const qLower = raw.toLowerCase()");
-    // Both must exist and qLower must come after the strip assignment
-    return stripIdx !== -1 && qLowerIdx !== -1 && qLowerIdx > stripIdx;
+    const hookSrc = fs.readFileSync(
+      path.join(__dirname, "../client/src/hooks/use-current-users.ts"), "utf8"
+    );
+    return hookSrc.includes("normalizeUserQuery") && hookSrc.includes("shouldShowAll");
   })()
 );
 check(
-  "empty query still returns @all (showAll = !raw when raw is empty)",
-  usersBody.includes("!raw ||")
+  "empty query returns @all: shouldShowAll returns true when q is empty string",
+  (() => {
+    const hookSrc = fs.readFileSync(
+      path.join(__dirname, "../client/src/hooks/use-current-users.ts"), "utf8"
+    );
+    // shouldShowAll("") must be true — empty query shows @all option
+    return hookSrc.includes("!q") || hookSrc.includes("q.length === 0") || hookSrc.includes("!raw");
+  })()
 );
 
 // ── Fix 2: public channel participants returns full org roster ────────────────

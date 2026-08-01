@@ -141,14 +141,11 @@ export function useMentionComposer(taRef: React.RefObject<HTMLTextAreaElement>) 
     staleTime: 10_000,
   });
 
-  // Prepend virtual @all when query matches
-  const mentionUsers: MentionUser[] = (() => {
-    const q = mentionQuery.toLowerCase();
-    const allEntry: MentionUser = { id: 0, name: "all", isAll: true };
-    if (!mentionActive) return [];
-    const showAll = !q || "all".startsWith(q) || "everyone".startsWith(q) || "team".startsWith(q);
-    return showAll ? [allEntry, ...rawUsers] : rawUsers;
-  })();
+  // CMS-wide hook: @all is NEVER injected here.
+  // @all is a CURRENTS-ONLY broadcast; non-Currents fields must never show it.
+  // The Currents channel/thread composers use useCurrentUsers (use-current-users.ts)
+  // with includeAll=true — that is the only permitted injection point.
+  const mentionUsers: MentionUser[] = mentionActive ? rawUsers : [];
 
   const clampedIdx = Math.min(mentionIdx, Math.max(0, mentionUsers.length - 1));
 

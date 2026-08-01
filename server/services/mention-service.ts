@@ -75,12 +75,19 @@ export async function saveMentions(opts: SaveMentionsOptions): Promise<void> {
       .slice(0, 200);
     const requestedAction = opts.requestedAction ?? "mention";
 
-    // Expand @all to all active users
+    // @all expansion is permitted ONLY for the Currents module.
+    // For every other module (leads, notes, comments, tasks, etc.) the @all token
+    // is silently ignored — it must never trigger a bulk notification outside Currents.
+    const allowAllExpansion = opts.moduleKey === "currents";
+
     const mentionedUserIds = new Set<number>();
     for (const t of tokens) {
       if (t.isAll) {
-        const ids = await getAllActiveUserIds();
-        ids.forEach(id => mentionedUserIds.add(id));
+        if (allowAllExpansion) {
+          const ids = await getAllActiveUserIds();
+          ids.forEach(id => mentionedUserIds.add(id));
+        }
+        // else: @all in a non-Currents field → silently skip (no broadcast)
       } else if (t.userId > 0) {
         mentionedUserIds.add(t.userId);
       }
@@ -132,12 +139,18 @@ export async function refreshMentions(opts: SaveMentionsOptions): Promise<void> 
   try {
     const tokens = parseMentionTokens(opts.body);
 
+    // @all expansion is permitted ONLY for the Currents module (same rule as saveMentions).
+    const allowAllExpansion = opts.moduleKey === "currents";
+
     // Compute new set of mentioned user IDs
     const newMentionedIds = new Set<number>();
     for (const t of tokens) {
       if (t.isAll) {
-        const ids = await getAllActiveUserIds();
-        ids.forEach(id => newMentionedIds.add(id));
+        if (allowAllExpansion) {
+          const ids = await getAllActiveUserIds();
+          ids.forEach(id => newMentionedIds.add(id));
+        }
+        // else: @all in a non-Currents edit → silently ignored
       } else if (t.userId > 0) {
         newMentionedIds.add(t.userId);
       }

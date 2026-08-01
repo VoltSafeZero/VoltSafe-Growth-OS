@@ -595,7 +595,10 @@ function renderMentionBody(
 // MentionEntry tracks one @mention in clean-text coordinate space.
 type MentionEntry = { name: string; userId: number; isAll: boolean; atPos: number; end: number };
 
-function useComposerMentions(taRef: React.RefObject<HTMLTextAreaElement>) {
+function useComposerMentions(
+  taRef: React.RefObject<HTMLTextAreaElement>,
+  allowAll = true   // true only for Currents CHANNEL / THREAD composers; false for DM composers
+) {
   const [mentionActive, setMentionActive] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIdx, setMentionIdx] = useState(0);
@@ -608,9 +611,10 @@ function useComposerMentions(taRef: React.RefObject<HTMLTextAreaElement>) {
   // Registry of inserted mention positions in clean-text coordinate space.
   const mentionEntriesRef = useRef<MentionEntry[]>([]);
 
-  // Use canonical hook: strips leading @, injects @all virtual entry
+  // Use canonical hook: strips leading @; injects @all only when allowAll=true.
+  // DM composers must pass allowAll=false so @all never appears in DM search.
   const { data: mentionUsers = [], isLoading: mentionLoading } = useCurrentUsers(
-    mentionQuery, mentionActive, true
+    mentionQuery, mentionActive, allowAll
   );
 
   const clampedIdx = Math.min(mentionIdx, Math.max(0, mentionUsers.length - 1));
@@ -1568,14 +1572,18 @@ function InlineEditRow({
   message,
   onSave,
   onCancel,
+  isDirectMessage = false,
 }: {
   message: Message;
   onSave: (newBody: string) => void;
   onCancel: () => void;
+  /** Pass true when editing a DM message — suppresses the @all broadcast option. */
+  isDirectMessage?: boolean;
 }) {
   const [text, setText] = useState(() => tokensToCleanText(message.body ?? ""));
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const mention = useComposerMentions(taRef);
+  // DM message edits must never show @all; channel/thread edits may preserve it.
+  const mention = useComposerMentions(taRef, !isDirectMessage);
 
   useEffect(() => {
     mention.initFromTokenText(message.body ?? "");
@@ -4161,7 +4169,8 @@ export default function CurrentPage() {
   const dmTextareaRef = useRef<HTMLTextAreaElement>(null);
   const dmIsAtBottom = useRef(true);
   const dmLastReadRef = useRef<number>(0);
-  const dmMention = useComposerMentions(dmTextareaRef);
+  // @all is NOT permitted in DM composers — pass allowAll=false explicitly.
+  const dmMention = useComposerMentions(dmTextareaRef, false);
   const [highlightedMsgId, setHighlightedMsgId] = useState<number | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -6064,6 +6073,7 @@ export default function CurrentPage() {
                         message={{ ...msg, channelId: 0, replyCount: 0, latestReplyAt: null, structuredItems: msg.structuredItems ?? [] }}
                         onSave={(body) => dmEditMutation.mutate({ id: msg.id, body })}
                         onCancel={() => setEditingDmMessage(null)}
+                        isDirectMessage
                       />
                     );
                   }

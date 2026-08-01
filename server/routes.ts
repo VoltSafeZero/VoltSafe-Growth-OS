@@ -38373,14 +38373,11 @@ export function registerConfluenceRoutes(app: Express) {
         department: r.department || null,
         isAll: false,
       }));
-      // Prepend virtual @all entry when it matches the search query.
-      // Use the stripped (no-@) value so that typing "@all" still shows the option.
-      const qLower = raw.toLowerCase();
-      const showAll = !raw || ["all","everyone","team","@all"].some(t => t.startsWith(qLower));
-      const result = showAll
-        ? [{ id: 0, name: "all", email: "", avatarUrl: null, department: "Notify everyone", isAll: true }, ...users]
-        : users;
-      res.json(result);
+      // @all is a CURRENTS-ONLY broadcast. The server must never inject it here.
+      // The canonical client hook (use-current-users.ts) handles @all injection
+      // client-side — only for Currents channel/thread composers (includeAll=true).
+      // DM composers, pickers, and ALL non-Currents surfaces use includeAll=false.
+      res.json(users);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

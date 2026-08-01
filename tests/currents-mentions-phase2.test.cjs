@@ -42,8 +42,10 @@ check(
   usersRouteBody.includes('.trim().replace(/^@/, "")')
 );
 check(
-  "@all virtual entry injected client-side by useMentionComposer/useCurrentUsers",
-  COMPOSER.includes("isAll: true") && HOOK.includes("isAll: true")
+  "@all virtual entry injected client-side by useCurrentUsers (CURRENTS-only hook)",
+  // After the @all-scope correction, useMentionComposer (CMS hook) never injects @all.
+  // Only useCurrentUsers (Currents channel/thread hook) injects it when includeAll=true.
+  HOOK.includes("isAll: true") && !COMPOSER.includes("const allEntry")
 );
 
 // ── Fix 2 (verified): public channel participants returns full org ─────────────
@@ -89,13 +91,16 @@ check(
   !CURRENT.includes("fetch(`/api/current/users")
 );
 check(
-  "useComposerMentions uses useCurrentUsers with includeAll=true",
+  "useComposerMentions passes allowAll parameter to useCurrentUsers (true by default for channel use)",
+  // Phase 2 refactor: allowAll defaults to true (channel composers) but callers
+  // can pass false (DM composers). The hook no longer hardcodes `true` — it forwards `allowAll`.
   (() => {
     const compIdx  = CURRENT.indexOf("function useComposerMentions(");
     const compEnd  = CURRENT.indexOf("\n}", CURRENT.indexOf("return {", compIdx));
     const compBody = CURRENT.slice(compIdx, compEnd);
     return compBody.includes("useCurrentUsers") &&
-      compBody.includes(", true") &&
+      compBody.includes("allowAll") &&
+      compBody.includes("allowAll = true") &&   // default for channel composers
       !compBody.includes("fetch(`/api/current/users");
   })()
 );
