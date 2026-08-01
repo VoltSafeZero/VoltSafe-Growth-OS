@@ -1,0 +1,121 @@
+VALIDATION LOGIN FIX — TARGETED CSRF HOST ALLOWLIST ONLY
+
+Approved root cause:
+
+The browser sends:
+
+Origin: https://aa26361d-4bcc-405a-9191-bf656e0c05a2-00-iy2y4baleawk.janeway.replit.dev:3003
+
+But REPLIT_DOMAINS contains only the hostname without :3003, so csrfOriginGuard rejects the login request before authentication.
+
+Implement Option 1 only.
+
+Do not modify the shared CSRF algorithm.
+Do not exempt /api/auth/login globally.
+Do not weaken production CSRF protections.
+Do not push main.
+Do not deploy production.
+
+==================================================
+1. ADD THE VALIDATION HOST TO CSRF_ALLOWED_HOSTS
+==================================================
+
+Update only the temporary validation launch environment so it includes:
+
+CSRF_ALLOWED_HOSTS=aa26361d-4bcc-405a-9191-bf656e0c05a2-00-iy2y4baleawk.janeway.replit.dev:3003
+
+Add it to the validation wrapper or validation-only environment file used by:
+
+scripts/start-validation.sh
+
+Do not add it to normal production secrets.
+Do not add it to the main production deployment.
+Do not hardcode this temporary hostname into server/csrf.ts.
+
+==================================================
+2. RESTART ONLY THE VALIDATION WORKFLOW
+==================================================
+
+Rebuild if required, then restart only:
+
+validation-deployment
+
+Do not restart or modify the normal production deployment.
+
+Confirm the validation process still uses:
+
+- rollback_validation_readonly
+- default_transaction_read_only=on
+- PRODUCTION_READONLY_MODE=true
+- ROLLBACK_FIRST_BOOT_READ_ONLY=true
+- ROLLBACK_VALIDATION_READ_ONLY=true
+- RUN_STARTUP_MIGRATIONS=false
+- ALLOW_DESTRUCTIVE_SEED=false
+- ENABLE_BACKGROUND_JOBS=false
+
+==================================================
+3. VERIFY THE EXACT LOGIN ORIGIN
+==================================================
+
+Send a request with:
+
+Origin: https://aa26361d-4bcc-405a-9191-bf656e0c05a2-00-iy2y4baleawk.janeway.replit.dev:3003
+
+to:
+
+POST /api/auth/login
+
+Use deliberately invalid credentials.
+
+Required result:
+
+- NOT 403
+- request passes csrfOriginGuard
+- request reaches the login route
+- returns 401 for invalid credentials
+- no production DB write occurs
+- users.last_login remains gated
+- session remains MemoryStore only
+
+==================================================
+4. RECONFIRM MUTATION BLOCKING
+==================================================
+
+Using the same trusted Origin header, verify:
+
+- POST /api/leads → 405
+- PATCH /api/contacts/999999999 → 405
+- DELETE /api/tasks/999999999 → 405
+- PUT /api/accounts/999999999 → 405
+- POST /api/current/messages → 405
+- POST /api/auth/change-password → 405
+- POST /api/auth/forgot-password → 405
+- POST /api/session/timezone → 405
+
+Only these two POST routes may pass the read-only middleware:
+
+- /api/auth/login
+- /api/auth/logout
+
+==================================================
+5. FINAL REPORT
+==================================================
+
+Return:
+
+CSRF_ALLOWED_HOSTS value loaded:
+Validation workflow restarted:
+POST /api/auth/login with invalid credentials:
+Reached login handler:
+HTTP result:
+Production users.last_login writes:
+Production session-table writes:
+Read-only DB role still active:
+default_transaction_read_only:
+Mutation tests:
+Normal production deployment changed:
+Safe for Trevor to retry login:
+
+Only state YES if the login reaches the handler while all other mutations remain blocked.
+
+Stop after the report.
