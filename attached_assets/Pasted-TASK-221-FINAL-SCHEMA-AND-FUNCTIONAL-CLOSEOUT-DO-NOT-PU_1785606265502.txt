@@ -1,0 +1,204 @@
+TASK #221 FINAL SCHEMA AND FUNCTIONAL CLOSEOUT — DO NOT PUBLISH
+
+The correction is not complete.
+
+Your own report confirms:
+
+- currents_channels exists in production but not development
+- currents_posts exists in production but not development
+- currents_reactions exists in production but not development
+- currents_read_state exists in production but not development
+
+Therefore Replit may again propose deleting these production tables during publish.
+
+Do not publish.
+Do not submit any schema conflict.
+Do not modify production data.
+
+==================================================
+1. RESTORE THE FOUR CURRENTS TABLE DEFINITIONS IN DEV
+==================================================
+
+Restore the exact production-compatible schema definitions for:
+
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+Use production schema as the authoritative source.
+
+Preserve:
+
+- column names and types
+- nullability
+- defaults
+- primary keys
+- foreign keys
+- indexes
+- constraints
+
+Do not copy production rows.
+Do not rename them.
+Do not modify any current_* table.
+Do not link them to user_column_prefs.
+
+The purpose is solely to prevent Replit from treating them as removed.
+
+==================================================
+2. PROVE USER_COLUMN_PREFS MIGRATION IS FULLY GATED
+==================================================
+
+Show the exact call chain:
+
+server/index.ts
+→ RUN_STARTUP_MIGRATIONS gate
+→ Batch 2
+→ migrateUserColumnPrefs()
+
+Show whether skipInReadOnlyMode also guards the call or function body.
+
+Required:
+
+- RUN_STARTUP_MIGRATIONS must equal "true"
+- rollback read-only mode must skip it
+- normal production startup with migrations disabled must not execute CREATE TABLE
+- no fire-and-forget migration remains in registerRoutes()
+
+Add a test that proves the SQL is unreachable when either migration gating or rollback read-only mode blocks startup writes.
+
+==================================================
+3. GENERATE A FRESH SCHEMA COMPARISON
+==================================================
+
+Generate the development-to-production schema comparison without publishing.
+
+Required exact result:
+
+UNCHANGED:
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+ADD:
+- user_column_prefs
+
+There must be:
+
+- no Currents deletion
+- no Currents rename
+- no Currents data-loss warning
+- no relationship between Currents and user_column_prefs
+
+Provide a screenshot or exact schema-diff output.
+
+If Replit still proposes deleting or renaming any Currents table, STOP.
+
+==================================================
+4. COMPLETE REAL BROWSER VERIFICATION
+==================================================
+
+Logging in and seeing the login page is not enough.
+
+Using an authenticated development session, verify Leads and Accounts.
+
+Leads:
+
+- Columns button appears
+- popover opens
+- optional column can be hidden
+- table header and cells both update
+- column can be moved left/right
+- refresh preserves layout
+- logout/login preserves layout
+- reset restores defaults
+- required Company and Stage columns cannot be hidden
+
+Accounts:
+
+- same checks independently
+- Accounts preference changes do not affect Leads
+- Leads preference changes do not affect Accounts
+
+User isolation:
+
+- create or use a second test user
+- save a different Leads layout
+- prove each user sees only their own layout
+
+Capture screenshots before and after refresh.
+
+==================================================
+5. VERIFY TABLE SHAPE AGAINST EXISTING DEV TABLE
+==================================================
+
+The report says the existing dev table is “schema-compatible,” but CREATE TABLE IF NOT EXISTS does not add missing constraints to an already-existing table.
+
+Inspect the actual existing development table and report:
+
+- columns
+- CHECK constraint on view_type
+- UNIQUE(user_id, view_type)
+- users foreign key
+- ON DELETE behavior
+- indexes
+
+If any required constraint is missing, create a proper additive ALTER migration.
+
+Do not assume CREATE TABLE IF NOT EXISTS repaired an existing table.
+
+==================================================
+6. FINAL TEST GATE
+==================================================
+
+Run:
+
+- user-column-prefs tests
+- Leads table tests
+- Accounts table tests
+- Currents routing tests
+- Currents search tests
+- Currents attachment tests
+- channel-add-member tests
+- rollback-gate tests
+- seed-kill-switch tests
+- npm run build
+
+Add explicit tests proving:
+
+- all four currents_* tables exist in the intended schema
+- user_column_prefs is separate
+- no migration drops or renames Currents
+- existing user_column_prefs constraints are enforced
+- preferences persist through API reload
+- users are isolated
+- Leads and Accounts are isolated
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+Correction SHA:
+Development Currents tables restored:
+Production Currents tables unchanged:
+Fresh schema diff:
+Any Currents deletion proposed:
+Any Currents rename proposed:
+user_column_prefs actual dev schema:
+Missing constraints repaired:
+Migration gate proof:
+Rollback guard proof:
+Authenticated Leads verification:
+Authenticated Accounts verification:
+Second-user isolation verification:
+Persistence after refresh:
+Persistence after login:
+Tests:
+Build:
+Ready to publish:
+
+Do not publish automatically.
+Stop after the report.
