@@ -469,6 +469,43 @@ app.use((req, res, next) => {
     res.status(503).json({ error: "Service temporarily unavailable", status: "starting" });
   });
 
+  // ── Production read-only validation guard ────────────────────────────────────
+  // When PRODUCTION_READONLY_MODE=true, every non-GET /api/* request is rejected
+  // with 405 before it reaches any route handler.  Auth/session paths are exempted
+  // so an authenticated walkthrough remains possible.
+  //
+  // Activate with:
+  //   PRODUCTION_READONLY_MODE=true
+  // alongside the startup-writer kill-switches:
+  //   ROLLBACK_FIRST_BOOT_READ_ONLY=true  ROLLBACK_VALIDATION_READ_ONLY=true
+  //   RUN_STARTUP_MIGRATIONS=false        ALLOW_DESTRUCTIVE_SEED=false
+  //
+  // Health probes (/health, /healthz, /readyz, /api/version) are registered
+  // before this IIFE and are never touched by this middleware.
+  if (process.env.PRODUCTION_READONLY_MODE === "true") {
+    app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+      const isReadMethod = ["GET", "HEAD", "OPTIONS"].includes(req.method);
+      const isAuthPath =
+        req.path.startsWith("/session") ||
+        req.path.startsWith("/auth") ||
+        req.path.startsWith("/login") ||
+        req.path.startsWith("/logout") ||
+        req.path.startsWith("/oauth") ||
+        req.path.startsWith("/google");
+      if (!isReadMethod && !isAuthPath) {
+        return res.status(405).json({
+          error: "Validation deployment: read-only mode active",
+          detail: "All mutation endpoints are disabled. Use GET requests only.",
+          method: req.method,
+          path: `/api${req.path}`,
+          mode: "PRODUCTION_READONLY_MODE=true",
+        });
+      }
+      next();
+    });
+    log("[readonly-mode] PRODUCTION_READONLY_MODE=true — POST/PATCH/PUT/DELETE blocked on all /api/* except auth/session");
+  }
+
   // ── Register routes + frontend IMMEDIATELY after port opens ──────────────────
   // Route registration is pure handler setup — no DB queries run at registration
   // time. Registering here means GET / returns index.html within milliseconds,
