@@ -1,0 +1,196 @@
+VALIDATION DEPLOYMENT SAFETY CORRECTION — LIVE PRODUCTION DATABASE IS CONNECTED
+
+Do not promote, push to main, or deploy production.
+
+The temporary validation server is currently connected directly to the live production database using PRODUCTION_DATABASE_URL. Application middleware alone is not sufficient to call this read-only.
+
+Before Trevor logs in, complete these checks and corrections.
+
+==================================================
+1. CONFIRM THE DATABASE ROLE IS WRITABLE
+==================================================
+
+Read-only investigation.
+
+Report:
+
+- current_user
+- whether current_user has rol_super
+- whether current_user has rolcreatedb
+- whether current_user can CREATE in schema public
+- whether current_user has INSERT, UPDATE and DELETE privileges on application tables
+- current_setting('default_transaction_read_only')
+
+Do not execute a write.
+
+If the connection is writable, state clearly:
+
+DATABASE-LEVEL READ-ONLY: NO
+
+Do not describe application middleware as equivalent protection.
+
+==================================================
+2. INVESTIGATE THE “AWAITING-REPLY UPDATED” PATH
+==================================================
+
+The validation startup log contained:
+
+[awaiting-reply] Updated 0 threads; 2417 currently awaiting reply
+
+Trace this exact message.
+
+Report:
+
+- file and function
+- why it executed during startup
+- SQL statements it can issue
+- whether it attempted UPDATE
+- why its startup guard did not prevent the function from running
+- whether any other startup/service functions can run and write without using the central guard
+
+Make no code change until the path is proven.
+
+==================================================
+3. TEST THE GLOBAL MUTATION GUARD WITH A VALID ORIGIN
+==================================================
+
+The curl tests received 403 from CSRF before reaching the read-only middleware. That does not prove the browser path is blocked.
+
+Send test requests with the validation URL as the valid Origin header against disposable/nonexistent IDs:
+
+- POST /api/leads
+- PATCH /api/contacts/999999999
+- DELETE /api/tasks/999999999
+- PUT /api/accounts/999999999
+- POST /api/current/messages
+
+Required result for every request:
+
+HTTP 405
+mode = PRODUCTION_READONLY_MODE=true
+
+Confirm the route handler was never entered and no SQL was executed.
+
+Do not use a real record ID.
+
+==================================================
+4. INVENTORY THE AUTH/SESSION EXCEPTIONS
+==================================================
+
+List every POST, PUT, PATCH or DELETE endpoint exempted from the global read-only middleware.
+
+For each, report:
+
+- endpoint
+- reason for exemption
+- whether it writes to the database
+- tables written
+- whether it can be replaced with cookie/session-only authentication
+- whether login into the validation app will alter production data
+
+Pay special attention to:
+
+- login audit records
+- session tables
+- last_login_at
+- activity logs
+- device records
+- notification read state
+- user preferences
+- token refresh
+- OAuth records
+
+Trevor must not log in until we know exactly what authentication changes in production.
+
+==================================================
+5. BLOCK ALL NONESSENTIAL GET-SIDE WRITES
+==================================================
+
+Search for GET and HEAD endpoints that perform any:
+
+- INSERT
+- UPDATE
+- DELETE
+- upsert
+- audit write
+- mark-read
+- refresh-token write
+- sync
+- cache persistence
+- analytics event
+- access timestamp update
+
+Report every match.
+
+In validation mode, GET and HEAD requests must be observational only.
+
+==================================================
+6. RESTRICT THE TEMPORARY VALIDATION SERVER
+==================================================
+
+Confirm:
+
+- authentication is mandatory
+- unauthenticated users cannot access production records
+- no feedback/public-sharing feature exposes the server
+- the URL is not indexed or linked publicly
+- the process will be stopped immediately after Trevor’s walkthrough
+
+If possible, restrict access to Trevor only or add temporary basic access protection in front of the validation server. Do not modify the normal production deployment.
+
+==================================================
+7. RUN THE ACTUAL BUILT PRODUCTION SERVER
+==================================================
+
+The report shows NODE_ENV=development. That does not validate the production bundle.
+
+Run:
+
+npm run build
+
+Then launch the built output with:
+
+NODE_ENV=production
+PORT=5099
+DATABASE_URL=$PRODUCTION_DATABASE_URL
+ROLLBACK_FIRST_BOOT_READ_ONLY=true
+ROLLBACK_VALIDATION_READ_ONLY=true
+RUN_STARTUP_MIGRATIONS=false
+ALLOW_DESTRUCTIVE_SEED=false
+PRODUCTION_READONLY_MODE=true
+ENABLE_BACKGROUND_JOBS=false
+
+Confirm:
+
+- the built server starts
+- / returns 200
+- /api/version returns 200
+- authentication page loads
+- no __dirname/static-serving error
+- all startup writers skip
+- zero non-SELECT startup SQL
+
+Do not leave both validation processes running.
+
+==================================================
+8. FINAL SAFETY VERDICT
+==================================================
+
+Return:
+
+Database user writable: YES/NO
+Database-enforced read-only: YES/NO
+Valid-Origin mutation tests blocked: YES/NO
+Auth/session production writes:
+GET-side writes found:
+Awaiting-reply code path explained:
+Unexpected startup code paths:
+Built production bundle booted: YES/NO
+Production data exposed publicly: YES/NO
+Safe for Trevor to log in: YES/NO
+
+Do not promote.
+Do not push main.
+Do not deploy.
+Do not modify production records.
+Stop after the report.
