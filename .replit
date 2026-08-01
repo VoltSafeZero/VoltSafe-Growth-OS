@@ -14,6 +14,10 @@ localPort = 5001
 externalPort = 3002
 
 [[ports]]
+localPort = 5099
+externalPort = 3003
+
+[[ports]]
 localPort = 5904
 externalPort = 3000
 
@@ -74,6 +78,15 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "validation-deployment"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=5099 DATABASE_URL=$PRODUCTION_DATABASE_URL ROLLBACK_FIRST_BOOT_READ_ONLY=true ROLLBACK_VALIDATION_READ_ONLY=true RUN_STARTUP_MIGRATIONS=false ALLOW_DESTRUCTIVE_SEED=false PRODUCTION_READONLY_MODE=true npx tsx server/index.ts"
+waitForPort = 5099
 
 [[workflows.workflow]]
 name = "permissions"
