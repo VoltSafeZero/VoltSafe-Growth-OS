@@ -1,0 +1,231 @@
+CONTINUE IMMEDIATELY WITH PHASES 5–10. THE APP WAS ALREADY PUBLISHED ABOUT SIX HOURS AGO.
+
+Do not ask me to click Publish again. Do not deploy, republish, commit, merge, push, modify
+production data, or clean the development database in this task.
+
+This is a POST-DEPLOYMENT VERIFICATION ONLY.
+
+IMPORTANT CORRECTIONS
+
+1. The production deployment already occurred. Resolve the exact currently deployed commit
+   and build ID from production—not from assumptions or the prior report.
+
+2. Do not claim the deployment is healthy merely because Replit says
+   hasSuccessfulBuild=true. Prove the running production application works.
+
+3. Explain why two runtime-modified help-center JSON files were committed solely to clear
+   git status. Report:
+   - filenames,
+   - exact diff,
+   - commit SHA,
+   - whether these files should be generated/runtime state rather than version-controlled,
+   - whether that commit changed production behaviour.
+   Do not make another commit.
+
+4. The development-only currents_* contamination tables are explicitly OUT OF SCOPE.
+   Do not drop or alter them. Merely document them for a separate cleanup task.
+
+=== PHASE 5 — DEPLOYMENT IDENTITY AND STARTUP LOGS ===
+
+Report:
+
+- currently deployed Git SHA
+- deployed build ID
+- deployment timestamp
+- deployment status
+- production URL
+- whether the deployed SHA exactly matches origin/main
+- whether the deployed SHA contains any source changes beyond the approved recovery work
+
+Pull the actual production startup logs from the deployed build.
+
+Search for and report every occurrence of:
+
+- ERROR
+- FATAL
+- Traceback
+- migration
+- schema
+- seed
+- rollback
+- read-only
+- permission denied
+- relation does not exist
+- duplicate table
+- currents_
+- current_
+- attachment
+- search
+- scheduler
+- worker
+- database connection
+
+Do not summarize away errors. Quote the relevant log lines with timestamps.
+
+Explicitly verify whether current_thread_replies was created successfully during production
+startup. If it was not created, report the precise error and stop before any attempted repair.
+
+=== PHASE 6 — PRODUCTION DATABASE RECONCILIATION ===
+
+Use the production database connection only.
+
+Run read-only queries and report raw output for:
+
+SELECT current_database(), current_user, inet_server_addr(), inet_server_port();
+
+SELECT COUNT(*) FROM leads;
+SELECT COUNT(*) FROM accounts;
+SELECT COUNT(*) FROM contacts;
+SELECT COUNT(*) FROM email_messages;
+SELECT COUNT(*) FROM users;
+SELECT COUNT(*) FROM tasks;
+SELECT COUNT(*) FROM opportunities;
+SELECT COUNT(*) FROM current_channels;
+SELECT COUNT(*) FROM current_messages;
+SELECT COUNT(*) FROM current_reactions;
+SELECT COUNT(*) FROM current_pins;
+SELECT COUNT(*) FROM current_conversations;
+SELECT COUNT(*) FROM current_channel_members;
+
+Check current_thread_replies safely:
+
+SELECT to_regclass('public.current_thread_replies');
+
+If it exists, then run:
+
+SELECT COUNT(*) FROM current_thread_replies;
+
+Compare every result to the exact pre-deployment baseline:
+
+leads = 10,989
+accounts = 11,026
+contacts = 115
+email_messages = 60,040
+users = 13
+tasks = 260
+opportunities = 1
+current_channels = 15
+current_messages = 43
+current_reactions = 2
+current_pins = 1
+current_conversations = 7
+current_channel_members = 6
+
+For each table, report:
+
+- pre-deployment count
+- current count
+- delta
+- expected or unexpected
+- explanation for any delta
+
+Normal application activity may explain increases, but decreases require an immediate FAIL
+verdict and exact investigation. Do not modify rows.
+
+Also prove the replacement contamination tables remain absent from production:
+
+SELECT to_regclass('public.currents_channels');
+SELECT to_regclass('public.currents_posts');
+SELECT to_regclass('public.currents_reactions');
+SELECT to_regclass('public.currents_read_state');
+
+All four must return NULL.
+
+Report current production database size using pg_database_size(current_database()).
+
+=== PHASE 7 — LIVE PRODUCTION SMOKE TESTS ===
+
+Test the actual public production domain:
+
+https://image-linker-burgesstrevor76.replit.app
+
+Use the same authenticated production paths the browser uses.
+
+Verify at minimum:
+
+1. Login page/app boot succeeds.
+2. Authenticated app shell loads.
+3. Leads page loads.
+4. Accounts page loads.
+5. Contacts page loads.
+6. Tasks page loads.
+7. Currents channel list loads.
+8. A Currents channel opens.
+9. Currents search returns a valid response.
+10. Currents attachment route returns a valid response.
+11. Private-channel member list loads.
+12. Add-member functionality reaches the correct current_* tables.
+13. No request calls /api/currents/ or any currents_* replacement route/table.
+14. Browser console has no uncaught exceptions.
+15. Network panel has no unexpected 4xx/5xx responses.
+
+For every check, report:
+
+- exact production URL or route
+- HTTP status
+- response/build marker where available
+- elapsed time
+- PASS or FAIL
+
+Do not use localhost, a dev endpoint, a preview deployment, or direct function invocation as a
+substitute for production HTTP verification.
+
+=== PHASE 8 — PRODUCTION WRITE-SAFETY PROOF ===
+
+Confirm from production environment and startup logs that none of these were active:
+
+- ROLLBACK_VALIDATION_READ_ONLY
+- ROLLBACK_FIRST_BOOT_READ_ONLY
+- PRODUCTION_READONLY_MODE
+- VALIDATION_READONLY_DATABASE_URL
+- ROLLBACK_CLONE_DB_URL
+- NEON_CLONE_DB_URL
+- ALLOW_DESTRUCTIVE_SEED
+- destructive seed routines
+- rollback-validation database routing
+
+Confirm production writes are enabled through a harmless existing application workflow only
+if that workflow can be tested without creating junk data. Do not create placeholder users,
+leads, channels, posts, tasks, or messages merely to prove writes.
+
+=== PHASE 9 — GIT AND DEPLOYMENT HYGIENE ===
+
+Report:
+
+- git status --short
+- current branch
+- local HEAD
+- origin/main
+- deployed SHA
+- whether all three SHAs match
+- commits between approved SHA 0686ce92 and deployed SHA
+- exact files changed by each additional commit
+- whether any runtime/generated file was committed
+- whether any unapproved source change reached production
+
+Do not alter Git history.
+
+=== PHASE 10 — FINAL VERDICT ===
+
+Return one of:
+
+PASS — production deployment is healthy, identity is proven, database reconciliation passes,
+       production smoke tests pass, and no unapproved change reached production.
+
+CONDITIONAL PASS — application is healthy but clearly identified non-critical cleanup remains.
+
+FAIL — any startup error, missing required table, unexpected data loss, wrong deployed SHA,
+       production 5xx, broken Currents function, or unapproved source change exists.
+
+The final report must contain:
+
+- deployed SHA and build ID
+- startup-log verdict
+- full database reconciliation table
+- contamination-table absence proof
+- production smoke-test table
+- Git/deployment identity table
+- exact unresolved items
+- explicit rollback recommendation: YES or NO
+
+Do not publish, commit, clean, repair, or modify anything. Report and stop.

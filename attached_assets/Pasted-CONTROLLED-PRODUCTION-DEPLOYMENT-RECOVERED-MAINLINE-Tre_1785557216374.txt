@@ -1,0 +1,352 @@
+CONTROLLED PRODUCTION DEPLOYMENT — RECOVERED MAINLINE
+
+Trevor has approved deployment of the recovered VoltSafe CMS mainline.
+
+CURRENT VERIFIED GITHUB MAIN:
+
+origin/main = 0686ce9206539eb586e43086623614e4c9970540
+
+RECOVERY STATUS:
+
+- validated recovery branch promoted to main
+- previous main preserved in history
+- no force-push used
+- original Currents restored
+- replacement Currents removed
+- rollback tests passing
+- seed kill-switch passing
+- Currents tests passing
+- build passing
+- temporary validation deployment removed
+- rollback_validation_readonly role retained
+- production deployment has not yet been changed
+
+Proceed with a controlled production deployment.
+
+Do not make feature changes.
+Do not modify production data manually.
+Do not run database restore.
+Do not run Point-in-Time Recovery.
+Do not change Git history.
+Do not deploy any commit other than the verified current origin/main.
+
+==================================================
+PHASE 1 — PRE-DEPLOYMENT IDENTITY CHECK
+==================================================
+
+Confirm:
+
+- repository root
+- current branch
+- local HEAD SHA
+- origin/main SHA
+- git status --short
+- production deployment URL
+- currently deployed production build identity, if available
+- current production database identity, redacted
+- current production lead count
+- current production account count
+- current production current_channels count
+- current production current_messages count
+
+Required Git SHA:
+
+0686ce9206539eb586e43086623614e4c9970540
+
+If local HEAD or origin/main differs, STOP.
+
+==================================================
+PHASE 2 — VERIFY PRODUCTION ENVIRONMENT SETTINGS
+==================================================
+
+Before deployment, confirm the production deployment will use:
+
+NODE_ENV=production
+DATABASE_URL=<existing production database connection>
+
+Confirm these temporary validation variables are NOT present or active in production:
+
+- ROLLBACK_VALIDATION_READ_ONLY
+- ROLLBACK_FIRST_BOOT_READ_ONLY
+- PRODUCTION_READONLY_MODE
+- CSRF_ALLOWED_HOSTS containing the temporary Janeway validation URL
+- VALIDATION_READONLY_DATABASE_URL
+- ROLLBACK_CLONE_DB_URL
+- NEON_CLONE_DB_URL
+
+Confirm:
+
+- RUN_STARTUP_MIGRATIONS is absent or false
+- ALLOW_DESTRUCTIVE_SEED is absent or false
+- production DATABASE_URL does not use rollback_validation_readonly
+- production DATABASE_URL uses the normal production application role
+- temporary validation workflow and port 5099 mapping are absent
+
+Do not print secrets or connection strings.
+
+If any validation-only setting is active in production, STOP and report it.
+
+==================================================
+PHASE 3 — FINAL AUTOMATED GATE
+==================================================
+
+Run:
+
+- node tests/rollback-gate.test.cjs
+- node tests/seed-kill-switch.test.cjs
+- node tests/currents-search.test.cjs
+- node tests/currents-attachments.test.cjs
+- node tests/channel-add-member.test.cjs
+- npm run build
+
+Report exact totals and exit codes.
+
+Required result:
+
+- rollback tests: all pass
+- seed tests: all pass
+- Currents tests: all pass
+- build exit code 0
+- git status remains clean
+
+If anything fails, STOP.
+
+==================================================
+PHASE 4 — PUBLISH EXACT VERIFIED MAINLINE
+==================================================
+
+Publish the current origin/main build to the existing production deployment.
+
+Requirements:
+
+- deploy SHA 0686ce9206539eb586e43086623614e4c9970540
+- do not create unrelated commits
+- do not modify main during deployment
+- do not run migrations manually
+- do not run seeds manually
+- do not restore the database
+- do not replace or recreate the production database
+- do not enable destructive seed flags
+- do not enable startup migrations
+
+Capture:
+
+- deployment ID
+- build ID
+- deployed SHA
+- deployment start time
+- first successful health response
+- build result
+- publish result
+
+==================================================
+PHASE 5 — STARTUP SAFETY VERIFICATION
+==================================================
+
+Immediately inspect production startup logs.
+
+Confirm:
+
+- seedProductionData is skipped
+- destructive seed is blocked
+- startup migrations are skipped
+- no TRUNCATE
+- no pg_restore
+- no DROP
+- no destructive DELETE
+- no unexpected bulk UPDATE
+- no schema conflict errors
+- no missing-column errors
+- no startup crash loop
+- no repeated healthcheck failures after boot
+- no replacement currents_* table creation
+- original current_* tables remain present
+
+Report every startup writer that executes or skips.
+
+If any destructive or unexpected write appears, STOP and report immediately.
+
+==================================================
+PHASE 6 — PRODUCTION DATABASE RECONCILIATION
+==================================================
+
+Run read-only checks after deployment and compare them with the pre-deployment baseline:
+
+- leads
+- accounts
+- contacts
+- activities
+- email_messages
+- users
+- tasks
+- opportunities
+- current_channels
+- current_messages
+- current_reactions
+- current_pins
+- current_conversations
+- current_channel_members
+- current_thread_replies
+- current_custom_emojis
+
+Also confirm:
+
+- original current_* tables exist
+- replacement currents_channels does not exist
+- replacement currents_posts does not exist
+- replacement currents_reactions does not exist
+- replacement currents_read_state does not exist
+- no unexplained row-count loss occurred
+- production database size did not unexpectedly collapse
+
+Do not alter any records.
+
+==================================================
+PHASE 7 — AUTHENTICATED PRODUCTION SMOKE TEST
+==================================================
+
+Use an authenticated production session.
+
+Verify:
+
+1. Login
+2. Today
+3. Work
+4. Mission Control
+5. Leads
+6. Accounts
+7. Contacts
+8. Opportunities
+9. Tasks
+10. Calendar
+11. Cortex
+12. VoltSafe Mail
+13. Currents at /current
+
+For Currents confirm:
+
+- historical channels appear
+- historical messages appear
+- direct messages appear
+- private channels respect permissions
+- threads open
+- reactions render
+- mentions render
+- pins render
+- attachments render
+- Files tab opens
+- search opens
+- member UI opens
+
+For Mail confirm:
+
+- primary mailbox loads
+- private mailboxes load
+- Sales mailbox loads
+- Support mailbox loads
+- messages open
+- no endless spinner
+- no Local mailbox query failed error
+- no cross-mailbox leakage
+- no HTTP 500 errors
+
+Use read-only navigation first.
+
+After the read-only smoke test passes, perform only these controlled write tests:
+
+- create one clearly labelled internal test task, then delete it
+- send one internal test email to a VoltSafe-owned address
+- post one clearly labelled test message in a designated Currents test/general channel, then delete it if deletion is supported
+
+Do not alter real customer records.
+
+==================================================
+PHASE 8 — LOG AND NETWORK AUDIT
+==================================================
+
+Review production logs from deployment start onward.
+
+Report counts for:
+
+- HTTP 500
+- uncaught exceptions
+- database errors
+- missing table/column errors
+- Local mailbox query failed
+- Gmail sync failures
+- Currents route failures
+- /api/currents requests
+- /currents browser requests
+- endless repeated loading requests
+- authentication failures unrelated to bad credentials
+- startup restart loops
+
+Required:
+
+- zero requests to replacement /api/currents/*
+- zero replacement /currents navigation
+- zero destructive startup operations
+- zero unexplained database loss
+
+==================================================
+PHASE 9 — RETAIN RECOVERY SAFETY ASSETS
+==================================================
+
+Keep:
+
+- rollback_validation_readonly database role
+- validated recovery branch
+- recovery tags
+- incident-preserved branch
+- rollback startup guards
+- seed kill-switch
+- rollback regression tests
+- Currents regression tests
+
+Do not delete or rewrite incident history.
+
+==================================================
+PHASE 10 — FINAL REPORT
+==================================================
+
+Return:
+
+Pre-deployment origin/main SHA:
+Deployed SHA:
+Deployment ID:
+Build ID:
+Production URL:
+Publish result:
+Startup result:
+Health status:
+Production database identity:
+Production database size before:
+Production database size after:
+Critical row-count deltas:
+Original Currents present:
+Historical Currents data visible:
+Replacement Currents references:
+Mail status:
+Core CMS module status:
+Controlled write tests:
+HTTP 500 count:
+Database error count:
+Destructive startup operations:
+Unexpected production data changes:
+Git status:
+Production deployment stable:
+
+Final verdict:
+
+- RECOVERED MAINLINE DEPLOYED: YES/NO
+- PRODUCTION RECOVERY COMPLETE: YES/NO
+
+If any critical gate fails, state:
+
+PRODUCTION RECOVERY INCOMPLETE
+
+and stop without making additional fixes.
+
+Do not begin new feature work.
+Do not resume Mail development.
+Stop after the report.

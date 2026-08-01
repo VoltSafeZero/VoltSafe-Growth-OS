@@ -36837,6 +36837,10 @@ export function registerConfluenceRoutes(app: Express) {
     return mem.rows.length > 0;
   }
 
+  // ── CURRENTS route registration probe ────────────────────────────────────────
+  console.log("[currents-routes] registration block entered");
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // GET /api/current/channels — list all channels with per-user unread counts + notification pref
   app.get("/api/current/channels", requireAuth, async (req, res) => {
     try {
@@ -40161,7 +40165,11 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-    // ── Engagement scheduler + default rules ────────────────────────────────────
+    // ── CURRENTS route registration probe ────────────────────────────────────────
+  console.log("[currents-routes] registration complete — 55 routes");
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // ── Engagement scheduler + default rules ────────────────────────────────────
   if (!skipInReadOnlyMode("seedDefaultRules+seedAutomationTemplates")) {
     seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
     seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
@@ -44233,4 +44241,8 @@ ${contextText}`;
   } else {
     console.log("[readonly-mode] computeAwaitingReply boot call SKIPPED (PRODUCTION_READONLY_MODE=true)");
   }
+
+  // ── registerRoutes completion probe ──────────────────────────────────────────
+  console.log("[routes] registerRoutes complete");
+  // ─────────────────────────────────────────────────────────────────────────────
 }

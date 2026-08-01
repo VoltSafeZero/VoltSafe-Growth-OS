@@ -1,0 +1,249 @@
+POST-DEPLOYMENT RECOVERY VERIFICATION — DO NOT REPUBLISH
+
+The production deployment was already published approximately six hours ago.
+
+Do NOT click Publish or Republish.
+Do NOT create another deployment.
+Do NOT commit any more runtime-generated files.
+Do NOT modify production data.
+Do NOT begin feature work.
+
+Verify the deployment that is currently live at:
+
+https://image-linker-burgesstrevor76.replit.app
+
+==================================================
+PHASE 0 — RESOLVE THE SHA DISCREPANCY
+==================================================
+
+The recovery deployment was approved at:
+
+0686ce9206539eb586e43086623614e4c9970540
+
+You then committed two runtime-modified help-center JSON files and advanced main to:
+
+a696af165cad5e905e4a7e0a1662285a0345b9d8
+
+Report:
+
+1. Exact two files changed.
+2. Exact diff.
+3. Why a scheduler modified tracked source files.
+4. Whether those files affect production behavior.
+5. Whether the currently deployed build contains 0686ce92 or a696af16.
+6. How deployed SHA is proven from deployment metadata or a build marker.
+
+Do not guess based on current workspace HEAD.
+
+==================================================
+PHASE 1 — IDENTIFY THE EXISTING LIVE DEPLOYMENT
+==================================================
+
+Report:
+
+- deployment start time
+- deployment/build ID, where available
+- exact deployed source SHA, where available
+- production URL
+- first successful health timestamp
+- whether any deployment occurred after Trevor’s publish six hours ago
+- whether production has restarted since then
+
+If the exact deployed SHA cannot be proven, say UNKNOWN.
+
+Do not republish to make it easier to identify.
+
+==================================================
+PHASE 2 — STARTUP LOG FORENSICS
+==================================================
+
+Pull production logs from the start of the existing deployment.
+
+Report every startup DDL or DML operation, including:
+
+- CREATE TABLE
+- CREATE INDEX
+- ALTER TABLE
+- INSERT
+- UPDATE
+- DELETE
+- TRUNCATE
+- DROP
+- pg_restore
+- schema repair
+- seed
+- backfill
+- startup scheduler write
+
+Specifically investigate:
+
+current_thread_replies
+
+Production baseline reported that this table did not exist before deployment.
+
+Answer:
+
+1. Does it exist now?
+2. Which exact function or SQL created it?
+3. At what timestamp?
+4. Was it created during this deployment?
+5. Did its creation succeed?
+6. Were any other missing tables or columns created?
+7. Were any migration errors swallowed?
+8. Did any startup writer repeatedly retry?
+
+Do not describe CREATE TABLE IF NOT EXISTS as harmless without reporting that it executed.
+
+==================================================
+PHASE 3 — DATABASE RECONCILIATION
+==================================================
+
+Run read-only production queries and compare against the recorded pre-deployment baseline:
+
+Pre-deployment:
+- database size: 1,511 MB
+- leads: 10,989
+- accounts: 11,026
+- contacts: 115
+- email_messages: 60,040
+- users: 13
+- tasks: 260
+- opportunities: 1
+- current_channels: 15
+- current_messages: 43
+- current_reactions: 2
+- current_pins: 1
+- current_conversations: 7
+- current_channel_members: 6
+- current_thread_replies: absent
+
+Post-deployment report:
+
+- exact current counts
+- absolute delta for each table
+- current database size
+- size delta
+- whether each delta is explained by normal production activity
+- any table unexpectedly emptied or reduced
+- all current_* tables now present
+- all replacement currents_* tables absent
+
+Required replacement-table checks:
+
+- currents_channels does not exist
+- currents_posts does not exist
+- currents_reactions does not exist
+- currents_read_state does not exist
+
+Do not touch the development contamination tables in this task.
+
+==================================================
+PHASE 4 — LIVE PRODUCTION ROUTE AND MODULE CHECK
+==================================================
+
+Using the existing production deployment, verify with an authenticated browser session:
+
+- login
+- Today
+- Work
+- Mission Control
+- Leads
+- Accounts
+- Contacts
+- Opportunities
+- Tasks
+- Calendar
+- Cortex
+- VoltSafe Mail
+- Currents at /current
+
+For Currents verify:
+
+- historical channels appear
+- historical messages appear
+- DMs appear
+- private channels respect permissions
+- threads open
+- reactions render
+- mentions render
+- pins render
+- attachments render
+- Files tab opens
+- search opens
+- member UI opens
+
+For Mail verify:
+
+- primary mailbox loads
+- private mailboxes load
+- Sales loads
+- Support loads
+- messages open
+- no endless spinner
+- no Local mailbox query failed
+- no cross-mailbox leakage
+- no HTTP 500
+
+Capture actual production screenshots and network evidence. Do not claim PASS from source analysis alone.
+
+==================================================
+PHASE 5 — PRODUCTION LOG AUDIT
+==================================================
+
+From deployment start until now, report counts and examples for:
+
+- HTTP 500
+- uncaught exceptions
+- database errors
+- missing table or column errors
+- migration errors
+- Gmail sync failures
+- Local mailbox query failed
+- Currents API failures
+- /api/currents requests
+- /currents route requests
+- repeated loader requests
+- crash loops or restarts
+- authentication failures not caused by invalid credentials
+
+==================================================
+PHASE 6 — FINAL VERDICT
+==================================================
+
+Return:
+
+Approved recovery SHA:
+Current GitHub main SHA:
+Actual deployed SHA:
+SHA discrepancy resolved:
+Deployment ID:
+Deployment start:
+Production URL:
+Startup DDL count:
+Startup DML count:
+current_thread_replies created:
+Other schema changes:
+Database size before:
+Database size after:
+Critical row-count deltas:
+Original Currents working:
+Historical Currents visible:
+Replacement Currents tables present:
+Mail working:
+Core CMS working:
+HTTP 500 count:
+Database error count:
+Production stable:
+
+State exactly one:
+
+PRODUCTION RECOVERY COMPLETE
+
+or
+
+PRODUCTION RECOVERY INCOMPLETE
+
+Do not republish.
+Do not fix anything during this audit.
+Do not clean the dev database.
+Stop after the report.

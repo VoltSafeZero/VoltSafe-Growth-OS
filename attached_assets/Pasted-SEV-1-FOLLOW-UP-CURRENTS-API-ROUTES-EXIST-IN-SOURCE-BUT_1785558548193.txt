@@ -1,0 +1,238 @@
+SEV-1 FOLLOW-UP — CURRENTS API ROUTES EXIST IN SOURCE BUT ARE NOT REGISTERED AT RUNTIME
+
+Do not roll back.
+Do not republish.
+Do not modify production data.
+Do not begin feature work.
+Do not change the Currents schema or rebuild Currents.
+
+Confirmed production failure:
+
+Every original Currents API request falls through to the SPA shell:
+
+- /api/current/channels
+- /api/current/channels/:id/messages
+- /api/current/search
+- /api/current/attachments
+- /api/current/channels/:id/members
+
+Observed response:
+
+- HTTP 200
+- Content-Type: text/html
+- Body: index.html
+
+Positive control:
+
+- /api/leads returns HTTP 401 application/json
+- therefore the server is alive, /api routing works generally, and this failure is specific to /api/current/*
+
+The original Currents production data is intact:
+
+- current_channels = 15
+- current_messages = 43
+- current_conversations = 7
+- replacement currents_* tables are absent
+
+The problem is runtime route registration, not missing data.
+
+==================================================
+PART 1 — PROVE WHETHER CURRENTS ROUTES REGISTER
+==================================================
+
+Read-only investigation first.
+
+Locate every /api/current/* registration in server/routes.ts.
+
+For each route group, report:
+
+- surrounding function/block
+- whether it is inside an if/else, try/catch, feature flag, return branch, or IIFE
+- whether execution can skip over it
+- whether it appears before or after any return from registerRoutes()
+- whether it depends on a migration, schema check, environment variable, or imported service
+- whether an exception earlier in registerRoutes() can prevent the block from being reached
+
+Do not rely on grep count alone.
+
+Produce a control-flow trace from:
+
+registerRoutes() entry
+→ first route registration
+→ Currents route block
+→ registerRoutes() return
+
+Show every possible early return or thrown exception before the Currents block.
+
+==================================================
+PART 2 — ADD TEMPORARY REGISTRATION PROBES
+==================================================
+
+On a non-production validation branch only, add temporary diagnostic logging immediately:
+
+1. Before the first Currents route registration:
+   [currents-routes] registration block entered
+
+2. After the final Currents route registration:
+   [currents-routes] registration complete — N routes
+
+3. Immediately before registerRoutes() returns:
+   [routes] registerRoutes complete
+
+4. In the global error path around route registration:
+   log the full error and correlation ID
+
+Also inspect Express’s registered router stack after registerRoutes() finishes and report every registered path beginning with:
+
+/api/current
+
+Do not log credentials, request bodies, message content, or production data.
+
+==================================================
+PART 3 — REPRODUCE AGAINST THE BUILT BUNDLE
+==================================================
+
+Run the exact production bundle locally or in the safe validation environment:
+
+npm run build
+NODE_ENV=production node dist/index.cjs
+
+Use the development database or the retained read-only production role. Never use the writable production role.
+
+Before authentication, test:
+
+- GET /api/leads
+- GET /api/current/channels
+- GET /api/current/search?q=test
+- GET /api/current/attachments
+
+Expected for every registered protected API route:
+
+- HTTP 401
+- Content-Type: application/json
+
+A 200 text/html response means the route remains unregistered.
+
+Capture:
+
+- registration probe logs
+- router-stack inventory
+- HTTP status
+- response Content-Type
+- first 100 characters of response body
+- any exception occurring before the Currents block
+
+==================================================
+PART 4 — COMPARE SOURCE AND BUNDLE
+==================================================
+
+Confirm for each Currents route:
+
+- route exists in server/routes.ts
+- route exists in dist/index.cjs
+- registration block executes at runtime
+- route appears in Express router stack
+- route responds with JSON/401 rather than SPA HTML
+
+If it exists in source and bundle but not router stack, identify the exact runtime control-flow reason.
+
+If it appears in router stack but still falls through, inspect:
+
+- malformed path pattern
+- router mounted under another prefix
+- Express version/path-to-regexp incompatibility
+- registration on a different Express app/router instance
+- middleware consuming or rewriting the request
+- route method mismatch
+- route ordering
+
+Do not guess.
+
+==================================================
+PART 5 — FIX ONLY THE PROVEN ROOT CAUSE
+==================================================
+
+After the cause is proven, make the smallest possible fix.
+
+Do not:
+
+- rewrite Currents
+- alter current_* tables
+- create replacement currents_* tables
+- enable startup migrations globally
+- weaken authentication
+- move the SPA catch-all ahead of APIs
+- add duplicate routes as a workaround
+- redirect /api/current/* to another namespace
+
+The corrected routes must remain:
+
+- page: /current
+- API: /api/current/*
+- tables: current_*
+
+==================================================
+PART 6 — REGRESSION TESTS
+==================================================
+
+Add a built-runtime regression test that boots dist/index.cjs and asserts:
+
+1. GET /api/leads → 401 JSON
+2. GET /api/current/channels → 401 JSON
+3. GET /api/current/search?q=test → 401 JSON
+4. GET /api/current/attachments → 401 JSON
+5. GET /api/current/channels/1/messages → 401 JSON
+6. None return text/html
+7. None return the SPA index shell
+8. /api/currents/* remains unregistered
+9. /current remains the only Currents client route
+10. npm run build exits 0
+
+A source-grep test alone is insufficient. Boot the compiled production bundle.
+
+==================================================
+PART 7 — SAFE VALIDATION
+==================================================
+
+After the fix passes locally, run it against the retained database-level read-only role.
+
+Confirm:
+
+- original production channels load
+- historical messages load
+- DMs load
+- search returns JSON
+- Files returns JSON
+- member endpoints return JSON
+- zero database writes
+- zero replacement Currents resources
+- no HTTP 500
+- no SPA HTML returned by /api/current/*
+
+Do not modify production records.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+Exact root cause:
+Control-flow location:
+Exception or skipped condition:
+Currents registration block executed before fix:
+Currents registration block executed after fix:
+Router-stack /api/current route count before:
+Router-stack /api/current route count after:
+Built-runtime test result:
+Validation result:
+Files changed:
+Final SHA:
+Build result:
+Production data changed:
+Ready to republish:
+
+Only state READY TO REPUBLISH if all /api/current/* routes return JSON responses from the built bundle and production history renders through the read-only validation environment.
+
+Do not republish automatically.
+Stop after the report.
