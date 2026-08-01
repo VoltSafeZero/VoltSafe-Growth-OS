@@ -77,9 +77,9 @@ export function CurrentFilesTab({ channelSlug, conversationId, onJumpToMessage }
   const enabled = !!(channelSlug || conversationId);
 
   const { data, isLoading, isError, isFetching } = useQuery<FilesTabResponse>({
-    queryKey: ["/api/currents/files", channelSlug ?? null, conversationId ?? null, debouncedSearch, fileType, page],
+    queryKey: ["/api/current/files", channelSlug ?? null, conversationId ?? null, debouncedSearch, fileType, page],
     queryFn: () =>
-      fetch(`/api/currents/files?${params}`, { credentials: "include" }).then((r) => {
+      fetch(`/api/current/files?${params}`, { credentials: "include" }).then((r) => {
         if (!r.ok) throw new Error("Failed to load files");
         return r.json();
       }),

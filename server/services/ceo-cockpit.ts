@@ -690,7 +690,7 @@ export async function getCeoCockpitData(
       source: "currents",
       ageHours: ageHours(r.created_at, now),
       ownerName: r.sender_name ?? null,
-      link: r.channel_slug ? `/currents?channel=${r.channel_slug}` : "/currents",
+      link: r.channel_slug ? `/current?channel=${r.channel_slug}` : "/current",
     }));
 
     ceoAttentionItems = [...taskAttention, ...mentionAttention]

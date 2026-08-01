@@ -641,7 +641,7 @@ export function CommunicationHotspotsSection({ data }: { data: CeoCockpitData["s
           <span className="text-xs text-primary font-medium">
             {data.unanswered_mentions} CURRENTS mention{data.unanswered_mentions !== 1 ? "s" : ""} in the last 7 days
           </span>
-          <Link href="/currents">
+          <Link href="/current">
             <Button size="sm" variant="ghost" className="h-6 text-[10px] ml-auto gap-1">
               <ExternalLink className="h-2.5 w-2.5" /> View
             </Button>
@@ -654,7 +654,7 @@ export function CommunicationHotspotsSection({ data }: { data: CeoCockpitData["s
           <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Most active (7 days)</p>
           <div className="space-y-1.5">
             {data.active_channels.map((ch) => (
-              <Link key={ch.id} href={`/currents?channel=${ch.slug}`}>
+              <Link key={ch.id} href={`/current?channel=${ch.slug}`}>
                 <div className="flex items-center justify-between py-1.5 px-3 rounded hover:bg-card/50 cursor-pointer transition-colors"
                   data-testid={`hotspot-channel-${ch.slug}`}>
                   <div className="flex items-center gap-2">
@@ -679,7 +679,7 @@ export function CommunicationHotspotsSection({ data }: { data: CeoCockpitData["s
           <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Quiet channels (7 days)</p>
           <div className="space-y-1.5">
             {data.quiet_channels.map((ch) => (
-              <Link key={ch.id} href={`/currents?channel=${ch.slug}`}>
+              <Link key={ch.id} href={`/current?channel=${ch.slug}`}>
                 <div className="flex items-center justify-between py-1.5 px-3 rounded hover:bg-card/50 cursor-pointer transition-colors"
                   data-testid={`quiet-channel-${ch.slug}`}>
                   <div className="flex items-center gap-2">

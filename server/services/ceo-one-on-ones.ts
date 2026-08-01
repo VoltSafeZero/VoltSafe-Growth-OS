@@ -638,7 +638,7 @@ export async function getUpdateDraft(
   `)).rows as any[];
 
   const dmConversationId = conv ? Number(conv.id) : null;
-  const currentsLink = dmConversationId ? `/currents?dm=${dmConversationId}` : null;
+  const currentsLink = dmConversationId ? `/current?dm=${dmConversationId}` : null;
 
   const draftText = customMessage?.slice(0, 2000) ||
     `Quick check-in — can you post a brief update on this today? Please include: current status, blocker if any, and next step.`;

@@ -438,7 +438,7 @@ export async function buildDailyCeoBriefing(
     title: `#${r.slug || r.name} — ${r.messages_24h} messages in 24h`,
     source: "currents",
     severity: Number(r.messages_24h) > 20 ? "urgent" as BriefingSeverity : "watch" as BriefingSeverity,
-    link: `/currents/${r.slug}`,
+    link: `/current?channel=${r.slug}`,
     metadata: { messages24h: r.messages_24h },
   }));
 

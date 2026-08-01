@@ -494,7 +494,7 @@ export async function buildUpdateRequestDraft(
     `)).rows as any[];
     if (conv) {
       dmConversationId = Number(conv.id);
-      currentsLink = `/currents?dm=${dmConversationId}`;
+      currentsLink = `/current?dm=${dmConversationId}`;
     }
   }
 

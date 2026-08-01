@@ -829,7 +829,7 @@ function CurrentsSection({ data, compact }: { data: TodaySummary["sections"]["cu
   return (
     <div className="space-y-1.5" data-testid="currents-list">
       {all.map((m: any) => (
-        <Link key={m.id} href={m._kind === "channel" ? `/currents/${m.channelSlug ?? ""}` : "/currents"}>
+        <Link key={m.id} href={m._kind === "channel" ? `/current?channel=${m.channelSlug ?? ""}` : "/current"}>
           <div className={`flex items-start gap-2 ${compact ? "py-1" : "py-1.5"} rounded hover:bg-muted/30 transition-colors cursor-pointer px-1`}>
             <div className="h-5 w-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mt-0.5">
               <span className="text-[9px] font-semibold text-primary">{(m.userName ?? "?").charAt(0).toUpperCase()}</span>

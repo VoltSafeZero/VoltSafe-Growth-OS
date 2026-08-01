@@ -14,17 +14,23 @@
  */
 
 export function isRollbackReadOnly(): boolean {
-  return process.env.ROLLBACK_VALIDATION_READ_ONLY === "true";
+  return process.env.ROLLBACK_VALIDATION_READ_ONLY === "true"
+    || process.env.ROLLBACK_FIRST_BOOT_READ_ONLY === "true";
 }
 
 /**
- * Log a skipped startup writer and return true when the gate is active.
+ * Log a skipped startup writer and return true when either read-only gate is active.
+ *
+ * ROLLBACK_VALIDATION_READ_ONLY=true  — staging clone walkthrough (suppresses all writes)
+ * ROLLBACK_FIRST_BOOT_READ_ONLY=true  — first-boot production validation (zero non-SELECT policy)
+ *
  * Usage:
  *   if (skipInReadOnlyMode("backfillAccountsForLeads")) return;
  */
 export function skipInReadOnlyMode(writerName: string): boolean {
-  if (process.env.ROLLBACK_VALIDATION_READ_ONLY === "true") {
-    console.log(`[rollback-gate] startup write SKIPPED: ${writerName} (ROLLBACK_VALIDATION_READ_ONLY=true)`);
+  if (process.env.ROLLBACK_VALIDATION_READ_ONLY === "true"
+      || process.env.ROLLBACK_FIRST_BOOT_READ_ONLY === "true") {
+    console.log(`[rollback-gate] startup write SKIPPED: ${writerName} (read-only mode active)`);
     return true;
   }
   return false;

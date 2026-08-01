@@ -12014,7 +12014,7 @@ export async function registerRoutes(
           schedule:  { title: "Schedule",   count: todayMeetings.length, items: todayMeetings, next_meeting: nextMeeting, empty_state: "No meetings scheduled today.", link: "/execution/calendar" },
           tasks:     { title: "Tasks",      counts: { due_today: Number(taskCounts.due_today ?? 0), overdue: Number(taskCounts.overdue ?? 0), high_priority: Number(taskCounts.high_priority ?? 0), completed_today: Number(taskCounts.completed_today ?? 0) }, due_today: tasksDueToday, overdue: overdueTasks, high_priority: highPriorityTasks, empty_state: "No tasks due today.", link: "/tasks", drilldown_endpoint: "/api/work/drilldown" },
           inbox:     { title: "Inbox",      counts: { unread_inbox: Number(inboxCounts.unread_inbox ?? 0), unread_total: Number(inboxCounts.unread_total ?? 0), recent_unread_inbound: Number(inboxCounts.recent_unread_inbound ?? 0) }, empty_state: "Inbox is clear.", link: "/mail" },
-          currents:  { title: "CURRENTS",   count: currentsChannelMessages.length + currentsDmMessages.length, channel_messages: currentsChannelMessages, dm_messages: currentsDmMessages, empty_state: "No new messages.", link: "/currents" },
+          currents:  { title: "CURRENTS",   count: currentsChannelMessages.length + currentsDmMessages.length, channel_messages: currentsChannelMessages, dm_messages: currentsDmMessages, empty_state: "No new messages.", link: "/current" },
           pipeline:  { title: "Pipeline",   counts: { stalled: stalledCount, quotes_awaiting: quotesAwaiting, hot_opportunities: hotOpps.length }, hot_opportunities: hotOpps, empty_state: "No active opportunities.", link: "/opportunities", drilldown_endpoint: "/api/pipeline/drilldown" },
           marketing: { title: "Marketing",  counts: mktCounts, empty_state: "No active campaigns.", link: "/marketing", drilldown_endpoint: "/api/marketing/drilldown" },
           operations:{ title: "Operations", counts: opsCounts, empty_state: "No operational blockers.", link: "/install-workflows", drilldown_endpoint: "/api/operations/drilldown" },
@@ -32629,7 +32629,9 @@ export function registerConfluenceRoutes(app: Express) {
   if (!skipInReadOnlyMode("seedDefaultSchedules")) {
     seedDefaultSchedules().catch(err => console.error("[board-pack-scheduler] seed error:", err));
   }
-  startBoardPackScheduler();
+  if (!skipInReadOnlyMode("board-pack-scheduler")) {
+    startBoardPackScheduler();
+  }
 
   // ════════════════════════════════════════════════════════════════════════════
   // WINTER SUPPORT + LEGACY PRODUCT OPERATIONS
@@ -39751,7 +39753,7 @@ export function registerConfluenceRoutes(app: Express) {
   // ── Typing indicators (Phase 12A) ─────────────────────────────────────────
   // In-memory TTL map via existing cache.ts. No schema change required.
   // GET /api/currents/files — paginated file library for a channel or DM conversation
-  app.get("/api/currents/files", requireAuth, async (req, res) => {
+  app.get("/api/current/files", requireAuth, async (req, res) => {
     try {
       const userId = getSessionUserId(req);
       const channelSlug = req.query.channel_slug ? String(req.query.channel_slug) : null;
@@ -40153,8 +40155,10 @@ export function registerConfluenceRoutes(app: Express) {
     seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
     seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
   }
-  startEngagementScheduler();
-  startFollowupScheduler();
+  if (!skipInReadOnlyMode("engagement-followup-schedulers")) {
+    startEngagementScheduler();
+    startFollowupScheduler();
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Marketing / Campaign Intelligence (Phase 16)
