@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, type MentionInputHandle } from "@/components/shared/mention-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Save, Building2, Target, X, Search, Plus } from "lucide-react";
@@ -110,6 +111,7 @@ export function EditContactDialog({
   onSaved?: () => void;
 }) {
   const { toast } = useToast();
+  const notesRef = useRef<MentionInputHandle>(null);
   const [form, setForm] = useState<FormState>(() => buildInitial(contact));
   const [acctSearch, setAcctSearch] = useState("");
   const [leadSearch, setLeadSearch] = useState("");
@@ -120,8 +122,10 @@ export function EditContactDialog({
       setForm(buildInitial(contact));
       setAcctSearch("");
       setLeadSearch("");
+      // Re-initialise mention editor so stored @tokens render as clean display names
+      setTimeout(() => notesRef.current?.initFromTokenText(contact?.notes ?? ""), 0);
     }
-  }, [open, contact?.id]);
+  }, [open, contact?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cid = contact?.id;
 
@@ -220,7 +224,7 @@ export function EditContactDialog({
         relationshipStrength:
           form.relationshipStrength === "unknown" ? null : form.relationshipStrength,
         isPrimary: form.isPrimary,
-        notes: form.notes.trim() || null,
+        notes: (notesRef.current?.getTokenizedValue(form.notes) ?? form.notes).trim() || null,
       };
       return await apiRequest("PUT", `/api/contacts/${contact.id}`, body);
     },
@@ -421,11 +425,10 @@ export function EditContactDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="edit-contact-notes">Notes</Label>
-            <Textarea
-              id="edit-contact-notes"
+            <MentionInput
+              ref={notesRef}
               value={form.notes}
-              onChange={(e) => setField("notes", e.target.value)}
-              rows={4}
+              onChange={(v) => setField("notes", v)}
               placeholder="Anything useful to remember about this person…"
               data-testid="textarea-edit-contact-notes"
             />

@@ -12,6 +12,7 @@ import { ExpandableDialogContent } from "@/components/ui/expandable-dialog-conte
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, type MentionInputHandle } from "@/components/shared/mention-input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -2266,6 +2267,10 @@ function InfraField({ label, value }: { label: string; value?: string | null }) 
 }
 
 function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: Account; onSubmit: (data: Record<string, unknown>) => void; onCancel: () => void; isPending: boolean }) {
+  const notesRef = useRef<MentionInputHandle>(null);
+  useEffect(() => {
+    if (account.notes) notesRef.current?.initFromTokenText(account.notes);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [form, setForm] = useState({
     name: account.name || "",
     legalName: account.legalName || "",
@@ -2311,6 +2316,7 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
       e.preventDefault();
       onSubmit({
         ...form,
+        notes: notesRef.current?.getTokenizedValue(form.notes) ?? form.notes,
         slipCount: form.slipCount ? Number(form.slipCount) : undefined,
         pilotCandidateScore: form.pilotCandidateScore ? Number(form.pilotCandidateScore) : undefined,
       });
@@ -2589,7 +2595,7 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
           </Select>
         </div>
       </div>
-      <div><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} data-testid="input-account-notes" /></div>
+      <div><Label>Notes</Label><MentionInput ref={notesRef} value={form.notes} onChange={(v) => setForm(f => ({ ...f, notes: v }))} placeholder="Account notes…" data-testid="input-account-notes" /></div>
       <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={isPending} data-testid="button-submit-account">{isPending ? "Creating..." : "Create Account"}</Button>
     </form>
   );

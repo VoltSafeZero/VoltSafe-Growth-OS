@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, type MentionInputHandle } from "@/components/shared/mention-input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -1028,6 +1029,8 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
   const [paymentTermProduction, setPaymentTermProduction] = useState(40);
   const [paymentTermInstall, setPaymentTermInstall] = useState(50);
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  const notesRef = useRef<MentionInputHandle>(null);
+  const assumptionsRef = useRef<MentionInputHandle>(null);
   const [notes, setNotes] = useState("");
   const [assumptions, setAssumptions] = useState("");
   const [exclusions, setExclusions] = useState("");
@@ -1197,8 +1200,8 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
       total,
       depositDue,
       validUntil: validUntil.toISOString(),
-      notes: notes || undefined,
-      assumptions: assumptions || undefined,
+      notes: (notesRef.current?.getTokenizedValue(notes) ?? notes) || undefined,
+      assumptions: (assumptionsRef.current?.getTokenizedValue(assumptions) ?? assumptions) || undefined,
       exclusions: exclusions || undefined,
       lineItems: lineItems.map((li, i) => ({ ...li, sortOrder: i })),
     });
@@ -1606,11 +1609,11 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
             <div className="space-y-5 max-w-2xl">
               <div>
                 <Label className="text-xs">Notes (shown on invoice)</Label>
-                <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4} className="mt-1.5 text-sm" placeholder="Additional notes for the customer..." data-testid="input-notes" />
+                <MentionInput ref={notesRef} value={notes} onChange={setNotes} placeholder="Additional notes for the customer..." data-testid="input-notes" />
               </div>
               <div>
                 <Label className="text-xs">Assumptions</Label>
-                <Textarea value={assumptions} onChange={e => setAssumptions(e.target.value)} rows={4} className="mt-1.5 text-sm" placeholder="Quote assumes standard electrical panel accessible within 10 feet of pedestal locations..." data-testid="input-assumptions" />
+                <MentionInput ref={assumptionsRef} value={assumptions} onChange={setAssumptions} placeholder="Quote assumes standard electrical panel accessible within 10 feet of pedestal locations..." data-testid="input-assumptions" />
               </div>
               <div>
                 <Label className="text-xs">Exclusions</Label>

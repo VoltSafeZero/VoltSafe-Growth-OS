@@ -1,0 +1,290 @@
+TASK: UNIVERSAL @USER MENTIONS — COMPLETE CMS ROLLOUT (NO @ALL OUTSIDE CURRENTS)
+
+This task completes the universal @user mention system across VoltSafe CMS.
+
+IMPORTANT RULES
+
+- @all is ONLY permitted inside the CURRENTS module.
+- @all must never autocomplete, expand, notify, or exist anywhere else in the CMS.
+- Outside Currents, ONLY @user mentions are supported.
+
+==================================================
+OBJECTIVE
+==================================================
+
+Every collaborative free-text field in VoltSafe CMS should support:
+
+- typing @
+- teammate autocomplete
+- selecting a teammate
+- notification creation
+- deep-link to the exact location
+- permission recheck before opening
+
+The behavior must be identical everywhere.
+
+==================================================
+FIELDS TO IMPLEMENT
+==================================================
+
+Implement @user mentions in ALL remaining collaboration fields:
+
+HIGH PRIORITY
+
+✓ Account Notes
+✓ Contact Notes
+✓ Meeting Notes
+✓ Calendar Outcome Notes
+✓ Project Description
+✓ Project Compliance Notes
+✓ Ticket Description
+✓ Ticket Comments
+✓ Quote Customer Notes
+✓ Quote Assumptions
+✓ Marketing Campaign Notes
+
+If any additional collaborative textarea or rich-text editor exists anywhere in the CMS, implement there as well.
+
+DO NOT implement inside:
+
+- email address fields
+- phone fields
+- numeric fields
+- search boxes
+- titles
+- names
+- IDs
+- URLs
+- passwords
+- API keys
+
+Only collaborative text fields.
+
+==================================================
+USE ONE SHARED IMPLEMENTATION
+==================================================
+
+Do NOT create separate mention systems.
+
+Every module must reuse the same shared implementation.
+
+Reuse the existing canonical mention service/hook/component.
+
+There must be:
+
+- one autocomplete
+- one parser
+- one notification creator
+- one permission checker
+- one deep-link generator
+
+No duplicated logic.
+
+==================================================
+AUTOCOMPLETE
+==================================================
+
+Typing @ opens teammate autocomplete.
+
+Support:
+
+@sc
+@sco
+Scott
+Carlson
+
+Case insensitive.
+
+Never show @all.
+
+Never inject virtual entries.
+
+Only real active users.
+
+==================================================
+SAVE
+==================================================
+
+Saving text containing @user:
+
+creates/updates mention records
+
+creates ONE notification
+
+deduplicates repeated mentions
+
+editing unrelated text creates NO new notification
+
+removing a mention dismisses only that mention
+
+==================================================
+NOTIFICATION
+==================================================
+
+Notification title should include context.
+
+Examples:
+
+"Trevor mentioned you in Lead: Port of San Diego"
+
+"Scott mentioned you in Account: Safe Harbor"
+
+"Terri mentioned you in Project: Safe Harbor Rollout"
+
+"Sanad mentioned you in Meeting Notes"
+
+Do NOT expose protected information to users lacking permission.
+
+==================================================
+DEEP LINK
+==================================================
+
+Clicking notification opens:
+
+correct module
+
+correct record
+
+correct tab
+
+correct note/comment
+
+correct message
+
+Automatically scroll to the mention.
+
+Temporarily highlight the mentioned block (2–3 seconds).
+
+==================================================
+PERMISSION CHECK
+==================================================
+
+Every notification click MUST revalidate permissions.
+
+If user has access:
+
+open normally.
+
+If user no longer has access:
+
+show:
+
+"You no longer have access to this item."
+
+Never expose:
+
+record name
+
+note text
+
+comment
+
+message preview
+
+before authorization succeeds.
+
+==================================================
+CONSISTENT USER EXPERIENCE
+==================================================
+
+Every mention-enabled field should behave identically.
+
+Autocomplete
+
+Selection
+
+Notification
+
+Deep link
+
+Highlight
+
+Permission handling
+
+must all be identical.
+
+==================================================
+DATABASE
+==================================================
+
+Do NOT modify:
+
+Currents schema
+
+Currents tables
+
+Current messages
+
+Current channels
+
+Current reactions
+
+Current read state
+
+Do NOT rename anything.
+
+Do NOT delete anything.
+
+Only extend the existing mention infrastructure.
+
+==================================================
+TESTS
+==================================================
+
+For EVERY module verify:
+
+typing @ opens autocomplete
+
+user selectable
+
+notification created
+
+duplicate suppression
+
+edit behavior
+
+permission recheck
+
+deep-link
+
+highlight
+
+notification dismissed after mention removal
+
+Run ALL existing mention, notification, permissions, rollback, routing, Currents, Leads, Accounts, Tasks, Calendar, Projects, Tickets, Quotes, Marketing, and build suites.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+Files changed
+
+Modules completed
+
+Mention-enabled fields
+
+Any remaining plain text fields
+
+Notification flow
+
+Permission flow
+
+Deep-link flow
+
+Highlight implementation
+
+Tests
+
+Build
+
+Git SHA
+
+Pushed?
+
+Published?
+
+Do NOT publish.
+
+Stop after the report.

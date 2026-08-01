@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, type MentionInputHandle } from "@/components/shared/mention-input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -4226,6 +4227,7 @@ function PostMeetingTab({ event, opportunities, onDone }: {
   onDone: () => void;
 }) {
   const { toast } = useToast();
+  const meetingNotesRef = useRef<MentionInputHandle>(null);
   const [notes, setNotes] = useState("");
   const [markCompleted, setMarkCompleted] = useState(false);
   const [createTask, setCreateTask] = useState(false);
@@ -4245,7 +4247,7 @@ function PostMeetingTab({ event, opportunities, onDone }: {
 
   const postMeetingMutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/calendar/events/${event.id}/post-meeting`, {
-      notes: notes.trim() || undefined,
+      notes: (meetingNotesRef.current?.getTokenizedValue(notes) ?? notes).trim() || undefined,
       markCompleted,
       createTask,
       taskTitle: createTask ? taskTitle : undefined,
@@ -4275,12 +4277,11 @@ function PostMeetingTab({ event, opportunities, onDone }: {
         <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
           <ClipboardList className="h-3.5 w-3.5" /> Meeting Notes
         </Label>
-        <Textarea
+        <MentionInput
+          ref={meetingNotesRef}
           value={notes}
-          onChange={e => setNotes(e.target.value)}
+          onChange={setNotes}
           placeholder="Key takeaways, decisions made, action items discussed…"
-          rows={3}
-          className="text-sm resize-none"
           data-testid="textarea-meeting-notes"
         />
       </div>
@@ -4430,6 +4431,7 @@ function OutcomeTab({
   onSaved: () => void;
 }) {
   const { toast } = useToast();
+  const outcomeNotesRef = useRef<MentionInputHandle>(null);
   const [outcome, setOutcome] = useState<OutcomeValue | "">("");
   const [notes, setNotes] = useState("");
   const [nextStep, setNextStep] = useState("");
@@ -4525,6 +4527,7 @@ function OutcomeTab({
         outcome:          outcome || null,
         attendees:        buildAttendeeStr() || null,
         rawContent:       buildRawContent(),
+        mentionNotes:     (outcomeNotesRef.current?.getTokenizedValue(notes) ?? notes).trim() || undefined,
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message ?? "Failed to save"); }
       return res.json();
@@ -4556,6 +4559,7 @@ function OutcomeTab({
           outcome:          outcome || null,
           attendees:        buildAttendeeStr() || null,
           rawContent:       buildRawContent(),
+          mentionNotes:     (outcomeNotesRef.current?.getTokenizedValue(notes) ?? notes).trim() || undefined,
         });
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message ?? "Failed to save activity"); }
       }
@@ -4701,12 +4705,11 @@ function OutcomeTab({
         <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
           <ClipboardList className="h-3.5 w-3.5" /> What happened?
         </Label>
-        <Textarea
+        <MentionInput
+          ref={outcomeNotesRef}
           value={notes}
-          onChange={e => setNotes(e.target.value)}
+          onChange={setNotes}
           placeholder="Key decisions, blockers, outcomes discussed…"
-          rows={3}
-          className="text-sm resize-none"
           data-testid="textarea-outcome-notes"
         />
       </div>

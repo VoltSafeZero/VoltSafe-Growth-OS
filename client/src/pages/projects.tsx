@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, type MentionInputHandle } from "@/components/shared/mention-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1126,6 +1127,7 @@ function MilestoneChecklist({ projectId }: { projectId: number }) {
 // ── Certification full edit/view panel ────────────────────────────────────────
 function CertificationDetailPanel({ projectId, projectName }: { projectId: number; projectName: string }) {
   const { toast } = useToast();
+  const complianceNotesRef = useRef<MentionInputHandle>(null);
   const [editing, setEditing] = useState(false);
   const [changes, setChanges] = useState<Record<string, any>>({});
 
@@ -1157,13 +1159,25 @@ function CertificationDetailPanel({ projectId, projectName }: { projectId: numbe
   const v = (key: string, fallback: any = "") => merged[key] ?? fallback;
   const set = (key: string, val: any) => { setChanges(prev => ({ ...prev, [key]: val })); if (!editing) setEditing(true); };
 
+  // Initialise compliance notes mention editor once cert data arrives
+  useEffect(() => {
+    if (cert?.compliance_notes) complianceNotesRef.current?.initFromTokenText(cert.compliance_notes as string);
+  }, [(cert as any)?.compliance_notes]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const programs: string[] = (() => { try { return JSON.parse(v("certification_program", "[]")); } catch { return []; } })();
   const toggleProgram = (p: string) => {
     const next = programs.includes(p) ? programs.filter(x => x !== p) : [...programs, p];
     set("certificationProgram", JSON.stringify(next));
   };
 
-  const handleSave = () => saveMutation.mutate(changes);
+  const handleSave = () => {
+    const toSave = { ...changes };
+    if (complianceNotesRef.current && "compliance_notes" in changes) {
+      const raw = String(changes.compliance_notes ?? "");
+      toSave.compliance_notes = complianceNotesRef.current.getTokenizedValue(raw) || null;
+    }
+    saveMutation.mutate(toSave);
+  };
   const health = calcCertHealth(merged);
 
   // Convenience field renderers
@@ -1379,7 +1393,7 @@ function CertificationDetailPanel({ projectId, projectName }: { projectId: numbe
         <div className="space-y-1">
           <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Compliance Notes</div>
           {editing
-            ? <Textarea className="text-xs min-h-[72px] resize-none" defaultValue={v("compliance_notes")} onChange={e => set("compliance_notes", e.target.value || null)} placeholder="Any relevant compliance notes…" />
+            ? <MentionInput ref={complianceNotesRef} value={String(v("compliance_notes") || "")} onChange={(t) => set("compliance_notes", t || null)} placeholder="Any relevant compliance notes…" />
             : v("compliance_notes")
               ? <p className="text-sm text-muted-foreground whitespace-pre-wrap">{v("compliance_notes")}</p>
               : <span className="italic text-muted-foreground/30 text-sm">—</span>}
@@ -1552,6 +1566,10 @@ function ProjectQuickCreateDialog({ onClose }: { onClose: () => void }) {
 // ── Full Edit Modal (non-cert types or edit) ──────────────────────────────────
 function ProjectEditDialog({ project, onClose }: { project: Project; onClose: () => void }) {
   const { toast } = useToast();
+  const descriptionRef = useRef<MentionInputHandle>(null);
+  useEffect(() => {
+    if (project.description) descriptionRef.current?.initFromTokenText(project.description);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [name, setName] = useState(project.name);
   const [status, setStatus] = useState(project.status);
   const [phase, setPhase] = useState(project.phase || "");
@@ -1601,7 +1619,7 @@ function ProjectEditDialog({ project, onClose }: { project: Project; onClose: ()
           </div>
           <div>
             <Label className="text-xs">Description</Label>
-            <Textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="mt-1 text-sm resize-none" />
+            <MentionInput ref={descriptionRef} value={description} onChange={setDescription} placeholder="Project description…" />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
@@ -1633,7 +1651,7 @@ function ProjectEditDialog({ project, onClose }: { project: Project; onClose: ()
           </div>
           <div className="flex gap-2 justify-end pt-1">
             <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={() => mutation.mutate({ name: name.trim(), status, phase: phase || undefined, description: description || undefined, budget: budget ? Number(budget) : undefined, currency, startDate: startDate || undefined, endDate: endDate || undefined })} disabled={!name.trim() || mutation.isPending} data-testid="button-save-project">
+            <Button onClick={() => mutation.mutate({ name: name.trim(), status, phase: phase || undefined, description: (descriptionRef.current?.getTokenizedValue(description) ?? description) || undefined, budget: budget ? Number(budget) : undefined, currency, startDate: startDate || undefined, endDate: endDate || undefined })} disabled={!name.trim() || mutation.isPending} data-testid="button-save-project">
               {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
             </Button>
           </div>

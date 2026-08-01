@@ -4269,6 +4269,8 @@ export async function registerRoutes(
     const result = await storage.updateAccount(_aid, req.body);
     if (!result) return res.status(404).json({ message: "Account not found" });
     res.json(result);
+    const _accUserId = (req.session as any)?.userId as number | undefined;
+    if (req.body.notes && _accUserId) saveMentions({ body: req.body.notes, entityType: "account", entityId: _aid, moduleKey: "crm", moduleLabel: "Accounts", authorId: _accUserId, deepLinkUrl: `/accounts?id=${_aid}` }).catch(() => {});
     import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("account", _aid, "fields")).catch(() => {});
   });
 
@@ -4609,6 +4611,8 @@ export async function registerRoutes(
     const result = await storage.updateContact(_cid, body);
     if (!result) return res.status(404).json({ message: "Contact not found" });
     res.json(result);
+    const _conUserId = (req.session as any)?.userId as number | undefined;
+    if (body.notes && _conUserId) saveMentions({ body: body.notes, entityType: "contact", entityId: _cid, moduleKey: "crm", moduleLabel: "Contacts", authorId: _conUserId, deepLinkUrl: `/contacts?id=${_cid}` }).catch(() => {});
     import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("contact", _cid, "fields")).catch(() => {});
   });
 
@@ -5194,12 +5198,17 @@ export async function registerRoutes(
       summary: `Ticket created: ${ticket.subject}`,
     });
     res.status(201).json(ticket);
+    const _tkCrUserId = (req.session as any)?.userId as number | undefined;
+    if (req.body.description && _tkCrUserId) saveMentions({ body: req.body.description, entityType: "ticket", entityId: ticket.id, moduleKey: "support", moduleLabel: "Tickets", authorId: _tkCrUserId, deepLinkUrl: `/support/tickets?id=${ticket.id}` }).catch(() => {});
   });
 
   app.put("/api/tickets/:id", requirePermission("support", "edit"), async (req, res) => {
-    const result = await storage.updateTicket(Number(req.params.id), req.body);
+    const _tid = Number(req.params.id);
+    const result = await storage.updateTicket(_tid, req.body);
     if (!result) return res.status(404).json({ message: "Ticket not found" });
     res.json(result);
+    const _tkUpdUserId = (req.session as any)?.userId as number | undefined;
+    if (req.body.description && _tkUpdUserId) saveMentions({ body: req.body.description, entityType: "ticket", entityId: _tid, moduleKey: "support", moduleLabel: "Tickets", authorId: _tkUpdUserId, deepLinkUrl: `/support/tickets?id=${_tid}` }).catch(() => {});
   });
 
   app.get("/api/quotes", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
@@ -5445,10 +5454,16 @@ export async function registerRoutes(
   });
 
   app.put("/api/quotes/:id", requirePermission("quoting", "edit"), async (req, res) => {
+    const _qid = Number(req.params.id);
     const { lineItems, servicesEstimates: svcEstimates, ...quoteData } = req.body;
-    const result = await storage.updateQuote(Number(req.params.id), quoteData);
+    const result = await storage.updateQuote(_qid, quoteData);
     if (!result) return res.status(404).json({ message: "Quote not found" });
     res.json(result);
+    const _qUserId = (req.session as any)?.userId as number | undefined;
+    if (_qUserId) {
+      if (quoteData.notes) saveMentions({ body: quoteData.notes, entityType: "quote", entityId: _qid, moduleKey: "quoting", moduleLabel: "Quotes", authorId: _qUserId, deepLinkUrl: `/quotes?id=${_qid}` }).catch(() => {});
+      if (quoteData.assumptions) saveMentions({ body: quoteData.assumptions, entityType: "quote_assumptions", entityId: _qid, moduleKey: "quoting", moduleLabel: "Quotes", authorId: _qUserId, deepLinkUrl: `/quotes?id=${_qid}` }).catch(() => {});
+    }
   });
 
   app.get("/api/quotes/:quoteId/line-items", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
@@ -5808,7 +5823,9 @@ export async function registerRoutes(
     const userId = getSessionUserId(req);
     const role = String((req.session as any).globalRole || "");
     const isAdmin = role === "master_admin" || role === "admin";
-    const body: any = { ...req.body };
+    // mentionNotes is a client-side field used for @mention extraction only — strip before schema parse
+    const { mentionNotes: _actMentionNotes, ...rawBody } = (req.body ?? {}) as any;
+    const body: any = { ...rawBody };
     if (!body.linkedObjectType && body.objectType) body.linkedObjectType = body.objectType;
     if (!body.linkedObjectId && body.objectId) body.linkedObjectId = body.objectId;
     delete body.objectType; delete body.objectId;
@@ -5825,7 +5842,9 @@ export async function registerRoutes(
     }
     const parsed = insertActivitySchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
-    res.status(201).json(await storage.createActivity(parsed.data));
+    const activity = await storage.createActivity(parsed.data);
+    res.status(201).json(activity);
+    if (_actMentionNotes && userId) saveMentions({ body: _actMentionNotes, entityType: "activity", entityId: activity.id, moduleKey: "calendar", moduleLabel: "Calendar", authorId: userId, deepLinkUrl: `/calendar?activityId=${activity.id}` }).catch(() => {});
   });
 
   // ── Workspace-wide custom task board columns ──────────────────────────────
@@ -10801,6 +10820,7 @@ export async function registerRoutes(
         if (markCompleted) updates.status = "completed";
         await db.update(calendarEvents).set(updates).where(eq(calendarEvents.id, eventId));
         results.eventUpdated = true;
+        if (notes) saveMentions({ body: notes, entityType: "calendar_event", entityId: eventId, moduleKey: "calendar", moduleLabel: "Calendar", authorId: userId, deepLinkUrl: `/calendar?eventId=${eventId}` }).catch(() => {});
       }
 
       if (createTask && taskTitle) {
@@ -23578,6 +23598,8 @@ export function registerConfluenceRoutes(app: Express) {
         }
       }
       res.json(p);
+      const _projUserId = (req.session as any)?.userId as number | undefined;
+      if (req.body.description && _projUserId) saveMentions({ body: req.body.description, entityType: "project", entityId: id, moduleKey: "projects", moduleLabel: "Projects", authorId: _projUserId, deepLinkUrl: `/projects?id=${id}` }).catch(() => {});
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -23873,6 +23895,7 @@ export function registerConfluenceRoutes(app: Express) {
       }
 
       res.json(after);
+      if (req.body.compliance_notes && userId) saveMentions({ body: req.body.compliance_notes, entityType: "project_cert", entityId: id, moduleKey: "projects", moduleLabel: "Projects", authorId: userId, deepLinkUrl: `/projects?id=${id}&tab=certification` }).catch(() => {});
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
@@ -40456,6 +40479,8 @@ export function registerConfluenceRoutes(app: Express) {
         ownerUserId: req.user?.id,
       }).returning();
       res.json(row);
+      const _mktUserId = (req.session as any)?.userId as number | undefined;
+      if (req.body.notes && _mktUserId) saveMentions({ body: req.body.notes, entityType: "marketing_campaign", entityId: row.id, moduleKey: "marketing", moduleLabel: "Marketing Campaigns", authorId: _mktUserId, deepLinkUrl: `/marketing/campaigns/${row.id}` }).catch(() => {});
     } catch (err) {
       console.error("[marketing] POST /campaigns:", err);
       res.status(500).json({ error: "Failed to create campaign" });

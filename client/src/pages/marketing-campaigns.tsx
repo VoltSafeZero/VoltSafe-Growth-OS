@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { MarketingDrilldownSheet, type DrilldownConfig } from "@/components/marketing/marketing-drilldown-sheet";
@@ -21,6 +21,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, type MentionInputHandle } from "@/components/shared/mention-input";
 import { Label } from "@/components/ui/label";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -120,6 +121,7 @@ export default function MarketingCampaignsPage() {
     preferenceCenterLinkIncluded: false,
   });
 
+  const notesRef = useRef<MentionInputHandle>(null);
   const { data: campaigns = [], isLoading } = useQuery<Campaign[]>({
     queryKey: ["/api/marketing/campaigns"],
   });
@@ -419,12 +421,11 @@ export default function MarketingCampaignsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="notes">Notes (optional)</Label>
-              <Textarea
-                id="notes"
-                placeholder="Add context, audience notes, or strategy…"
-                rows={3}
+              <MentionInput
+                ref={notesRef}
                 value={form.notes}
-                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                onChange={(v) => setForm(f => ({ ...f, notes: v }))}
+                placeholder="Add context, audience notes, or strategy…"
                 data-testid="textarea-campaign-notes"
               />
             </div>
@@ -508,7 +509,7 @@ export default function MarketingCampaignsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
             <Button
-              onClick={() => createMutation.mutate(form)}
+              onClick={() => createMutation.mutate({ ...form, notes: notesRef.current?.getTokenizedValue(form.notes) ?? form.notes })}
               disabled={!form.campaignName.trim() || createMutation.isPending}
               data-testid="btn-confirm-create-campaign"
             >

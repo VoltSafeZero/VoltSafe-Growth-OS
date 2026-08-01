@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { UniversalDrilldownSheet } from "@/components/shared/universal-drilldown-sheet";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, type MentionInputHandle } from "@/components/shared/mention-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
@@ -446,9 +447,13 @@ function TicketDetailDialog({ ticket, statuses, onUpdate, onClose }: {
 }
 
 function CreateTicketForm({ onSubmit, isPending }: { onSubmit: (d: Record<string, unknown>) => void; isPending: boolean }) {
+  const descriptionRef = useRef<MentionInputHandle>(null);
   const [form, setForm] = useState({ subject: "", requesterName: "", requesterEmail: "", requesterPhone: "", category: "general", severity: "medium", description: "" });
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
+    <form onSubmit={(e) => {
+      e.preventDefault();
+      onSubmit({ ...form, description: descriptionRef.current?.getTokenizedValue(form.description) ?? form.description });
+    }} className="space-y-4">
       <div><Label>Subject *</Label><Input value={form.subject} onChange={(e) => setForm(f => ({ ...f, subject: e.target.value }))} required className="mt-1.5" data-testid="input-ticket-subject" /></div>
       <div><Label>Requester Name *</Label><Input value={form.requesterName} onChange={(e) => setForm(f => ({ ...f, requesterName: e.target.value }))} required className="mt-1.5" data-testid="input-requester-name" /></div>
       <div className="grid grid-cols-2 gap-3">
@@ -482,7 +487,7 @@ function CreateTicketForm({ onSubmit, isPending }: { onSubmit: (d: Record<string
           </Select>
         </div>
       </div>
-      <div><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} rows={4} className="mt-1.5" data-testid="input-ticket-description" /></div>
+      <div><Label>Description</Label><MentionInput ref={descriptionRef} value={form.description} onChange={(v) => setForm(f => ({ ...f, description: v }))} placeholder="Describe the issue in detail…" data-testid="input-ticket-description" /></div>
       <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={isPending} data-testid="button-submit-ticket">{isPending ? "Creating..." : "Create Ticket"}</Button>
     </form>
   );
