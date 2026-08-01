@@ -1,0 +1,240 @@
+CONTROLLED CURRENTS ROUTING FIX — MERGE, DEPLOY, AND VERIFY
+
+Approved fix branch:
+
+diagnostics/currents-routing
+
+Expected fix SHA:
+
+3aad497ee7df344ba76097e7ff892eb51f78d737
+
+Keep the three diagnostic startup probes permanently.
+
+Do not modify the production database.
+Do not run migrations, seeds, restores, or backfills.
+Do not begin unrelated work.
+
+==================================================
+PHASE 1 — VERIFY AND MERGE THE FIX
+==================================================
+
+Confirm:
+
+- current origin/main SHA
+- diagnostics/currents-routing SHA
+- git status is clean
+- the fix branch changes only:
+  - server/static.ts
+  - server/routes.ts
+  - .replit
+  - tests/currents-routing.test.cjs
+
+Run:
+
+- node tests/currents-routing.test.cjs
+- node tests/rollback-gate.test.cjs
+- node tests/seed-kill-switch.test.cjs
+- node tests/currents-search.test.cjs
+- node tests/currents-attachments.test.cjs
+- node tests/channel-add-member.test.cjs
+- npm run build
+
+If anything fails, STOP.
+
+Merge diagnostics/currents-routing into main using a normal history-preserving merge.
+
+Do not force-push.
+Do not rewrite history.
+
+Push main normally to origin.
+
+==================================================
+PHASE 2 — PRE-DEPLOYMENT SAFETY CHECK
+==================================================
+
+Confirm production deployment settings remain:
+
+- NODE_ENV=production
+- RUN_STARTUP_MIGRATIONS absent or false
+- ALLOW_DESTRUCTIVE_SEED absent or false
+- no validation-only variables
+- normal production DATABASE_URL
+- no rollback_validation_readonly role used by production
+
+Confirm `.replit` no longer contains:
+
+publicDir = "dist/public"
+
+Confirm the deployment command still runs the built Express server and that Express serves both:
+
+- static SPA assets
+- all `/api/*` requests
+
+==================================================
+PHASE 3 — DEPLOY EXACT MERGED MAIN
+==================================================
+
+Publish the exact merged origin/main SHA.
+
+Do not create unrelated commits during deployment.
+Do not commit runtime-generated help-center timestamp files.
+Do not republish more than once.
+
+Capture:
+
+- pre-deployment SHA
+- deployed SHA
+- deployment start timestamp
+- build result
+- first successful health response
+
+==================================================
+PHASE 4 — IMMEDIATE ROUTING ACCEPTANCE TEST
+==================================================
+
+Before authenticated testing, verify production responses:
+
+1. GET /api/leads
+   Required:
+   - HTTP 401
+   - Content-Type application/json
+
+2. GET /api/current/channels
+   Required:
+   - HTTP 401
+   - Content-Type application/json
+
+3. GET /api/current/search?q=test
+   Required:
+   - HTTP 401
+   - Content-Type application/json
+
+4. GET /api/current/files
+   Required:
+   - HTTP 401
+   - Content-Type application/json
+
+5. GET /api/current/channels/general/messages
+   Required:
+   - HTTP 401
+   - Content-Type application/json
+
+6. GET /api/current/attachments
+   Required:
+   - HTTP 404
+   - Content-Type application/json
+
+7. GET /api/currents/channels
+   Required:
+   - HTTP 404
+   - Content-Type application/json
+
+8. GET /current
+   Required:
+   - HTTP 200
+   - Content-Type text/html
+
+No `/api/*` request may return `text/html` or the SPA index shell.
+
+Also confirm production startup logs contain:
+
+- [currents-routes] registration block entered
+- [currents-routes] registration complete — 55 routes
+- [routes] registerRoutes complete
+
+If `/api/current/*` still returns HTML, mark FAIL and do not attempt another fix in this run.
+
+==================================================
+PHASE 5 — AUTHENTICATED CURRENTS CHECK
+==================================================
+
+Using Trevor’s authenticated production session, verify:
+
+- Currents opens at `/current`
+- 15 historical channels are available as permitted
+- historical messages load
+- DMs load
+- private-channel permissions work
+- threads open
+- reactions render
+- mentions render
+- pins render
+- attachments render
+- Files tab opens
+- search returns results
+- member UI opens
+
+Use read-only navigation first.
+
+Do not create, edit, react, pin, upload, or delete until the read-only checks pass.
+
+==================================================
+PHASE 6 — DATABASE RECONCILIATION
+==================================================
+
+Read-only checks only.
+
+Confirm unchanged:
+
+- current_channels = 15
+- current_messages = 43
+- current_reactions = 2
+- current_pins = 1
+- current_conversations = 7
+- current_channel_members = 6
+
+Confirm replacement tables remain absent:
+
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+Confirm database size has not unexpectedly changed.
+
+==================================================
+PHASE 7 — FINAL REPORT
+==================================================
+
+Return:
+
+Old main SHA:
+Fix branch SHA:
+Merge SHA:
+Deployed SHA:
+Force-push used:
+Build result:
+Currents routing tests:
+Rollback tests:
+Seed tests:
+Currents feature tests:
+
+publicDir removed:
+Registration probes observed:
+GET /api/current/channels result:
+GET /api/current/search result:
+GET /api/current/files result:
+GET /api/current/attachments result:
+GET /api/currents/channels result:
+Any /api/* HTML responses:
+
+Authenticated Currents result:
+Historical channels visible:
+Historical messages visible:
+DMs working:
+Search working:
+Files working:
+Permissions working:
+
+Production DB changed:
+Replacement tables present:
+HTTP 500 count:
+Database error count:
+
+Final verdict:
+
+CURRENTS ROUTING RECOVERY COMPLETE: YES/NO
+PRODUCTION RECOVERY COMPLETE: YES/NO
+
+Stop after the report.
+Do not resume Mail development or other feature work.
