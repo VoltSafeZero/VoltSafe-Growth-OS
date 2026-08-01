@@ -1,0 +1,323 @@
+TASK #221 CORRECTION — COMPLETE AND VALIDATE USER COLUMN PREFERENCES WITHOUT TOUCHING CURRENTS
+
+AUTHORITATIVE PRODUCT REQUIREMENT
+
+user_column_prefs belongs ONLY to the Leads and Accounts modules.
+
+Its purpose is to let every user with CRM view permission:
+
+- choose which Leads columns are visible
+- choose which Accounts columns are visible
+- hide optional columns
+- reorder columns left/right
+- save their own preferred order
+- retain their preferences after refresh and future login
+- reset each table to its default layout
+
+It has no relationship whatsoever to the Currents module.
+
+CURRENTS MUST ALWAYS BE LEFT ALONE UNLESS TREVOR EXPLICITLY REQUESTS A CURRENTS CHANGE.
+
+Do not rename, delete, truncate, merge, replace, migrate, or modify:
+
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+- any original current_* table
+- any Currents routes, files, messages, DMs, reactions, pins, members, threads, attachments, or preferences
+
+Do not publish.
+
+==================================================
+PART 1 — AUDIT THE CURRENT TASK #221 IMPLEMENTATION
+==================================================
+
+Report:
+
+- current branch
+- current HEAD SHA
+- git status
+- all files changed by Task #221
+- whether changes were committed
+- whether changes were pushed
+- whether changes were deployed
+- whether user_column_prefs exists in development
+- whether user_column_prefs exists in production
+- exact CREATE TABLE SQL
+- exact startup migration call site
+- exact GET route
+- exact PUT route
+- exact frontend files changed
+- exact tests changed
+
+Also explain why the preview showed:
+
+Cannot GET /
+
+Do not claim the app is running correctly until the root route and Leads/Accounts pages are verified in a browser.
+
+==================================================
+PART 2 — REMOVE UNCONTROLLED STARTUP MIGRATION
+==================================================
+
+The user_column_prefs table must not be created by an uncontrolled fire-and-forget startup migration.
+
+Move its schema creation into the approved gated migration path.
+
+Requirements:
+
+- additive only
+- CREATE TABLE user_column_prefs only
+- no DROP
+- no RENAME
+- no TRUNCATE
+- no CASCADE
+- no Currents references
+- no migration that includes both user_column_prefs and any currents_* or current_* table
+- must respect RUN_STARTUP_MIGRATIONS gating
+- must respect rollback read-only guards
+- must not execute automatically when migrations are disabled
+
+Preserve any existing user_column_prefs rows.
+
+==================================================
+PART 3 — VERIFY THE TABLE DESIGN
+==================================================
+
+Confirm the actual schema supports the intended feature.
+
+At minimum verify:
+
+- id
+- user_id
+- view_type
+- ordered visible-column configuration
+- created_at
+- updated_at
+- unique constraint for one preference record per user and view type
+- foreign key to users if consistent with the existing schema
+
+Required view types:
+
+- leads
+- accounts
+
+Reject every other view_type.
+
+The table must have zero relationship to Currents.
+
+==================================================
+PART 4 — VERIFY API SECURITY AND USER ISOLATION
+==================================================
+
+Audit and correct:
+
+GET /api/user-column-prefs/:viewType
+PUT /api/user-column-prefs/:viewType
+
+Requirements:
+
+- authenticated users only
+- user_id comes from the authenticated session, never from request body
+- users can only read and modify their own preferences
+- leads and accounts preferences are independent
+- invalid view_type returns 400
+- malformed column payload returns 400
+- unknown column IDs are rejected or safely removed
+- duplicate column IDs are rejected
+- required columns cannot be hidden
+- every PUT is scoped by authenticated user_id + view_type
+- no admin bypass allows editing another user’s layout unless explicitly designed and tested
+
+==================================================
+PART 5 — VERIFY LEADS FUNCTIONALITY
+==================================================
+
+On the Leads list/table view verify:
+
+- Columns button appears
+- required columns remain locked visible
+- optional columns can be shown and hidden
+- columns can be reordered
+- order changes immediately in the table
+- hidden columns disappear from both header and row cells
+- empty-state colSpan matches the visible column count
+- reset restores the original default layout
+- preferences survive refresh
+- preferences survive logout/login
+- one user’s layout does not affect another user
+- board/pipeline view remains unchanged
+- filters, sorting, pagination, saved views, row navigation, and permissions still work
+
+Report the exact default Leads column order and all optional columns.
+
+==================================================
+PART 6 — VERIFY ACCOUNTS FUNCTIONALITY
+==================================================
+
+Run the same verification independently for Accounts:
+
+- Columns button appears
+- required columns remain visible
+- optional columns can be hidden
+- columns can be reordered
+- order persists
+- reset works
+- user isolation works
+- Leads preferences do not affect Accounts
+- filters, sorting, pagination, saved views, row navigation, and permissions still work
+
+Report the exact default Accounts column order and all optional columns.
+
+==================================================
+PART 7 — PRESERVE ALL CURRENTS SCHEMA
+==================================================
+
+Compare development and production for:
+
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+Report:
+
+- existence
+- row counts
+- complete columns
+- primary keys
+- foreign keys
+- indexes
+- dependencies
+
+Required result:
+
+- all four tables remain present
+- no schema change is proposed for them
+- no rename is proposed
+- no delete is proposed
+- no Currents data is changed
+
+Generate a fresh schema comparison without publishing.
+
+Required schema result:
+
+KEEP:
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+ADD OR KEEP:
+- user_column_prefs
+
+If Replit still proposes deleting or renaming any Currents table, STOP.
+
+==================================================
+PART 8 — DEDICATED TESTS
+==================================================
+
+Create a dedicated Task #221 regression suite.
+
+Required tests:
+
+1. user_column_prefs is independent from Currents
+2. no currents_* table is renamed
+3. no currents_* table is dropped
+4. migration does not reference Currents
+5. migration is properly gated
+6. GET requires authentication
+7. PUT requires authentication
+8. user_id comes from session
+9. one user cannot read another user’s preferences
+10. one user cannot overwrite another user’s preferences
+11. Leads and Accounts use separate view_type values
+12. invalid view_type is rejected
+13. malformed payload is rejected
+14. duplicate columns are rejected
+15. unknown columns are rejected
+16. required columns cannot be hidden
+17. hidden columns persist after reload
+18. reordered columns persist after reload
+19. reset restores defaults
+20. Leads preferences do not change Accounts
+21. Accounts preferences do not change Leads
+22. empty-state colSpan equals visible column count
+23. original Currents tests remain green
+24. build exits 0
+
+Run:
+
+- new user-column-prefs test suite
+- Leads table tests
+- Accounts table tests
+- currents-search tests
+- currents-attachments tests
+- channel-add-member tests
+- rollback-gate tests
+- seed-kill-switch tests
+- npm run build
+
+Do not mark Task #221 complete if any required test fails.
+
+If a test is claimed to be unrelated, prove it also fails on the parent SHA before excluding it.
+
+==================================================
+PART 9 — LIVE BROWSER VERIFICATION
+==================================================
+
+Start the app and verify:
+
+- GET / returns the VoltSafe CMS app, not Cannot GET /
+- login works
+- Leads loads
+- Accounts loads
+- Columns popover opens on both
+- hide/show works
+- reorder works
+- reset works
+- refresh persistence works
+- another user gets independent preferences
+- Currents still opens and historical data remains present
+
+Capture screenshots of:
+
+1. Leads Columns popover
+2. Leads reordered layout
+3. Accounts Columns popover
+4. Accounts reordered layout
+5. layout after refresh
+6. Currents still intact
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+Task #221 SHA:
+Files changed:
+Startup migration removed:
+Approved migration path:
+user_column_prefs schema:
+Leads default columns:
+Leads optional columns:
+Accounts default columns:
+Accounts optional columns:
+Required locked columns:
+User isolation proven:
+Persistence proven:
+Reset proven:
+Currents tables preserved:
+Currents data modified:
+Fresh schema comparison:
+Tests passed:
+Tests failed:
+Build result:
+Browser verification:
+Cannot GET / resolved:
+Ready to publish:
+
+Do not publish automatically.
+Stop after the report.
