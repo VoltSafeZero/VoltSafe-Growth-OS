@@ -3,6 +3,7 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { requirePermission } from "./auth";
 import { saveMentions } from "./services/mention-service";
+import { skipInReadOnlyMode } from "./startup-guard";
 
 // ── System columns: permanent, shared, always present for every user ─────────
 export const SYSTEM_COLUMNS = [
@@ -403,6 +404,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
   const canEdit = requirePermission("crm", "edit");
 
   // ── CRM auto-link rules: bootstrap (idempotent) ─────────────────────────
+  if (!skipInReadOnlyMode("crm-auto-link-rules-migration")) {
   db.execute(sql`
     CREATE TABLE IF NOT EXISTS crm_auto_link_rules (
       id SERIAL PRIMARY KEY,
@@ -416,8 +418,10 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     )
   `).then(() => console.log("[migration] CRM auto-link rules schema migration complete."))
     .catch(e => console.error("[crm-auto-link-rules] migration error:", e.message));
+  }
 
   // ── Task Hub Access Permissions: bootstrap (idempotent) ─────────────────
+  if (!skipInReadOnlyMode("task_hub_access_permissions-migration")) {
   db.execute(sql`
     CREATE TABLE IF NOT EXISTS task_hub_access_permissions (
       id SERIAL PRIMARY KEY,
@@ -432,8 +436,10 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     )
   `).then(() => console.log("[migration] task_hub_access_permissions ready."))
     .catch(e => console.error("[task-hub-access] migration error:", e.message));
+  }
 
   // ── Column shares: bootstrap (idempotent) ────────────────────────────────
+  if (!skipInReadOnlyMode("task_column_shares-migration")) {
   db.execute(sql`
     CREATE TABLE IF NOT EXISTS task_column_shares (
       id SERIAL PRIMARY KEY,
@@ -446,23 +452,29 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     )
   `).then(() => console.log("[migration] Column shares schema migration complete."))
     .catch(e => console.error("[task-column-shares] migration error:", e.message));
+  }
 
   // ── Recurrence columns: bootstrap (idempotent) ───────────────────────────
+  if (!skipInReadOnlyMode("task-recurrence-columns-migration")) {
   db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence_rule TEXT NOT NULL DEFAULT 'none'`)
     .then(() => db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence_end_date TIMESTAMPTZ`))
     .then(() => console.log("[migration] Task recurrence columns ready."))
     .catch(e => console.error("[task-recurrence] migration error:", e.message));
+  }
 
   // ── Team Task flag + assignment audit columns: bootstrap (idempotent) ────
   // Additive only — defaults to false so existing tasks are never
   // retroactively flagged as Team Tasks.
+  if (!skipInReadOnlyMode("team-task-columns-migration")) {
   db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_team_task BOOLEAN NOT NULL DEFAULT false`)
     .then(() => db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ`))
     .then(() => db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assigned_by_user_id INTEGER`))
     .then(() => console.log("[migration] Team Task columns ready."))
     .catch(e => console.error("[team-task] migration error:", e.message));
+  }
 
   // ── Per-user personal columns: bootstrap ─────────────────────────────────
+  if (!skipInReadOnlyMode("user-task-columns-migration")) {
   db.execute(sql`
     CREATE TABLE IF NOT EXISTS user_task_columns (
       id SERIAL PRIMARY KEY,
@@ -502,6 +514,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       console.warn("[user-task-columns] old-col migration warning:", e.message);
     }
   }).catch(e => console.error("[user-task-columns] migration error:", e.message));
+  } // end user-task-columns-migration gate
 
   // ── Full task detail ──────────────────────────────────────────────────────
   app.get("/api/tasks/:id/full", canView, async (req, res) => {

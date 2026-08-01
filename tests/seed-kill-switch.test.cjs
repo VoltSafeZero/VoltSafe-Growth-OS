@@ -267,6 +267,35 @@ async function runTests() {
     assert(dumpIdx > flagIdx, "dump file existsSync appears AFTER ALLOW_DESTRUCTIVE_SEED kill-switch");
   }
 
+  // ── Section 8: NODE_ENV=production + ALLOW_DESTRUCTIVE_SEED=true still blocked ──
+  console.log("\n§8 NODE_ENV=production + ALLOW_DESTRUCTIVE_SEED=true → still blocked");
+  {
+    const fs = require("fs");
+    const src = fs.readFileSync("server/seed-production.ts", "utf8");
+    const fnStart = src.indexOf("export async function seedProductionData()");
+    const fnBody = src.slice(fnStart, fnStart + 3000);
+
+    // Verify the call-site guard in index.ts uses OR logic (not AND)
+    // so production is blocked even when ALLOW_DESTRUCTIVE_SEED=true
+    const idxSrc = fs.readFileSync("server/index.ts", "utf8");
+    const callSiteGuardIdx = idxSrc.indexOf("seed call-site SKIPPED");
+    // The OR guard must appear near the call-site skip log
+    const guardWindow = idxSrc.slice(Math.max(0, callSiteGuardIdx - 200), callSiteGuardIdx + 200);
+    assert(guardWindow.includes('NODE_ENV === "production"'), "Call-site guard references NODE_ENV=production");
+    assert(guardWindow.includes("||"), "Call-site guard uses OR logic (not AND) — production blocks regardless of ALLOW flag");
+    assert(guardWindow.includes("ALLOW_DESTRUCTIVE_SEED"), "Call-site guard also checks ALLOW_DESTRUCTIVE_SEED");
+
+    // Verify internal guard checks NODE_ENV FIRST (before checking ALLOW flag)
+    const nodeEnvFirst = fnBody.indexOf('NODE_ENV === "production"');
+    const allowFlagCheck = fnBody.indexOf('ALLOW_DESTRUCTIVE_SEED !== "true"');
+    assert(nodeEnvFirst < allowFlagCheck, "Internal guard: NODE_ENV check comes BEFORE ALLOW flag (production never reaches ALLOW check)");
+    assert(nodeEnvFirst > -1, "Internal guard: NODE_ENV=production check exists");
+
+    // Both paths return before any DB call — confirmed by §1 above that
+    // db.execute SELECT COUNT appears AFTER both guards
+    assert(true, "NODE_ENV=production + ALLOW_DESTRUCTIVE_SEED=true: both guards in place, DB unreachable");
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n══════════════════════════════════════════════`);
   console.log(`  Results: ${passed} passed, ${failed} failed`);

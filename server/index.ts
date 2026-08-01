@@ -11,6 +11,7 @@ import { createServer } from "http";
 import { startHourlySyncScheduler } from "./services/gmail-sync";
 import { startHelpCenterRefreshScheduler, runStartupRefresh } from "./services/help-center-refresh";
 import { storage } from "./storage";
+import { skipInReadOnlyMode } from "./startup-guard";
 
 // ── Startup timing ────────────────────────────────────────────────────────────
 // Captured as early as possible (after static imports, before any async work).
@@ -18,34 +19,40 @@ const PROC_START = Date.now();
 setStartupMark("moduleLoaded", PROC_START);
 
 // Mirror every lead/marina into Organizations on boot (idempotent, fire-and-forget)
-setTimeout(() => {
-  storage.backfillAccountsForLeads()
-    .then((n) => { if (n > 0) console.log(`[startup] backfilled ${n} marina organizations from leads`); })
-    .catch((e) => console.error("[startup] backfillAccountsForLeads failed:", e?.message || e));
-}, 5000);
+if (!skipInReadOnlyMode("backfillAccountsForLeads")) {
+  setTimeout(() => {
+    storage.backfillAccountsForLeads()
+      .then((n) => { if (n > 0) console.log(`[startup] backfilled ${n} marina organizations from leads`); })
+      .catch((e) => console.error("[startup] backfillAccountsForLeads failed:", e?.message || e));
+  }, 5000);
+}
 
 // Repair all_participants for historically-imported email messages that have NULL.
 // Root cause: all_participants was added to the schema after some messages were
 // first synced, so those rows lack the denormalized participant field that search
 // relies on for CC/To recipient matching. This runs once per process at low
 // priority (60s delay) so it never competes with the initial request burst.
-setTimeout(() => {
-  import("./services/mailbox-integrity").then(({ backfillAllParticipants }) => {
-    backfillAllParticipants().catch((e: any) =>
-      console.error("[startup] backfillAllParticipants failed:", e?.message || e)
-    );
-  }).catch(() => {});
-}, 60_000);
+if (!skipInReadOnlyMode("backfillAllParticipants")) {
+  setTimeout(() => {
+    import("./services/mailbox-integrity").then(({ backfillAllParticipants }) => {
+      backfillAllParticipants().catch((e: any) =>
+        console.error("[startup] backfillAllParticipants failed:", e?.message || e)
+      );
+    }).catch(() => {});
+  }, 60_000);
+}
 
 // Backfill lead communication summaries (email matching against contact emails).
 // Runs at low priority; safe to skip if table is already populated.
-setTimeout(() => {
-  import("./services/lead-comms-sync").then(({ backfillLeadComms }) => {
-    backfillLeadComms().catch((e: any) =>
-      console.error("[startup] backfillLeadComms failed:", e?.message || e)
-    );
-  }).catch(() => {});
-}, 90_000);
+if (!skipInReadOnlyMode("backfillLeadComms")) {
+  setTimeout(() => {
+    import("./services/lead-comms-sync").then(({ backfillLeadComms }) => {
+      backfillLeadComms().catch((e: any) =>
+        console.error("[startup] backfillLeadComms failed:", e?.message || e)
+      );
+    }).catch(() => {});
+  }, 90_000);
+}
 
 // Backfill missing creator memberships for private Currents channels.
 // Root cause: if a private channel was created before the creator auto-add
@@ -83,7 +90,9 @@ async function ensureRecentlyUpdatedIndexes(): Promise<void> {
     console.error("[startup] recently-updated index creation failed:", e?.message || e);
   }
 }
-setTimeout(() => { void ensureRecentlyUpdatedIndexes(); }, 30_000);
+if (!skipInReadOnlyMode("ensureRecentlyUpdatedIndexes")) {
+  setTimeout(() => { void ensureRecentlyUpdatedIndexes(); }, 30_000);
+}
 
 // NOTE: potential_investor_tags table is created by migration 0036
 // (migrations/0036_potential_investor_tags.sql). Run that migration once
@@ -119,7 +128,9 @@ async function backfillPrivateChannelCreators(): Promise<void> {
     console.error("[startup] private-channel creator backfill failed:", e?.message || e);
   }
 }
-setTimeout(() => { void backfillPrivateChannelCreators(); }, 15_000);
+if (!skipInReadOnlyMode("backfillPrivateChannelCreators")) {
+  setTimeout(() => { void backfillPrivateChannelCreators(); }, 15_000);
+}
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
@@ -851,7 +862,7 @@ app.use((req, res, next) => {
   // Gated by ENABLE_BACKGROUND_JOBS (default: enabled).
   // Set ENABLE_BACKGROUND_JOBS=false on replica instances to prevent duplicate
   // sync jobs when running multiple app instances behind a load balancer.
-  if (process.env.ENABLE_BACKGROUND_JOBS !== "false") {
+  if (process.env.ENABLE_BACKGROUND_JOBS !== "false" && !skipInReadOnlyMode("background-schedulers")) {
     startHourlySyncScheduler();
     startHelpCenterRefreshScheduler();
     // Refresh knowledge-base assets on every cold start (= deploy), not
@@ -978,14 +989,19 @@ app.use((req, res, next) => {
   }
 
   // Email search indexes: idempotent, non-blocking
-  import("./services/email-search")
-    .then(({ ensureSearchIndexes }) => ensureSearchIndexes())
-    .catch((e) => console.error("[email-search] ensureSearchIndexes failed:", e?.message || e));
+  if (!skipInReadOnlyMode("ensureSearchIndexes")) {
+    import("./services/email-search")
+      .then(({ ensureSearchIndexes }) => ensureSearchIndexes())
+      .catch((e) => console.error("[email-search] ensureSearchIndexes failed:", e?.message || e));
+  }
 
   // ── Backfill resumer ──────────────────────────────────────────────────────────
   // Delayed 20 s so the first batch of user requests are served before any
   // heavy Gmail quota work begins.  Picks up pending / zombie backfill jobs,
   // runs them serially so they don't compete for Gmail API quota.
+  if (skipInReadOnlyMode("backfill-resumer")) {
+    // skip entirely in read-only validation mode
+  } else
   setTimeout(async () => {
     try {
       const { db } = await import("./db");

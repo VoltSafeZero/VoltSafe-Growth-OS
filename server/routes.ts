@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import type { Server } from "http";
+import { skipInReadOnlyMode } from "./startup-guard";
 import sharp from "sharp";
 
 import { cacheFor, cacheInvalidate, cacheGet, cacheSet } from "./cache";
@@ -1572,6 +1573,7 @@ export async function registerRoutes(
   // and Replit deployments. Uploads are resized to 512×512 WebP before storage.
 
   (async () => {
+    if (skipInReadOnlyMode("user_avatar_library-migration")) return;
     try {
       await db.execute(sql.raw(`
         CREATE TABLE IF NOT EXISTS user_avatar_library (
@@ -1603,6 +1605,7 @@ export async function registerRoutes(
 
   // VoltSafe Team Calendar table migration
   (() => {
+    if (skipInReadOnlyMode("team_calendar_events-migration")) return;
     db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS team_calendar_events (
         id SERIAL PRIMARY KEY,
@@ -7933,6 +7936,7 @@ export async function registerRoutes(
   // ── Role Definitions — master-admin-only CRUD ──────────────────────────────
   // Migration: create table and seed defaults once
   await (async () => {
+    if (skipInReadOnlyMode("user_role_definitions-migration")) return;
     try {
       await db.execute(sql.raw(`
         CREATE TABLE IF NOT EXISTS user_role_definitions (
@@ -7966,6 +7970,7 @@ export async function registerRoutes(
 
   // ── Team Work Calendar migration ──────────────────────────────────────────
   (async () => {
+    if (skipInReadOnlyMode("team_work_calendar-migration")) return;
     try {
       await db.execute(sql.raw(`
         CREATE TABLE IF NOT EXISTS team_work_schedule_entries (
@@ -8026,6 +8031,7 @@ export async function registerRoutes(
 
   // ── CRM Recent News migration ─────────────────────────────────────────────
   (async () => {
+    if (skipInReadOnlyMode("crm_recent_news-migration")) return;
     try {
       await db.execute(sql.raw(`
         CREATE TABLE IF NOT EXISTS crm_recent_news (
@@ -8078,6 +8084,7 @@ export async function registerRoutes(
   // Idempotent. Ensures CC and all_participants GIN trigram + FTS v3 indexes
   // exist in every environment (dev and production) on first startup after deploy.
   (async () => {
+    if (skipInReadOnlyMode("search-gin-indexes-migration")) return;
     try {
       await db.execute(sql.raw(`CREATE EXTENSION IF NOT EXISTS pg_trgm`));
       await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_email_cc_emails_trgm ON email_messages USING GIN (cc_emails gin_trgm_ops)`));
@@ -8101,6 +8108,7 @@ export async function registerRoutes(
 
   // ── Help Center Rebuild State (migration 0033) ───────────────────────────
   (async () => {
+    if (skipInReadOnlyMode("help_center_rebuild_state-migration")) return;
     try {
       await db.execute(sql.raw(`
         CREATE TABLE IF NOT EXISTS help_center_rebuild_state (
@@ -8126,6 +8134,7 @@ export async function registerRoutes(
 
   // ── Email Snippets (migration 0032) ──────────────────────────────────────
   (async () => {
+    if (skipInReadOnlyMode("email_snippets-migration")) return;
     try {
       await db.execute(sql.raw(`
         CREATE TABLE IF NOT EXISTS email_snippets (
@@ -22856,8 +22865,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  await seedDatabase();
-  await seedUsers();
+  if (!skipInReadOnlyMode("seedDatabase+seedUsers")) {
+    await seedDatabase();
+    await seedUsers();
+  }
 
   // ── Performance monitoring endpoint ─────────────────────────────────────────
   // Admin-only: returns live performance metrics — no sensitive data included.
@@ -32615,7 +32626,9 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── Board Pack scheduler boot ────────────────────────────────────────────────
-  seedDefaultSchedules().catch(err => console.error("[board-pack-scheduler] seed error:", err));
+  if (!skipInReadOnlyMode("seedDefaultSchedules")) {
+    seedDefaultSchedules().catch(err => console.error("[board-pack-scheduler] seed error:", err));
+  }
   startBoardPackScheduler();
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -40136,8 +40149,10 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
     // ── Engagement scheduler + default rules ────────────────────────────────────
-  seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
-  seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
+  if (!skipInReadOnlyMode("seedDefaultRules+seedAutomationTemplates")) {
+    seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
+    seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
+  }
   startEngagementScheduler();
   startFollowupScheduler();
 
