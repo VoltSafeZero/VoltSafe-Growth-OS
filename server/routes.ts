@@ -37711,11 +37711,17 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  // GET /api/current/channels/:slug/participants — Phase 12C: people who have participated
-  // Returns users who have posted in this channel OR have a channel-preference row.
-  // Excludes suspended/deactivated users. Sorted alphabetically. Capped at 100.
+  // GET /api/current/channels/:slug/participants — Phase 12C: channel member list
+  //
+  // Public channels  — returns ALL active org users (anyone can join/post; mirrors
+  //                    how Slack shows "all teammates" in public channel member lists).
+  // Private channels — returns only explicitly tracked participants (message authors,
+  //                    preference rows, channel_members rows) so the list stays tight.
+  //
+  // Excludes suspended/deactivated/inactive users. Sorted alphabetically. Capped at 200.
   app.get("/api/current/channels/:slug/participants", requireAuth, async (req, res) => {
     try {
+      const userId = getSessionUserId(req);
       const rawSlug = String(req.params.slug || "").trim();
       if (!rawSlug || rawSlug.length > 120) return res.status(400).json({ message: "Invalid channel slug" });
       // Allow only slug-safe characters to prevent injection
@@ -37734,24 +37740,41 @@ export function registerConfluenceRoutes(app: Express) {
         ));
         if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
       }
-      // Union: message authors + users with a pref row — joined to users for name/email
-      const participantRows = await db.execute(sql.raw(`
-        SELECT DISTINCT u.id, u.name, u.email
-        FROM users u
-        WHERE u.id IN (
-          SELECT DISTINCT user_id FROM current_messages
-            WHERE channel_id = ${channelId} AND deleted_at IS NULL
-          UNION
-          SELECT DISTINCT user_id FROM current_channel_preferences
-            WHERE channel_id = ${channelId}
-          UNION
-          SELECT DISTINCT user_id FROM current_channel_members
-            WHERE channel_id = ${channelId}
-        )
-          AND (u.status IS NULL OR u.status NOT IN ('suspended', 'deactivated'))
-        ORDER BY u.name, u.id
-        LIMIT 100
-      `));
+
+      let participantRows;
+      if (!chan.is_private) {
+        // Public channel: every active user in the org is a potential member.
+        // Return the full active roster so the Members tab is useful for lookups.
+        participantRows = await db.execute(sql.raw(`
+          SELECT DISTINCT u.id, u.name, u.email
+          FROM users u
+          WHERE (u.status IS NULL OR u.status NOT IN ('suspended', 'deactivated'))
+            AND u.global_role NOT IN ('inactive')
+          ORDER BY u.name, u.id
+          LIMIT 200
+        `));
+      } else {
+        // Private channel: only explicitly tracked participants
+        // (message authors + preference rows + channel_members)
+        participantRows = await db.execute(sql.raw(`
+          SELECT DISTINCT u.id, u.name, u.email
+          FROM users u
+          WHERE u.id IN (
+            SELECT DISTINCT user_id FROM current_messages
+              WHERE channel_id = ${channelId} AND deleted_at IS NULL
+            UNION
+            SELECT DISTINCT user_id FROM current_channel_preferences
+              WHERE channel_id = ${channelId}
+            UNION
+            SELECT DISTINCT user_id FROM current_channel_members
+              WHERE channel_id = ${channelId}
+          )
+            AND (u.status IS NULL OR u.status NOT IN ('suspended', 'deactivated'))
+          ORDER BY u.name, u.id
+          LIMIT 200
+        `));
+      }
+
       res.json({
         channel: {
           id: chan.id,
@@ -38258,11 +38281,13 @@ export function registerConfluenceRoutes(app: Express) {
     }
   }
 
-  // GET /api/current/users?q= — teammate search for @mention autocomplete
+  // GET /api/current/users?q= — teammate search for @mention autocomplete and DM search
   app.get("/api/current/users", requireAuth, async (req, res) => {
     try {
       const currentUserId = getSessionUserId(req);
-      const raw = String(req.query.q || "").trim();
+      // Strip a leading @ so that typing "@scott" in the DM picker finds "Scott Carlson"
+      // (the same search is used for both the @mention popover and the New DM dialog)
+      const raw = String(req.query.q || "").trim().replace(/^@/, "");
       const q = raw.replace(/'/g, "''");
       const rows = await db.execute(sql.raw(`
         SELECT id, name, email, avatar_url,
@@ -38282,7 +38307,8 @@ export function registerConfluenceRoutes(app: Express) {
         department: r.department || null,
         isAll: false,
       }));
-      // Prepend virtual @all entry when it matches the search query
+      // Prepend virtual @all entry when it matches the search query.
+      // Use the stripped (no-@) value so that typing "@all" still shows the option.
       const qLower = raw.toLowerCase();
       const showAll = !raw || ["all","everyone","team","@all"].some(t => t.startsWith(qLower));
       const result = showAll
