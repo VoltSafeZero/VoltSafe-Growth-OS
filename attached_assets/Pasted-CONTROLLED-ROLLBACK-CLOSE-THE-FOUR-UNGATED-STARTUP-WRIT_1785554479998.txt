@@ -1,0 +1,255 @@
+CONTROLLED ROLLBACK — CLOSE THE FOUR UNGATED STARTUP WRITERS, THEN RUN THE PRODUCTION-DATA WALKTHROUGH
+
+Do not promote to main.
+Do not deploy production.
+Do not remove the database-level read-only role.
+Do not use neondb_owner for validation.
+
+Current branch:
+recovery/pre-mail-stable-staging
+
+Current SHA:
+9ef6c67e
+
+The database-level read-only role correctly blocked four startup migration paths that bypassed the centralized rollback guard:
+
+1. marine_related_email_tags
+2. email_signatures email_account_id migration
+3. mailbox visibility migration
+4. calendar visibility migration
+
+The branch is NOT ready to promote while any startup code still attempts DDL or DML.
+
+==================================================
+PART 1 — GATE THE FOUR INLINE MIGRATION PATHS
+==================================================
+
+Locate the exact function or startup block for each of the four attempted migrations.
+
+Wrap each complete migration block with the existing centralized startup guard:
+
+skipInReadOnlyMode(...)
+
+The guard must execute before:
+
+- opening a transaction
+- calling db.execute()
+- calling sql`
+- preparing a query
+- issuing CREATE
+- issuing ALTER
+- issuing UPDATE
+- issuing INSERT
+- issuing DELETE
+
+Use clear writer names:
+
+- marine-related-email-tags-migration
+- email-signatures-account-migration
+- mailbox-visibility-migration
+- calendar-visibility-migration
+
+Do not delete these migrations.
+Do not change their normal production behavior outside rollback/read-only mode.
+
+==================================================
+PART 2 — COMPLETE STARTUP WRITER INVENTORY
+==================================================
+
+Search the entire production startup path again for every route-registration or module-load database write that is not behind skipInReadOnlyMode().
+
+Include:
+
+- top-level IIFEs
+- registerRoutes() tail calls
+- schema ensure functions
+- lazy migrations
+- table/index creation
+- column checks followed by ALTER
+- UPDATE backfills
+- seed helpers
+- scheduler initialization
+- fire-and-forget promises
+- imported modules with startup side effects
+
+Report every remaining startup write path.
+
+Acceptance requirement:
+
+UNGATED STARTUP WRITE PATHS = 0
+
+Do not claim zero based only on known writer names. Trace all registerRoutes(), server/index.ts, route modules, and startup imports.
+
+==================================================
+PART 3 — ADD REGRESSION TESTS
+==================================================
+
+Extend tests/rollback-gate.test.cjs to prove:
+
+1. All four newly identified migration blocks use skipInReadOnlyMode().
+2. The guard occurs before the first SQL/DB call in each block.
+3. No executable startup migration block bypasses the central guard.
+4. ROLLBACK_FIRST_BOOT_READ_ONLY=true alone blocks them.
+5. ROLLBACK_VALIDATION_READ_ONLY=true alone blocks them.
+6. Normal mode remains unchanged when both flags are absent.
+7. Existing 82 rollback tests remain green.
+
+Use function/block-scoped assertions, not nearby comments or broad file windows.
+
+==================================================
+PART 4 — REBUILD AND STRICT BOOT
+==================================================
+
+Run:
+
+npm run build
+
+Restart the validation deployment using:
+
+NODE_ENV=production
+DATABASE_URL=<rollback_validation_readonly connection>
+ROLLBACK_FIRST_BOOT_READ_ONLY=true
+ROLLBACK_VALIDATION_READ_ONLY=true
+RUN_STARTUP_MIGRATIONS=false
+ALLOW_DESTRUCTIVE_SEED=false
+PRODUCTION_READONLY_MODE=true
+ENABLE_BACKGROUND_JOBS=false
+
+Capture the complete startup log.
+
+Required result:
+
+- every startup writer logs SKIPPED
+- the four newly gated migrations log SKIPPED
+- zero attempted INSERT
+- zero attempted UPDATE
+- zero attempted DELETE
+- zero attempted CREATE
+- zero attempted ALTER
+- zero attempted DROP
+- zero attempted TRUNCATE
+- zero PostgreSQL 25006 write-rejection errors
+- GET / returns 200
+- GET /api/version returns 200
+
+The database read-only role remains mandatory as defense-in-depth, but the application must no longer rely on the database rejecting writes.
+
+==================================================
+PART 5 — AUTHENTICATED PRODUCTION-DATA WALKTHROUGH
+==================================================
+
+After Part 4 passes, keep the validation URL running and provide it to Trevor.
+
+Trevor will perform a read-only walkthrough.
+
+During the walkthrough, capture:
+
+- browser console errors
+- failed network requests
+- HTTP 401 / 403 / 404 / 500 responses
+- HTML returned where JSON is expected
+- server exceptions
+- database errors
+- any attempted mutation rejected by the DB role
+
+Verify:
+
+1. Today
+2. Work
+3. Mission Control
+4. Leads
+5. Accounts
+6. Contacts
+7. Opportunities
+8. Tasks
+9. Calendar
+10. Cortex
+11. Mail
+12. Currents at /current
+
+Currents must show the real production data from current_* tables:
+
+- channels
+- historical messages
+- private channels, respecting permissions
+- direct messages
+- group DMs
+- threads
+- reactions
+- mentions
+- pins
+- attachments
+- Files tab
+- search
+- member UI
+- task creation dialog opens but is not submitted
+
+Mail must load production mailboxes without:
+
+- endless spinner
+- Local mailbox query failed
+- cross-mailbox leakage
+- HTTP 500
+- missing mailbox rows caused by permissions or account resolution
+
+Do not mark messages read, react, pin, create, edit, send, upload, delete, or change settings.
+
+==================================================
+PART 6 — FINAL VERDICT
+==================================================
+
+Return:
+
+Branch:
+Final SHA:
+Parent SHA:
+Files changed:
+Rollback tests:
+Seed tests:
+Build result:
+
+Known startup writers:
+Startup writers skipped:
+Ungated startup writers:
+Attempted startup writes:
+PostgreSQL write-rejection errors:
+
+Validation role:
+default_transaction_read_only:
+Validation URL:
+
+Authenticated walkthrough:
+- Today:
+- Work:
+- Mission Control:
+- Leads:
+- Accounts:
+- Contacts:
+- Opportunities:
+- Tasks:
+- Calendar:
+- Cortex:
+- Mail:
+- Currents:
+
+Production records modified during this pass:
+Production deployment modified:
+Current main modified:
+
+Verdict:
+PASS / CONDITIONAL PASS / FAIL
+
+Only state READY TO PROMOTE if:
+
+- ungated startup writer count = 0
+- attempted startup write count = 0
+- database-level read-only remains active
+- build passes
+- all tests pass
+- authenticated production-data walkthrough passes
+- original Currents history appears correctly
+- no critical module fails
+
+Do not push main.
+Do not deploy.
+Stop after the report.
