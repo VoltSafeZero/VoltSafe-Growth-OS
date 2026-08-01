@@ -701,7 +701,11 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         <Select value={sortOption} onValueChange={setSortOption}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-sort">
             <ArrowUpDown className="mr-2 h-4 w-4" />
-            <SelectValue placeholder="Sort by..." />
+            <span className="flex-1 text-left truncate">
+              {sortOption === "default"
+                ? "Sort by"
+                : FILTER_SORT_OPTIONS.find(o => o.value === sortOption)?.label ?? "Sort by"}
+            </span>
           </SelectTrigger>
           <SelectContent>
             {FILTER_SORT_OPTIONS.map(o => (
