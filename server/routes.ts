@@ -24916,12 +24916,28 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── Per-user column preferences ──────────────────────────────────────────────
+  // Authoritative server-side column registry.
+  // These must stay in sync with LEADS_COLUMN_DEFS / ACCOUNTS_COLUMN_DEFS on the client.
+  const COLUMN_REGISTRY: Record<string, { keys: Set<string>; required: Set<string> }> = {
+    leads: {
+      keys:     new Set(["company","location","contact","slips","dealAmount","status","source","quality","commStatus","lastContact"]),
+      required: new Set(["company","status"]),
+    },
+    accounts: {
+      keys:     new Set(["company","location","primaryContact","orgType","segment","priority","status"]),
+      required: new Set(["company","status"]),
+    },
+  };
+
   app.get("/api/user-column-prefs/:viewType", requireAuth, async (req, res) => {
     try {
       const userId = getSessionUserId(req);
       const { viewType } = req.params;
+      if (!COLUMN_REGISTRY[viewType]) {
+        return res.status(400).json({ message: "Invalid viewType. Must be 'leads' or 'accounts'." });
+      }
       const rows = await db.execute(sql.raw(
-        `SELECT columns_json FROM user_column_prefs WHERE user_id = ${userId} AND view_type = '${viewType.replace(/'/g, "''")}' LIMIT 1`
+        `SELECT columns_json FROM user_column_prefs WHERE user_id = ${userId} AND view_type = '${viewType}' LIMIT 1`
       )).then((r: any) => r.rows ?? []);
       if (!rows[0]) return res.json({ columnsJson: null });
       res.json({ columnsJson: rows[0].columns_json });
@@ -24935,12 +24951,53 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = getSessionUserId(req);
       const { viewType } = req.params;
       const { columnsJson } = req.body;
-      if (typeof columnsJson !== "string") return res.status(400).json({ message: "columnsJson required" });
-      const safeViewType = viewType.replace(/'/g, "''");
+
+      // 1. Validate view type
+      const reg = COLUMN_REGISTRY[viewType];
+      if (!reg) {
+        return res.status(400).json({ message: "Invalid viewType. Must be 'leads' or 'accounts'." });
+      }
+
+      // 2. columnsJson must be a string
+      if (typeof columnsJson !== "string") {
+        return res.status(400).json({ message: "columnsJson must be a JSON string." });
+      }
+
+      // 3. Must be valid JSON and an array
+      let parsed: unknown;
+      try { parsed = JSON.parse(columnsJson); } catch {
+        return res.status(400).json({ message: "columnsJson is not valid JSON." });
+      }
+      if (!Array.isArray(parsed)) {
+        return res.status(400).json({ message: "columnsJson must be a JSON array." });
+      }
+
+      // 4. Validate each entry
+      const seen = new Set<string>();
+      for (const item of parsed) {
+        if (typeof item !== "object" || item === null || typeof (item as any).key !== "string" || typeof (item as any).visible !== "boolean") {
+          return res.status(400).json({ message: "Each entry must have { key: string, visible: boolean }." });
+        }
+        const key = (item as any).key as string;
+        // 4a. Unknown column key
+        if (!reg.keys.has(key)) {
+          return res.status(400).json({ message: `Unknown column key '${key}' for viewType '${viewType}'.` });
+        }
+        // 4b. Duplicate key
+        if (seen.has(key)) {
+          return res.status(400).json({ message: `Duplicate column key '${key}'.` });
+        }
+        seen.add(key);
+        // 4c. Required columns cannot be hidden
+        if (reg.required.has(key) && !(item as any).visible) {
+          return res.status(400).json({ message: `Column '${key}' is required and cannot be hidden.` });
+        }
+      }
+
       const safeCols = columnsJson.replace(/'/g, "''");
       await db.execute(sql.raw(`
         INSERT INTO user_column_prefs (user_id, view_type, columns_json, updated_at)
-        VALUES (${userId}, '${safeViewType}', '${safeCols}', NOW())
+        VALUES (${userId}, '${viewType}', '${safeCols}', NOW())
         ON CONFLICT (user_id, view_type) DO UPDATE
           SET columns_json = EXCLUDED.columns_json, updated_at = NOW()
       `));
@@ -36733,19 +36790,6 @@ export function registerConfluenceRoutes(app: Express) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (channel_id, user_id)
-    );
-  `)).catch(() => {});
-
-  // Additive migration: per-user column preferences for Leads & Accounts tables
-  if (!skipInReadOnlyMode("user-column-prefs-migration")) db.execute(sql.raw(`
-    CREATE TABLE IF NOT EXISTS user_column_prefs (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      view_type TEXT NOT NULL,
-      columns_json TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (user_id, view_type)
     );
   `)).catch(() => {});
 

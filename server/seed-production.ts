@@ -2517,3 +2517,23 @@ export async function migrateRepairMojibakeFilenames(): Promise<void> {
     console.error("[migration] migrateRepairMojibakeFilenames error (non-fatal):", err);
   }
 }
+
+// ── Per-user column preferences (Leads & Accounts only) ──────────────────────
+export async function migrateUserColumnPrefs(): Promise<void> {
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS user_column_prefs (
+        id           SERIAL PRIMARY KEY,
+        user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        view_type    TEXT    NOT NULL CHECK (view_type IN ('leads', 'accounts')),
+        columns_json TEXT    NOT NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, view_type)
+      );
+    `));
+    console.log("[migration] migrateUserColumnPrefs: complete.");
+  } catch (err) {
+    console.error("[migration] migrateUserColumnPrefs error (non-fatal):", err);
+  }
+}
