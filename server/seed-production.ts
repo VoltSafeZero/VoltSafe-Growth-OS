@@ -2650,3 +2650,153 @@ export async function migrateUserColumnPrefsConstraints(): Promise<void> {
     }
   }
 }
+
+// ── Next Actions Foundation — Run 1 ──────────────────────────────────────────
+export async function migrateNextActionsSchema(): Promise<void> {
+  try {
+    // 1. Create next_actions table with CHECK constraints
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS next_actions (
+        id                   SERIAL PRIMARY KEY,
+        lead_id              INTEGER NULL REFERENCES leads(id)    ON DELETE CASCADE,
+        account_id           INTEGER NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        title                TEXT    NOT NULL,
+        description          TEXT    NULL,
+        owner_user_id        INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_by_user_id   INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        completed_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        waiting_on           TEXT    NOT NULL DEFAULT 'voltsafe'
+                               CHECK (waiting_on IN ('voltsafe','customer')),
+        waiting_since_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        due_at               TIMESTAMPTZ NULL,
+        blocker              TEXT    NULL,
+        snoozed_until        TIMESTAMPTZ NULL,
+        status               TEXT    NOT NULL DEFAULT 'open'
+                               CHECK (status IN ('open','completed','cancelled')),
+        completed_at         TIMESTAMPTZ NULL,
+        cancelled_at         TIMESTAMPTZ NULL,
+        created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT next_actions_one_subject
+          CHECK (num_nonnulls(lead_id, account_id) = 1)
+      )
+    `));
+
+    // 2. Trigger function — manages waiting_since_at, updated_at, completed_at, cancelled_at
+    await db.execute(sql.raw(`
+      CREATE OR REPLACE FUNCTION next_actions_auto_timestamps()
+      RETURNS TRIGGER LANGUAGE plpgsql AS $$
+      BEGIN
+        IF TG_OP = 'INSERT' THEN
+          IF NEW.waiting_since_at IS NULL THEN
+            NEW.waiting_since_at := NOW();
+          END IF;
+          NEW.updated_at := NOW();
+          RETURN NEW;
+        END IF;
+
+        -- UPDATE
+        NEW.updated_at := NOW();
+
+        IF NEW.waiting_on IS DISTINCT FROM OLD.waiting_on THEN
+          NEW.waiting_since_at := NOW();
+          IF NEW.waiting_on = 'voltsafe' THEN
+            NEW.due_at := NULL;
+          END IF;
+        END IF;
+
+        IF NEW.status = 'completed'
+           AND OLD.status IS DISTINCT FROM 'completed'
+           AND NEW.completed_at IS NULL THEN
+          NEW.completed_at := NOW();
+        END IF;
+
+        IF NEW.status = 'cancelled'
+           AND OLD.status IS DISTINCT FROM 'cancelled'
+           AND NEW.cancelled_at IS NULL THEN
+          NEW.cancelled_at := NOW();
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$
+    `));
+
+    // DROP + CREATE is the idempotent pattern for triggers (DROP IF EXISTS + CREATE)
+    await db.execute(sql.raw(`
+      DROP TRIGGER IF EXISTS trg_next_actions_auto_ts ON next_actions
+    `));
+    await db.execute(sql.raw(`
+      CREATE TRIGGER trg_next_actions_auto_ts
+        BEFORE INSERT OR UPDATE ON next_actions
+        FOR EACH ROW EXECUTE FUNCTION next_actions_auto_timestamps()
+    `));
+
+    // 3. Partial unique indexes — one open action per lead, one per account
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_next_actions_open_lead
+        ON next_actions(lead_id)
+        WHERE status = 'open' AND lead_id IS NOT NULL
+    `));
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_next_actions_open_account
+        ON next_actions(account_id)
+        WHERE status = 'open' AND account_id IS NOT NULL
+    `));
+
+    // 4. Supporting indexes
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_next_actions_lead_id        ON next_actions(lead_id)        WHERE lead_id    IS NOT NULL`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_next_actions_account_id     ON next_actions(account_id)     WHERE account_id IS NOT NULL`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_next_actions_waiting_on     ON next_actions(waiting_on)`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_next_actions_waiting_since  ON next_actions(waiting_since_at)`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_next_actions_due_at         ON next_actions(due_at)         WHERE due_at     IS NOT NULL`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_next_actions_open_status    ON next_actions(status)         WHERE status = 'open'`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_next_actions_snoozed        ON next_actions(snoozed_until)  WHERE snoozed_until IS NOT NULL`));
+
+    // 5. New columns on leads (additive only — never drops)
+    await db.execute(sql.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('high','medium','low'))`));
+    await db.execute(sql.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS fit TEXT NULL CHECK (fit IN ('high','medium','low'))`));
+    await db.execute(sql.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS shore_power_coverage_pct NUMERIC NULL`));
+    await db.execute(sql.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS deal_value_override NUMERIC NULL`));
+
+    // 6. New columns on accounts (additive only)
+    await db.execute(sql.raw(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fit TEXT NULL CHECK (fit IN ('high','medium','low'))`));
+    await db.execute(sql.raw(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS shore_power_coverage_pct NUMERIC NULL`));
+    await db.execute(sql.raw(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS deal_value_override NUMERIC NULL`));
+
+    console.log("[migration] next_actions schema + trigger + indexes + lead/account columns ready.");
+  } catch (err: any) {
+    console.error("[migration] migrateNextActionsSchema error (non-fatal):", err?.code ?? err?.message);
+  }
+}
+
+// ── Org Settings Singleton — Run 1 ───────────────────────────────────────────
+export async function migrateOrgSettingsSchema(): Promise<void> {
+  try {
+    // 1. Create table
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS org_settings (
+        id                             SERIAL PRIMARY KEY,
+        critical_overdue_days          INTEGER   NOT NULL DEFAULT 3,
+        customer_wait_nudge_days       INTEGER   NOT NULL DEFAULT 14,
+        org_timezone                   TEXT      NOT NULL DEFAULT 'America/Vancouver',
+        ev_hardware_revenue_per_pedestal DOUBLE PRECISION NULL,
+        ev_connectors_per_pedestal     DOUBLE PRECISION NULL,
+        ev_saas_per_connector_month    DOUBLE PRECISION NOT NULL DEFAULT 15,
+        ev_shore_power_pct             DOUBLE PRECISION NOT NULL DEFAULT 0.70,
+        ev_replacement_pct             DOUBLE PRECISION NOT NULL DEFAULT 0.50,
+        ev_penetration_pct             DOUBLE PRECISION NOT NULL DEFAULT 1.00,
+        updated_at                     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `));
+
+    // 2. Ensure exactly one singleton row (id=1)
+    await db.execute(sql.raw(`
+      INSERT INTO org_settings (id) VALUES (1) ON CONFLICT DO NOTHING
+    `));
+
+    console.log("[migration] org_settings table + singleton row ready.");
+  } catch (err: any) {
+    console.error("[migration] migrateOrgSettingsSchema error (non-fatal):", err?.code ?? err?.message);
+  }
+}

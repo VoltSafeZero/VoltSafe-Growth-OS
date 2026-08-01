@@ -1,0 +1,921 @@
+RUN 1 — NEXT ACTION FOUNDATION, TEN-STATE DERIVATION, SETTINGS, TRIGGERS, AND DRY-RUN BACKFILLS
+
+Use the approved Run 0 audit findings exactly.
+
+Do not modify UI.
+Do not publish.
+Do not alter Currents or Mail.
+Do not modify production data.
+Do not create inferred Next Actions.
+Do not backfill slip counts.
+Do not drop, rename, or repurpose any legacy field.
+
+==================================================
+APPROVED ARCHITECTURE
+==================================================
+
+Use integer identifiers matching the existing VoltSafe CMS schema.
+
+Do not introduce UUIDs.
+
+Do not add org_id, workspace_id, tenant_id, or any other tenancy key.
+VoltSafe CMS does not currently have a canonical CRM tenancy model.
+
+Use explicit foreign keys:
+
+- lead_id INTEGER NULL REFERENCES leads(id) ON DELETE CASCADE
+- account_id INTEGER NULL REFERENCES accounts(id) ON DELETE CASCADE
+
+Add a CHECK constraint requiring exactly one:
+
+CHECK (num_nonnulls(lead_id, account_id) = 1)
+
+Do not use subject_type + subject_id.
+
+Run 0 confirmed Leads and Accounts currently use hard deletes, not soft deletes.
+
+Still verify in code before creating indexes:
+
+- no deleted_at
+- no is_deleted
+- no archived-only replacement for deletion
+- active record queries do not silently include deleted records
+
+If a soft-delete mechanism is discovered that Run 0 missed, STOP and report it before creating indexes.
+
+==================================================
+NEXT_ACTIONS TABLE
+==================================================
+
+Create next_actions with:
+
+- id SERIAL PRIMARY KEY
+- lead_id INTEGER NULL FK → leads.id ON DELETE CASCADE
+- account_id INTEGER NULL FK → accounts.id ON DELETE CASCADE
+- title TEXT NOT NULL
+- description TEXT NULL
+- owner_user_id INTEGER NULL FK → users.id ON DELETE SET NULL
+- created_by_user_id INTEGER NULL FK → users.id ON DELETE SET NULL
+- completed_by_user_id INTEGER NULL FK → users.id ON DELETE SET NULL
+
+- waiting_on TEXT NOT NULL
+  CHECK (waiting_on IN ('voltsafe','customer'))
+
+- waiting_since_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+- due_at TIMESTAMPTZ NULL
+
+- blocker TEXT NULL
+- snoozed_until TIMESTAMPTZ NULL
+
+- status TEXT NOT NULL DEFAULT 'open'
+  CHECK (status IN ('open','completed','cancelled'))
+
+- completed_at TIMESTAMPTZ NULL
+- cancelled_at TIMESTAMPTZ NULL
+
+- created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+- updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+Rules:
+
+- waiting_on has exactly two values:
+  - voltsafe
+  - customer
+
+- Do not add waiting_on='nobody'.
+
+- No open action means nobody currently owes an action.
+
+- NULL due_at means immediately due.
+
+- For waiting_on='customer':
+  - due_at does not drive the nudge timer.
+  - waiting_since_at is the authoritative timer.
+
+- For waiting_on='voltsafe':
+  - NULL due_at means due now.
+
+- Completed and cancelled rows remain as history and never drive current status.
+
+==================================================
+DATABASE TRIGGER
+==================================================
+
+Create one database trigger function for next_actions.
+
+ON INSERT:
+
+- set waiting_since_at = NOW() if absent
+- set updated_at = NOW()
+
+ON UPDATE:
+
+- always set updated_at = NOW()
+
+- if waiting_on changes:
+  - set waiting_since_at = NOW()
+
+- if waiting_on changes to 'voltsafe':
+  - set due_at = NULL
+  - this means the newly returned VoltSafe action is immediately due
+  - do not allow an old customer-wait due date to make it instantly critical
+
+- if status changes to completed:
+  - set completed_at = NOW() if absent
+
+- if status changes to cancelled:
+  - set cancelled_at = NOW() if absent
+
+- if status changes away from open:
+  - preserve waiting_since_at and due_at for history
+  - do not delete the row
+
+Unrelated email activity must never update waiting_since_at.
+
+The trigger must be idempotently created through the approved gated migration path.
+
+==================================================
+DATABASE CONSTRAINTS AND INDEXES
+==================================================
+
+Add:
+
+1. CHECK requiring exactly one of lead_id or account_id.
+
+2. One-open-action-per-Lead:
+
+CREATE UNIQUE INDEX uq_next_actions_open_lead
+ON next_actions(lead_id)
+WHERE status = 'open'
+  AND lead_id IS NOT NULL;
+
+3. One-open-action-per-Account:
+
+CREATE UNIQUE INDEX uq_next_actions_open_account
+ON next_actions(account_id)
+WHERE status = 'open'
+  AND account_id IS NOT NULL;
+
+4. Supporting indexes for:
+
+- lead_id
+- account_id
+- waiting_on
+- waiting_since_at
+- due_at
+- status='open'
+- snoozed_until
+
+A second open action for the same Lead or Account must fail at the database level.
+
+Completed and cancelled historical actions must not block creation of a new open action.
+
+==================================================
+ORG_SETTINGS TABLE
+==================================================
+
+Create one new typed global settings table.
+
+Do not reuse system_settings.
+Do not reuse execution_settings.
+
+Use exactly one global settings row unless the existing architecture requires another established singleton convention.
+
+Required settings:
+
+- critical_overdue_days INTEGER NOT NULL DEFAULT 3
+- customer_wait_nudge_days INTEGER NOT NULL DEFAULT 14
+- org_timezone TEXT NOT NULL DEFAULT 'America/Vancouver'
+
+Revenue assumptions:
+
+- ev_hardware_revenue_per_pedestal NUMERIC NULL
+  - no default
+  - do not seed a placeholder
+
+- ev_connectors_per_pedestal NUMERIC NULL
+  - no default unless approved real data exists
+
+- ev_saas_per_connector_month NUMERIC NOT NULL DEFAULT 15
+
+- ev_shore_power_pct NUMERIC NOT NULL DEFAULT 0.70
+- ev_replacement_pct NUMERIC NOT NULL DEFAULT 0.50
+- ev_penetration_pct NUMERIC NOT NULL DEFAULT 1.00
+
+All settings must be read through one canonical settings service/helper.
+
+Do not scatter fallback values throughout application code.
+
+If hardware pricing or connectors-per-pedestal is unset, estimates must return NULL and later UI must show:
+
+Set pricing assumptions
+
+Do not fabricate confident values.
+
+==================================================
+LEAD AND ACCOUNT FIELDS
+==================================================
+
+Add only where missing.
+
+LEADS:
+
+- priority TEXT NOT NULL DEFAULT 'medium'
+  CHECK (priority IN ('high','medium','low'))
+
+- fit TEXT NULL
+  CHECK (fit IN ('high','medium','low'))
+
+- shore_power_coverage_pct NUMERIC NULL
+
+- deal_value_override NUMERIC NULL
+
+Do not add pedestal_count to Leads.
+
+Reuse:
+
+- leads.estimated_pedestal_count
+- leads.slip_count_int
+- leads.slips
+- leads.deal_amount
+- leads.deal_value_hardware
+- leads.deal_value_software
+- leads.deal_value_services
+- leads.deal_probability
+- leads.est_close_date
+- leads.status
+
+ACCOUNTS:
+
+- fit TEXT NULL
+  CHECK (fit IN ('high','medium','low'))
+
+- shore_power_coverage_pct NUMERIC NULL
+
+- deal_value_override NUMERIC NULL
+
+Before adding any new Account pedestal field, compare:
+
+- installed_units
+- contracted_units
+- slip_count
+
+Do not create a duplicate field if an existing one is usable.
+
+Reuse accounts.priority.
+
+Do not recreate it.
+
+==================================================
+LEGACY FIELDS — LEAVE UNTOUCHED
+==================================================
+
+Do not drop, rename, backfill, repurpose, or replace:
+
+- lead_comms_summary
+- existing Comm Status query logic in server/storage.ts
+- leads.status
+- tasks
+- accounts.next_action
+- accounts.next_action_at
+- accounts.next_action_owner_user_id
+- accounts.last_interaction_at
+
+The legacy communication-status implementation remains live and untouched.
+
+Run 1 only adds the new foundation.
+
+Run 2 will later replace the UI that displays the old status.
+
+==================================================
+COMMUNICATION DERIVATION
+==================================================
+
+LEADS:
+
+Use lead_comms_summary as the source for:
+
+- last incoming
+- last outgoing
+- last meaningful communication
+- communication count
+- never contacted
+
+Never contacted means:
+
+- no lead_comms_summary row, or
+- last_comm_at IS NULL
+
+Do not add:
+
+- first_contact_at
+- last_inbound_at
+- last_outbound_at
+
+to Leads.
+
+Derive the available values instead.
+
+ACCOUNTS:
+
+Run 0 did not prove a reliable Account communication source.
+
+Therefore:
+
+- do not fabricate Account first-contact history
+- do not treat accounts.last_interaction_at as authoritative
+- do not rely on sparse email_threads linkage
+- do not classify unknown Accounts as Never Contacted
+- do not classify unknown Accounts as No Action Needed
+
+The pure function accepts:
+
+hasEverContacted: true | false | null
+
+Meaning:
+
+- true = reliable evidence of communication
+- false = reliable evidence of no communication
+- null = insufficient data
+
+For Accounts with no open action and unknown communication history:
+
+return UNKNOWN
+
+Do not return NO_ACTION.
+
+==================================================
+PURE STATUS FUNCTION
+==================================================
+
+Create one pure function with explicit inputs.
+
+Return exactly one of TEN states:
+
+- NEVER_CONTACTED
+- UNKNOWN
+- NO_ACTION
+- SCHEDULED
+- DUE
+- CRITICAL
+- WAITING_CUSTOMER
+- CUSTOMER_NUDGE_DUE
+- BLOCKED
+- SNOOZED
+
+Use America/Vancouver calendar dates.
+
+Do not calculate overdue days using:
+
+elapsed milliseconds / 24 hours
+
+Do not calculate calendar days by raw timestamp subtraction.
+
+Normalize relevant timestamps to organization-local calendar dates and compare date ordinals.
+
+America/Vancouver observes DST and must pass both spring-forward and fall-back tests.
+
+Evaluation order:
+
+1. Open action and snoozed_until is still in the future:
+   SNOOZED
+
+2. Open action and blocker is non-empty:
+   BLOCKED
+
+3. Open action and waiting_on='customer':
+
+   calendar days since waiting_since_at
+   greater than customer_wait_nudge_days:
+   CUSTOMER_NUDGE_DUE
+
+   otherwise:
+   WAITING_CUSTOMER
+
+4. Open action and waiting_on='voltsafe':
+
+   due_at IS NULL:
+   DUE
+
+   local due date is after today:
+   SCHEDULED
+
+   overdue calendar days <= critical_overdue_days:
+   DUE
+
+   overdue calendar days > critical_overdue_days:
+   CRITICAL
+
+5. No open action and hasEverContacted === false:
+   NEVER_CONTACTED
+
+6. No open action and hasEverContacted === null:
+   UNKNOWN
+
+7. Otherwise:
+   NO_ACTION
+
+Important:
+
+- expired snoozes must fall through to normal derivation
+- completed actions are ignored
+- cancelled actions are ignored
+- CUSTOMER_NUDGE_DUE is derived only
+- never mutate waiting_on automatically
+- unknown contact history must never display green No Action Needed
+
+==================================================
+VISUAL STATE CONTRACT FOR RUN 2
+==================================================
+
+Do not implement UI now.
+
+Return state metadata sufficient for Run 2.
+
+Locked visual mapping:
+
+- NEVER_CONTACTED
+  gray solid
+  label: Never Contacted
+
+- UNKNOWN
+  gray hollow
+  label: No Data
+
+- NO_ACTION
+  green solid
+  label: No Action Needed
+
+- SCHEDULED
+  amber hollow
+  label: Waiting on VoltSafe · Due in Xd
+
+- DUE
+  amber solid
+  label:
+  Waiting on VoltSafe · Due Today
+  or
+  Waiting on VoltSafe · Xd overdue
+
+- CRITICAL
+  red solid
+  label:
+  Waiting on VoltSafe · Xd overdue
+
+- WAITING_CUSTOMER
+  blue solid
+  label:
+  Waiting on Customer · Xd
+
+- CUSTOMER_NUDGE_DUE
+  blue hollow
+  label:
+  Follow-up Due · Xd
+
+- BLOCKED
+  slate solid
+  label:
+  Blocked
+
+- SNOOZED
+  gray hollow
+  label:
+  Snoozed until [date]
+
+No animation.
+No countdown ring.
+No green outer ring with orange center.
+
+==================================================
+SMART PRIORITY
+==================================================
+
+Implement ordinal buckets.
+
+Do not implement additive weights.
+
+Bucket order:
+
+1. CRITICAL
+2. DUE
+3. CUSTOMER_NUDGE_DUE
+4. NEVER_CONTACTED
+5. SCHEDULED
+6. WAITING_CUSTOMER
+7. BLOCKED
+8. SNOOZED
+9. UNKNOWN
+10. NO_ACTION
+
+Tie-break order:
+
+1. Relevant due or nudge timestamp ascending
+2. Manual priority high → medium → low
+3. Primary value descending
+4. Fit high → medium → low
+5. Stable record ID
+
+NULL due_at means due immediately.
+
+Therefore, inside DUE sorting:
+
+- NULL due_at must sort first
+- use explicit NULLS FIRST or a normalized effectiveDueAt
+- do not allow PostgreSQL’s default ASC NULLS LAST behavior
+
+Recommended normalization:
+
+effective_due_at =
+  COALESCE(due_at, created_at)
+
+or an equivalent explicitly tested representation of immediately due.
+
+Expose:
+
+- bucket number
+- relevant timestamp
+- effective due timestamp
+- manual priority rank
+- value
+- fit rank
+- stable ID
+
+This must support a future:
+
+Why is this first?
+
+explanation.
+
+Do not add a test asserting that an additive score “does not exist.”
+Test the actual ordinal output and deterministic ordering instead.
+
+==================================================
+ESTIMATED VALUES
+==================================================
+
+Calculate:
+
+estimatedPedestals =
+  known pedestal count,
+  otherwise:
+  slip count
+  × shore power percentage
+  × replacement percentage
+  × VoltSafe penetration percentage
+
+LEADS:
+
+Use in order:
+
+1. estimated_pedestal_count when populated
+2. safely parsed slip_count_int or legacy slips only through one validated helper
+
+Do not backfill slip_count_int in this run.
+
+ACCOUNTS:
+
+Use the approved existing account field from the schema inspection.
+
+Do not double-count:
+
+- installed_units
+- contracted_units
+- slip_count
+
+Calculate separately:
+
+- Estimated Hardware Value
+- Estimated SaaS ARR
+- Estimated First-Year Value
+
+Formulas:
+
+est_hardware =
+  est_pedestals
+  × ev_hardware_revenue_per_pedestal
+
+est_saas_arr =
+  est_pedestals
+  × ev_connectors_per_pedestal
+  × ev_saas_per_connector_month
+  × 12
+
+est_first_year =
+  est_hardware
+  + est_saas_arr
+
+Rules:
+
+- deal_value_override always wins for primary Deal Value
+- never overwrite a manual value
+- hardware estimate is NULL when hardware price is unset
+- SaaS ARR is NULL when connectors-per-pedestal is unset
+- First-Year Value is NULL unless every required component exists
+- never return a misleading partial total
+- return the complete input chain for future tooltips
+
+Only Estimated Hardware Value is a candidate default column later.
+
+SaaS ARR and First-Year Value belong in the column picker and tooltip.
+
+Do not implement default columns in this run.
+
+==================================================
+SLIP COUNT PARSING — DRY RUN ONLY
+==================================================
+
+leads.slip_count_int currently has zero populated rows.
+
+The visible legacy source is leads.slips text.
+
+Do not update slip_count_int.
+
+Create a read-only parsing report with:
+
+- total Leads
+- non-empty legacy slips values
+- exact clean integers
+- comma-formatted integers
+- plus-suffix values, such as 160+
+- ranges, such as 100-150
+- ambiguous text, such as 150 - tbd
+- invalid values
+- negative values
+- proposed normalized integer
+- confidence:
+  - high
+  - medium
+  - low
+  - reject
+- reason for exclusion
+
+Do not guess ambiguous values.
+
+Examples:
+
+- "480" → 480, high confidence
+- "1,200" → 1200, high confidence
+- "160+" → do not silently convert without explicit product approval
+- "100-150" → reject or report separately
+- "150 - tbd" → reject
+- prose → reject
+
+Calculate:
+
+clean_parse_rate =
+  high-confidence parseable non-empty values
+  / total non-empty legacy values
+
+Decision gate:
+
+- if clean_parse_rate >= 70%:
+  recommend a separately reviewed backfill later
+
+- if clean_parse_rate < 70%:
+  Est. Value must not become a default column in Run 4
+
+No updates in Run 1.
+
+==================================================
+NEXT ACTION BACKFILL — DRY RUN ONLY
+==================================================
+
+Create no next_actions from existing records.
+
+Produce a read-only report.
+
+For Leads include:
+
+- lead ID
+- company
+- current derived Comm Status
+- last incoming
+- last outgoing
+- last communication
+- outgoing count
+- incoming count
+- proposed next-action title
+- proposed waiting_on
+- proposed due_at
+- confidence
+- reason
+
+Candidate logic for reporting only:
+
+- never_contacted:
+  no action proposed
+
+- dormant:
+  candidate:
+  title = Re-engage
+  waiting_on = voltsafe
+  due_at = NULL
+  meaning immediately due
+
+- voltSafe_owes_reply:
+  candidate VoltSafe action
+  due_at = NULL
+
+- waiting_for_lead:
+  candidate customer-wait action
+  waiting_since_at based only on latest relevant outbound evidence
+  report confidence
+
+- recently_contacted:
+  inspect actual direction
+  do not assume who owes the next move
+
+- null or other:
+  no proposal unless evidence supports one
+
+For Accounts:
+
+- propose ZERO communication-derived actions
+- report the two legacy accounts.next_action text values separately
+- do not migrate them
+- do not turn them into next_actions
+- do not infer action ownership or due dates
+
+Account proposals must equal zero.
+
+Do not execute any proposal.
+
+==================================================
+MIGRATION SAFETY
+==================================================
+
+Use the approved gated migration path.
+
+Requirements:
+
+- RUN_STARTUP_MIGRATIONS must be exactly 'true'
+- rollback validation guards skip every SQL path
+- no fire-and-forget startup DDL
+- no DROP
+- no TRUNCATE
+- no destructive UPDATE
+- no destructive DELETE
+- migration idempotent
+- no production data changes
+- legacy schema preserved
+- down migration only where safely reversible
+- no backfill mutation
+- no slip-count mutation
+
+==================================================
+TESTS
+==================================================
+
+STATUS:
+
+- all ten states
+- exactly 3 calendar days overdue → DUE
+- exactly 4 calendar days overdue → CRITICAL
+- DST spring-forward boundary
+- DST fall-back boundary
+- customer wait exactly 14 days → WAITING_CUSTOMER
+- customer wait exactly 15 days → CUSTOMER_NUDGE_DUE
+- completed action ignored
+- cancelled action ignored
+- NULL due_at → DUE
+- snooze precedence
+- expired snooze falls through
+- blocker precedence
+- hasEverContacted=false → NEVER_CONTACTED
+- hasEverContacted=null → UNKNOWN
+- UNKNOWN never returns green No Action Needed
+
+TRIGGER:
+
+- insert sets waiting_since_at when absent
+- insert sets updated_at
+- update changes updated_at
+- waiting_on change resets waiting_since_at
+- waiting_on change to voltsafe sets due_at=NULL
+- unrelated updates do not reset waiting_since_at
+- completion sets completed_at
+- cancellation sets cancelled_at
+
+CONSTRAINTS:
+
+- exactly one Lead/Account FK required
+- neither set rejected
+- both set rejected
+- second open Lead action rejected
+- second open Account action rejected
+- completed historical actions allowed
+- cancelled historical actions allowed
+- Lead delete cascades action
+- Account delete cascades action
+- no soft-delete conflict under current schema
+
+SETTINGS:
+
+- America/Vancouver default
+- critical threshold default 3
+- customer nudge default 14
+- hardware price nullable
+- connectors-per-pedestal nullable
+- SaaS monthly default 15
+- canonical service reads DB values
+
+SMART PRIORITY:
+
+- all ten buckets ordered correctly
+- NULL due_at sorts before dated due actions inside DUE
+- deterministic priority tie-break
+- deterministic value tie-break
+- deterministic fit tie-break
+- stable ID final tie-break
+
+VALUE:
+
+- manual override precedence
+- known pedestal count precedence
+- safe slip-derived calculation
+- hardware NULL when price unset
+- SaaS NULL when connector assumption unset
+- First-Year NULL when any component is missing
+- no partial total
+
+SLIP PARSING:
+
+- exact integer
+- comma integer
+- plus suffix classified separately
+- range rejected
+- ambiguous text rejected
+- negative rejected
+- clean parse-rate calculation
+
+MIGRATION:
+
+- gated
+- read-only safe
+- idempotent
+- no destructive SQL
+- legacy Comm Status untouched
+- account legacy next_action fields untouched
+- no backfill writes
+
+Run all relevant:
+
+- Leads tests
+- Accounts tests
+- permissions tests
+- migration tests
+- rollback-gate tests
+- seed-kill-switch tests
+- npm run build
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+Existing schema types used:
+Tables added:
+Fields added:
+Fields reused:
+Fields deliberately not added:
+Legacy fields untouched:
+Hard-delete confirmation:
+Soft-delete discovered:
+Next Action reference model:
+Trigger:
+Constraints:
+Indexes:
+Settings:
+Lead communication adapter:
+Account communication limitation:
+Ten-state derivation:
+Smart Priority:
+NULL due-date ordering:
+Estimated value formulas:
+Slip parsing report:
+Slip clean parse rate:
+Est. Value default-column eligible:
+Next Action dry-run report:
+Lead proposals:
+Account proposals:
+Production data modified:
+Tests passed:
+Tests failed:
+Build:
+Git SHA:
+Pushed:
+Published:
+Ready for Run 2:
+
+Required approval gates:
+
+- Hard-delete behavior confirmed
+- Slip clean parse rate reported
+- Account proposals = 0
+- No backfill applied
+- No production data modified
+
+Do not publish.
+Stop after the report.

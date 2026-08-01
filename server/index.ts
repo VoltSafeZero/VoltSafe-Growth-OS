@@ -595,6 +595,7 @@ app.use((req, res, next) => {
       migrateCampaignTrackingSchema, migrateComplianceSchema, migrateRepairMojibakeFilenames,
       migrateUserColumnPrefs, migrateUserColumnPrefsConstraints, migrateCurrentsReplacementSchema,
       migrateGlobalMentionsUniqueConstraint,
+      migrateNextActionsSchema, migrateOrgSettingsSchema,
     } = await import("./seed-production");
 
     // Batch 1: core base schemas (sequential — others may depend on these tables)
@@ -645,6 +646,8 @@ app.use((req, res, next) => {
       migrateUserColumnPrefsConstraints(),
       migrateCurrentsReplacementSchema(),
       migrateGlobalMentionsUniqueConstraint(),
+      migrateNextActionsSchema(),
+      migrateOrgSettingsSchema(),
       import("./services/cortex-auto-ingest").then(({ migrateAutoIngestDomainsSchema }) => migrateAutoIngestDomainsSchema()),
     ]);
     log(`[perf:startup] batch-2 (feature schemas) done +${Date.now() - _migStart}ms`);

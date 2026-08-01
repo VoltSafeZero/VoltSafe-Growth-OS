@@ -3177,3 +3177,51 @@ export const cortexEmailIntel = pgTable("cortex_email_intel", {
 export const insertCortexEmailIntelSchema = createInsertSchema(cortexEmailIntel).omit({ id: true, createdAt: true, updatedAt: true, deletedAt: true });
 export type CortexEmailIntel = typeof cortexEmailIntel.$inferSelect;
 export type InsertCortexEmailIntel = z.infer<typeof insertCortexEmailIntelSchema>;
+
+// ── Next Actions ──────────────────────────────────────────────────────────────
+// One open action per Lead or Account at a time.
+// Enforced by partial unique indexes (not Drizzle — see migration).
+// Completed/cancelled rows remain as history and do not block new open actions.
+// waiting_on CHECK: 'voltsafe' | 'customer' — enforced in migration SQL.
+// status CHECK: 'open' | 'completed' | 'cancelled' — enforced in migration SQL.
+export const nextActions = pgTable("next_actions", {
+  id:                serial("id").primaryKey(),
+  leadId:            integer("lead_id").references(() => leads.id, { onDelete: "cascade" }),
+  accountId:         integer("account_id").references(() => accounts.id, { onDelete: "cascade" }),
+  title:             text("title").notNull(),
+  description:       text("description"),
+  ownerUserId:       integer("owner_user_id"),
+  createdByUserId:   integer("created_by_user_id"),
+  completedByUserId: integer("completed_by_user_id"),
+  waitingOn:         text("waiting_on").notNull().default("voltsafe"),
+  waitingSinceAt:    timestamp("waiting_since_at", { withTimezone: true }).notNull().defaultNow(),
+  dueAt:             timestamp("due_at", { withTimezone: true }),
+  blocker:           text("blocker"),
+  snoozedUntil:      timestamp("snoozed_until", { withTimezone: true }),
+  status:            text("status").notNull().default("open"),
+  completedAt:       timestamp("completed_at", { withTimezone: true }),
+  cancelledAt:       timestamp("cancelled_at", { withTimezone: true }),
+  createdAt:         timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const insertNextActionSchema = createInsertSchema(nextActions).omit({ id: true, createdAt: true, updatedAt: true });
+export type NextAction = typeof nextActions.$inferSelect;
+export type InsertNextAction = z.infer<typeof insertNextActionSchema>;
+
+// ── Org Settings ──────────────────────────────────────────────────────────────
+// Global singleton row (id = 1 always).
+// All reads go through server/services/org-settings.ts — never scatter fallbacks.
+export const orgSettings = pgTable("org_settings", {
+  id:                           serial("id").primaryKey(),
+  criticalOverdueDays:          integer("critical_overdue_days").notNull().default(3),
+  customerWaitNudgeDays:        integer("customer_wait_nudge_days").notNull().default(14),
+  orgTimezone:                  text("org_timezone").notNull().default("America/Vancouver"),
+  evHardwareRevenuePerPedestal: doublePrecision("ev_hardware_revenue_per_pedestal"),
+  evConnectorsPerPedestal:      doublePrecision("ev_connectors_per_pedestal"),
+  evSaasPerConnectorMonth:      doublePrecision("ev_saas_per_connector_month").notNull().default(15),
+  evShorePowerPct:              doublePrecision("ev_shore_power_pct").notNull().default(0.70),
+  evReplacementPct:             doublePrecision("ev_replacement_pct").notNull().default(0.50),
+  evPenetrationPct:             doublePrecision("ev_penetration_pct").notNull().default(1.00),
+  updatedAt:                    timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type OrgSettings = typeof orgSettings.$inferSelect;
