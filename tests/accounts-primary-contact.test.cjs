@@ -51,8 +51,8 @@ check(
   src.includes(">Primary Contact</th>")
 );
 check(
-  "Primary Contact header is hidden on smaller screens (hidden lg:table-cell)",
-  /hidden lg:table-cell[^>]*>Primary Contact<\/th>/.test(src)
+  "Primary Contact column is rendered via dynamic column config",
+  src.includes("case \"primaryContact\"") || src.includes("case 'primaryContact'")
 );
 
 console.log("\n── Row cell ──");
@@ -61,9 +61,9 @@ check(
   /data-testid=\{`cell-primary-contact-\$\{account\.id\}`\}/.test(src)
 );
 check(
-  "Primary Contact cell hidden lg:table-cell",
-  src.includes('hidden lg:table-cell') &&
-  src.includes('data-testid={`cell-primary-contact-')
+  "Primary Contact cell uses dynamic column rendering",
+  src.includes('data-testid={`cell-primary-contact-') &&
+  src.includes("visibleAccountCols")
 );
 check(
   "Contact name rendered from account.primaryContact.name",
@@ -133,16 +133,16 @@ check(
 
 console.log("\n── colSpan correctness ──");
 check(
-  "Skeleton row uses colSpan 9",
-  src.includes('colSpan={9}')
+  "Skeleton row uses dynamic colSpan based on visible columns",
+  src.includes('colSpan={visibleAccountCols.length + 2}')
 );
 check(
-  "Empty state uses colSpan 9",
-  (src.match(/colSpan=\{9\}/g) || []).length >= 2
+  "Empty state uses dynamic colSpan based on visible columns",
+  (src.match(/colSpan=\{visibleAccountCols\.length \+ 2\}/g) || []).length >= 2
 );
 check(
-  "No stale colSpan={8} in list table (skeleton/empty rows)",
-  !/<td colSpan=\{8\}/.test(src)
+  "No stale colSpan={9} in list table (skeleton/empty rows)",
+  !/<td colSpan=\{9\}/.test(src)
 );
 
 console.log("\n── Column placement ──");

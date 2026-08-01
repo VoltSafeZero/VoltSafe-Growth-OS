@@ -40,6 +40,17 @@ import { TimelineTab } from "@/components/timeline-tab";
 import StateProvinceSelect from "@/components/state-province-select";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
 import { PIPELINE_STAGE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, NON_OPERATING_SEGMENTS, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, FILTER_SORT_OPTIONS, getRegionsForCountry } from "@/lib/crm-taxonomy";
+import { ColumnCustomizerPopover, useColumnPrefs, type ColumnDef } from "@/components/column-customizer";
+
+const ACCOUNTS_COLUMN_DEFS: ColumnDef[] = [
+  { key: "company",        label: "Company", required: true },
+  { key: "location",       label: "Location" },
+  { key: "primaryContact", label: "Primary Contact" },
+  { key: "orgType",        label: "Type" },
+  { key: "segment",        label: "Classification" },
+  { key: "priority",       label: "Priority" },
+  { key: "status",         label: "Stage", required: true },
+];
 
 type PrimaryContact = { id: number; name: string; title: string | null; email: string | null; phone: string | null };
 type AccountWithContact = Account & { primaryContact: PrimaryContact | null };
@@ -133,6 +144,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const toggleSelect = (id: number) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const { columns: colPrefs, updateColumns: updateColPrefs, resetToDefault: resetColPrefs } = useColumnPrefs("accounts", ACCOUNTS_COLUMN_DEFS);
+  const visibleAccountCols = colPrefs.filter(c => c.visible);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -482,6 +495,15 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             ))}
           </SelectContent>
         </Select>
+        {/* 8 — Column customizer (list view only) */}
+        {view === "list" && (
+          <ColumnCustomizerPopover
+            defaultColumns={ACCOUNTS_COLUMN_DEFS}
+            columns={colPrefs}
+            onChange={updateColPrefs}
+            onReset={resetColPrefs}
+          />
+        )}
         </div>
       </div>
 
@@ -655,13 +677,18 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                         testId="checkbox-accounts-select-all"
                       />
                     </th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Company</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden sm:table-cell">Location</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden lg:table-cell">Primary Contact</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden md:table-cell">Type</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden lg:table-cell">Classification</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden sm:table-cell">Priority</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Stage</th>
+                    {visibleAccountCols.map(col => {
+                      switch (col.key) {
+                        case "company":        return <th key="company" className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Company</th>;
+                        case "location":       return <th key="location" className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Location</th>;
+                        case "primaryContact": return <th key="primaryContact" className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Primary Contact</th>;
+                        case "orgType":        return <th key="orgType" className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Type</th>;
+                        case "segment":        return <th key="segment" className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Classification</th>;
+                        case "priority":       return <th key="priority" className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Priority</th>;
+                        case "status":         return <th key="status" className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Stage</th>;
+                        default: return null;
+                      }
+                    })}
                     <th className="text-right p-3 sm:p-4 text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
@@ -669,7 +696,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                   {isLoading ? (
                     [...Array(6)].map((_, i) => (
                       <tr key={i} className="border-b border-border/30">
-                        <td colSpan={9} className="p-3 sm:p-4"><Skeleton className="h-4" /></td>
+                        <td colSpan={visibleAccountCols.length + 2} className="p-3 sm:p-4"><Skeleton className="h-4" /></td>
                       </tr>
                     ))
                   ) : allAccounts.map((account) => (
@@ -677,56 +704,72 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                       <td className="p-3 sm:p-4 w-8" onClick={e => { e.stopPropagation(); toggleSelect(account.id); }}>
                         <BulkCheckbox checked={selectedIds.has(account.id)} onChange={() => toggleSelect(account.id)} testId={`checkbox-account-row-${account.id}`} />
                       </td>
-                      <td className="p-3 sm:p-4" onClick={() => setSelectedAccount(account)}>
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4 text-primary/60 shrink-0 hidden sm:block" />
-                          <div className="min-w-0">
-                            <span className="font-medium block truncate max-w-[180px] sm:max-w-none">{account.name}</span>
-                            <span className="text-xs text-muted-foreground sm:hidden">
-                              {[account.city, account.stateProvince].filter(Boolean).join(", ") || account.region || ""}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell" onClick={() => setSelectedAccount(account)}>
-                        {[account.city, account.stateProvince, account.country].filter(Boolean).join(", ") || account.region || "—"}
-                      </td>
-                      <td className="p-3 sm:p-4 hidden lg:table-cell" onClick={() => setSelectedAccount(account)} data-testid={`cell-primary-contact-${account.id}`}>
-                        {account.primaryContact ? (
-                          <div className="min-w-0">
-                            <button
-                              className="text-sm font-medium block truncate max-w-[160px] text-left hover:underline hover:text-primary transition-colors cursor-pointer"
-                              data-testid={`btn-primary-contact-name-${account.id}`}
-                              onClick={e => { e.stopPropagation(); setLocation(`/contacts/${account.primaryContact!.id}`); }}
-                            >
-                              {account.primaryContact.name}
-                            </button>
-                            {account.primaryContact.title?.trim() && (
-                              <span className="text-xs text-muted-foreground block truncate max-w-[160px]">{account.primaryContact.title.trim()}</span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-sm text-muted-foreground/50 italic">No primary contact</span>
-                        )}
-                      </td>
-                      <td className="p-3 sm:p-4 hidden md:table-cell" onClick={() => setSelectedAccount(account)}>
-                        {account.orgType
-                          ? <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${orgTypeColors[account.orgType] || orgTypeColors.other}`}>{getOrgTypeLabel(account.orgType)}</Badge>
-                          : <span className="text-sm text-muted-foreground">—</span>}
-                      </td>
-                      <td className="p-3 sm:p-4 hidden lg:table-cell" onClick={() => setSelectedAccount(account)}>
-                        {account.segment
-                          ? <Badge variant="outline" className={`text-xs ${segmentColors[account.segment] || ""}`}>{account.segment}</Badge>
-                          : <span className="text-sm text-muted-foreground">—</span>}
-                      </td>
-                      <td className="p-3 sm:p-4 hidden sm:table-cell" onClick={() => setSelectedAccount(account)}>
-                        {account.priority
-                          ? <Badge variant="outline" className={`text-xs ${priorityColors[account.priority] || ""}`}>{account.priority}</Badge>
-                          : <span className="text-sm text-muted-foreground">—</span>}
-                      </td>
-                      <td className="p-3 sm:p-4" onClick={() => setSelectedAccount(account)}>
-                        <Badge variant="outline" className={`text-xs ${statusColors[account.leadStatus] || ""}`} data-testid={`badge-status-${account.id}`}>{getStageLabel(account.leadStatus)}</Badge>
-                      </td>
+                      {visibleAccountCols.map(col => {
+                        switch (col.key) {
+                          case "company": return (
+                            <td key="company" className="p-3 sm:p-4" onClick={() => setSelectedAccount(account)}>
+                              <div className="flex items-center gap-2">
+                                <Building2 className="h-4 w-4 text-primary/60 shrink-0 hidden sm:block" />
+                                <div className="min-w-0">
+                                  <span className="font-medium block truncate max-w-[180px] sm:max-w-none">{account.name}</span>
+                                </div>
+                              </div>
+                            </td>
+                          );
+                          case "location": return (
+                            <td key="location" className="p-3 sm:p-4 text-sm text-muted-foreground" onClick={() => setSelectedAccount(account)}>
+                              {[account.city, account.stateProvince, account.country].filter(Boolean).join(", ") || account.region || "—"}
+                            </td>
+                          );
+                          case "primaryContact": return (
+                            <td key="primaryContact" className="p-3 sm:p-4" onClick={() => setSelectedAccount(account)} data-testid={`cell-primary-contact-${account.id}`}>
+                              {account.primaryContact ? (
+                                <div className="min-w-0">
+                                  <button
+                                    className="text-sm font-medium block truncate max-w-[160px] text-left hover:underline hover:text-primary transition-colors cursor-pointer"
+                                    data-testid={`btn-primary-contact-name-${account.id}`}
+                                    onClick={e => { e.stopPropagation(); setLocation(`/contacts/${account.primaryContact!.id}`); }}
+                                  >
+                                    {account.primaryContact.name}
+                                  </button>
+                                  {account.primaryContact.title?.trim() && (
+                                    <span className="text-xs text-muted-foreground block truncate max-w-[160px]">{account.primaryContact.title.trim()}</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-sm text-muted-foreground/50 italic">No primary contact</span>
+                              )}
+                            </td>
+                          );
+                          case "orgType": return (
+                            <td key="orgType" className="p-3 sm:p-4" onClick={() => setSelectedAccount(account)}>
+                              {account.orgType
+                                ? <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${orgTypeColors[account.orgType] || orgTypeColors.other}`}>{getOrgTypeLabel(account.orgType)}</Badge>
+                                : <span className="text-sm text-muted-foreground">—</span>}
+                            </td>
+                          );
+                          case "segment": return (
+                            <td key="segment" className="p-3 sm:p-4" onClick={() => setSelectedAccount(account)}>
+                              {account.segment
+                                ? <Badge variant="outline" className={`text-xs ${segmentColors[account.segment] || ""}`}>{account.segment}</Badge>
+                                : <span className="text-sm text-muted-foreground">—</span>}
+                            </td>
+                          );
+                          case "priority": return (
+                            <td key="priority" className="p-3 sm:p-4" onClick={() => setSelectedAccount(account)}>
+                              {account.priority
+                                ? <Badge variant="outline" className={`text-xs ${priorityColors[account.priority] || ""}`}>{account.priority}</Badge>
+                                : <span className="text-sm text-muted-foreground">—</span>}
+                            </td>
+                          );
+                          case "status": return (
+                            <td key="status" className="p-3 sm:p-4" onClick={() => setSelectedAccount(account)}>
+                              <Badge variant="outline" className={`text-xs ${statusColors[account.leadStatus] || ""}`} data-testid={`badge-status-${account.id}`}>{getStageLabel(account.leadStatus)}</Badge>
+                            </td>
+                          );
+                          default: return null;
+                        }
+                      })}
                       <td className="p-3 sm:p-4 text-right">
                         <Link href={`/accounts/${account.id}`}>
                           <Button variant="ghost" size="sm" onClick={e => e.stopPropagation()} data-testid={`link-account-profile-${account.id}`} title="View full profile" className="h-8 px-2 text-xs text-muted-foreground hover:text-primary gap-1">
@@ -737,7 +780,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                     </tr>
                   ))}
                   {!isLoading && allAccounts.length === 0 && (
-                    <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">
+                    <tr><td colSpan={visibleAccountCols.length + 2} className="p-8 text-center text-muted-foreground">
                       No organizations found.{isFiltered && <> Try <button onClick={resetFilters} className="underline hover:text-foreground transition-colors">clearing filters</button>.</>}
                     </td></tr>
                   )}

@@ -47,6 +47,20 @@ import { AiSummaryCard } from "@/components/crm/ai-summary-card";
 import { EmailIdentifiersPanel } from "@/components/email-identifiers-panel";
 import { RecentNewsPanel } from "@/components/crm/recent-news-panel";
 import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, shouldShowMarinaOps, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, FILTER_SORT_OPTIONS, getRegionsForCountry, ENTITY_TYPE_OPTIONS, isMarinaEntity } from "@/lib/crm-taxonomy";
+import { ColumnCustomizerPopover, useColumnPrefs, type ColumnDef } from "@/components/column-customizer";
+
+const LEADS_COLUMN_DEFS: ColumnDef[] = [
+  { key: "company",    label: "Marina / Company", required: true },
+  { key: "location",   label: "Location" },
+  { key: "contact",    label: "Contact" },
+  { key: "slips",      label: "Slip Count" },
+  { key: "dealAmount", label: "Deal $" },
+  { key: "status",     label: "Stage", required: true },
+  { key: "source",     label: "Source" },
+  { key: "quality",    label: "Quality" },
+  { key: "commStatus", label: "Comm Status" },
+  { key: "lastContact",label: "Last Contact" },
+];
 
 
 const PIPELINE_STAGES = PIPELINE_STAGE_OPTIONS;
@@ -182,6 +196,8 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const toggleSelect = (id: number) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const { toast } = useToast();
   const { scoreMap: leadScores } = useLeadScores(view === "list");
+  const { columns: colPrefs, updateColumns: updateColPrefs, resetToDefault: resetColPrefs } = useColumnPrefs("leads", LEADS_COLUMN_DEFS);
+  const visibleLeadCols = colPrefs.filter(c => c.visible);
 
   const { data: pendingOrgData } = useQuery<Account>({
     queryKey: ["/api/accounts", pendingOrgId],
@@ -666,6 +682,15 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
             ))}
           </SelectContent>
         </Select>
+        {/* 11 — Column customizer (list view only) */}
+        {view === "list" && (
+          <ColumnCustomizerPopover
+            defaultColumns={LEADS_COLUMN_DEFS}
+            columns={colPrefs}
+            onChange={updateColPrefs}
+            onReset={resetColPrefs}
+          />
+        )}
         </>}
       </div>
 
@@ -763,16 +788,21 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                         testId="checkbox-leads-select-all"
                       />
                     </th>
-                    <SortableHeader label="Marina / Company" sortKey="company" sort={sort} onSort={handleSort} />
-                    <SortableHeader label="Location" sortKey="state" sort={sort} onSort={handleSort} />
-                    <SortableHeader label="Contact" sortKey="contactName" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
-                    {(!industryFilter || industryFilter === "__all__" || industryFilter === "marine") && <SortableHeader label="Slip Count" sortKey="slips" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />}
-                    <SortableHeader label="Deal $" sortKey="dealAmount" sort={sort} onSort={handleSort} className="hidden xl:table-cell" />
-                    <SortableHeader label="Stage" sortKey="status" sort={sort} onSort={handleSort} />
-                    <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden xl:table-cell">Quality</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden xl:table-cell" data-testid="th-comm-status">{commStatusFilter === "recently_updated" ? "Activity" : "Comm Status"}</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden 2xl:table-cell" data-testid="th-last-contact">{commStatusFilter === "recently_updated" ? "Last Activity" : "Last Contact"}</th>
+                    {visibleLeadCols.map(col => {
+                      switch (col.key) {
+                        case "company":    return <SortableHeader key="company" label="Marina / Company" sortKey="company" sort={sort} onSort={handleSort} />;
+                        case "location":   return <SortableHeader key="location" label="Location" sortKey="state" sort={sort} onSort={handleSort} />;
+                        case "contact":    return <SortableHeader key="contact" label="Contact" sortKey="contactName" sort={sort} onSort={handleSort} />;
+                        case "slips":      return <SortableHeader key="slips" label="Slip Count" sortKey="slips" sort={sort} onSort={handleSort} />;
+                        case "dealAmount": return <SortableHeader key="dealAmount" label="Deal $" sortKey="dealAmount" sort={sort} onSort={handleSort} />;
+                        case "status":     return <SortableHeader key="status" label="Stage" sortKey="status" sort={sort} onSort={handleSort} />;
+                        case "source":     return <SortableHeader key="source" label="Source" sortKey="source" sort={sort} onSort={handleSort} />;
+                        case "quality":    return <th key="quality" className="p-3 sm:p-4 text-sm font-medium text-muted-foreground">Quality</th>;
+                        case "commStatus": return <th key="commStatus" className="p-3 sm:p-4 text-sm font-medium text-muted-foreground" data-testid="th-comm-status">{commStatusFilter === "recently_updated" ? "Activity" : "Comm Status"}</th>;
+                        case "lastContact": return <th key="lastContact" className="p-3 sm:p-4 text-sm font-medium text-muted-foreground" data-testid="th-last-contact">{commStatusFilter === "recently_updated" ? "Last Activity" : "Last Contact"}</th>;
+                        default: return null;
+                      }
+                    })}
                     <th className="text-right p-3 sm:p-4 text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
@@ -782,108 +812,113 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                       <td className="p-3 sm:p-4 w-8" onClick={e => { e.stopPropagation(); toggleSelect(lead.id); }}>
                         <BulkCheckbox checked={selectedIds.has(lead.id)} onChange={() => toggleSelect(lead.id)} testId={`checkbox-lead-${lead.id}`} />
                       </td>
-                      <td className="p-3 sm:p-4" onClick={() => setSelectedLead(lead)}>
-                        <div className="flex items-center gap-2">
-                          {isMarinaEntity(lead) && <Anchor className="h-4 w-4 text-primary shrink-0" />}
-                          <div className="min-w-0">
-                            <span className="font-medium block truncate max-w-[180px] sm:max-w-none">{lead.company}</span>
-                            <span className="text-xs text-muted-foreground md:hidden">
-                              {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state || ""}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell" onClick={() => setSelectedLead(lead)}>
-                        {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state || "—"}
-                      </td>
-                      <td className="p-3 sm:p-4 text-sm hidden md:table-cell" onClick={() => setSelectedLead(lead)}>
-                        <div>{lead.contactName}</div>
-                        {lead.contactPhone && <div className="text-muted-foreground text-xs">{lead.contactPhone}</div>}
-                      </td>
-                      {(!industryFilter || industryFilter === "__all__" || industryFilter === "marine") && <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{(lead as any).slipCountInt ?? (!lead.slips || lead.slips === "-" ? "—" : lead.slips)}</td>}
-                      <td className="p-3 sm:p-4 text-sm hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
-                        {lead.dealAmount ? (
-                          <span className="text-emerald-400 font-medium">${Number(lead.dealAmount).toLocaleString()}</span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="p-3 sm:p-4" onClick={() => setSelectedLead(lead)}>
-                        <Badge variant="outline" className={`text-xs ${statusColors[lead.status] || ""}`} data-testid={`badge-status-${lead.id}`}>
-                          {getStageLabel(lead.status)}
-                        </Badge>
-                      </td>
-                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{lead.source || "—"}</td>
-                      <td className="p-3 sm:p-4 hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
-                        {leadScores[lead.id] && <ScoreBadge score={leadScores[lead.id]} variant="compact" data-testid={`score-lead-quality-${lead.id}`} />}
-                      </td>
-                      <td className="p-3 sm:p-4 hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
-                        {(() => {
-                          const cs = (lead as LeadWithComms).commSummary;
-                          if (commStatusFilter === "recently_updated") {
-                            const label = getActivityLabel(cs?.lastActivityType, cs?.lastActivitySub);
-                            return (
-                              <div className="flex items-center gap-1.5" data-testid={`comm-status-${lead.id}`}>
-                                <Badge variant="outline" className="text-xs px-1.5 py-0 text-teal-400 border-teal-500/30 bg-teal-500/10 max-w-[120px] truncate" title={label}>
-                                  {label}
-                                </Badge>
-                              </div>
-                            );
-                          }
-                          const status = cs?.commStatus ?? "never_contacted";
-                          const style = COMM_STATUS_STYLE[status] ?? COMM_STATUS_STYLE["never_contacted"];
-                          const direction = cs?.lastCommDirection;
-                          return (
-                            <div className="flex items-center gap-1.5" data-testid={`comm-status-${lead.id}`}>
-                              {direction === "outgoing" ? (
-                                <ArrowUpRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                              ) : direction === "incoming" ? (
-                                <ArrowDownLeft className="h-3 w-3 text-muted-foreground shrink-0" />
-                              ) : null}
-                              <Badge variant="outline" className={`text-xs px-1.5 py-0 ${style.cls}`}>
-                                {style.label}
-                              </Badge>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="p-3 sm:p-4 hidden 2xl:table-cell text-sm" onClick={() => setSelectedLead(lead)}>
-                        {(() => {
-                          const cs = (lead as LeadWithComms).commSummary;
-                          if (commStatusFilter === "recently_updated") {
-                            const actAt = cs?.lastActivityAt;
-                            const daysSince = actAt
-                              ? Math.floor((Date.now() - new Date(actAt).getTime()) / 86_400_000)
-                              : null;
-                            return (
-                              <div data-testid={`last-contact-${lead.id}`}>
-                                <span className="font-medium text-foreground">
-                                  {formatDaysAgo(daysSince)}
-                                </span>
-                                {actAt && (
-                                  <div className="text-xs text-muted-foreground mt-0.5">
-                                    {new Date(actAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: daysSince !== null && daysSince > 364 ? "numeric" : undefined })}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }
-                          const days = cs?.daysSinceContact;
-                          const total = (cs?.outgoingCount ?? 0) + (cs?.incomingCount ?? 0);
-                          return (
-                            <div data-testid={`last-contact-${lead.id}`}>
-                              <span className={`font-medium ${days !== null && days !== undefined && days > 60 ? "text-orange-400" : "text-foreground"}`}>
-                                {formatDaysAgo(days)}
-                              </span>
-                              {total > 0 && (
-                                <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                                  <MessageSquare className="h-3 w-3" />{total} email{total !== 1 ? "s" : ""}
+                      {visibleLeadCols.map(col => {
+                        switch (col.key) {
+                          case "company": return (
+                            <td key="company" className="p-3 sm:p-4" onClick={() => setSelectedLead(lead)}>
+                              <div className="flex items-center gap-2">
+                                {isMarinaEntity(lead) && <Anchor className="h-4 w-4 text-primary shrink-0" />}
+                                <div className="min-w-0">
+                                  <span className="font-medium block truncate max-w-[180px] sm:max-w-none">{lead.company}</span>
                                 </div>
-                              )}
-                            </div>
+                              </div>
+                            </td>
                           );
-                        })()}
-                      </td>
+                          case "location": return (
+                            <td key="location" className="p-3 sm:p-4 text-sm text-muted-foreground" onClick={() => setSelectedLead(lead)}>
+                              {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state || "—"}
+                            </td>
+                          );
+                          case "contact": return (
+                            <td key="contact" className="p-3 sm:p-4 text-sm" onClick={() => setSelectedLead(lead)}>
+                              <div>{lead.contactName}</div>
+                              {lead.contactPhone && <div className="text-muted-foreground text-xs">{lead.contactPhone}</div>}
+                            </td>
+                          );
+                          case "slips": return (
+                            <td key="slips" className="p-3 sm:p-4 text-sm text-muted-foreground" onClick={() => setSelectedLead(lead)}>
+                              {(lead as any).slipCountInt ?? (!lead.slips || lead.slips === "-" ? "—" : lead.slips)}
+                            </td>
+                          );
+                          case "dealAmount": return (
+                            <td key="dealAmount" className="p-3 sm:p-4 text-sm" onClick={() => setSelectedLead(lead)}>
+                              {lead.dealAmount ? (
+                                <span className="text-emerald-400 font-medium">${Number(lead.dealAmount).toLocaleString()}</span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          );
+                          case "status": return (
+                            <td key="status" className="p-3 sm:p-4" onClick={() => setSelectedLead(lead)}>
+                              <Badge variant="outline" className={`text-xs ${statusColors[lead.status] || ""}`} data-testid={`badge-status-${lead.id}`}>
+                                {getStageLabel(lead.status)}
+                              </Badge>
+                            </td>
+                          );
+                          case "source": return (
+                            <td key="source" className="p-3 sm:p-4 text-sm text-muted-foreground" onClick={() => setSelectedLead(lead)}>
+                              {lead.source || "—"}
+                            </td>
+                          );
+                          case "quality": return (
+                            <td key="quality" className="p-3 sm:p-4" onClick={() => setSelectedLead(lead)}>
+                              {leadScores[lead.id] && <ScoreBadge score={leadScores[lead.id]} variant="compact" data-testid={`score-lead-quality-${lead.id}`} />}
+                            </td>
+                          );
+                          case "commStatus": {
+                            const cs = (lead as LeadWithComms).commSummary;
+                            return (
+                              <td key="commStatus" className="p-3 sm:p-4" onClick={() => setSelectedLead(lead)}>
+                                {commStatusFilter === "recently_updated" ? (
+                                  <div className="flex items-center gap-1.5" data-testid={`comm-status-${lead.id}`}>
+                                    <Badge variant="outline" className="text-xs px-1.5 py-0 text-teal-400 border-teal-500/30 bg-teal-500/10 max-w-[120px] truncate" title={getActivityLabel(cs?.lastActivityType, cs?.lastActivitySub)}>
+                                      {getActivityLabel(cs?.lastActivityType, cs?.lastActivitySub)}
+                                    </Badge>
+                                  </div>
+                                ) : (() => {
+                                  const status = cs?.commStatus ?? "never_contacted";
+                                  const style = COMM_STATUS_STYLE[status] ?? COMM_STATUS_STYLE["never_contacted"];
+                                  const direction = cs?.lastCommDirection;
+                                  return (
+                                    <div className="flex items-center gap-1.5" data-testid={`comm-status-${lead.id}`}>
+                                      {direction === "outgoing" ? <ArrowUpRight className="h-3 w-3 text-muted-foreground shrink-0" /> : direction === "incoming" ? <ArrowDownLeft className="h-3 w-3 text-muted-foreground shrink-0" /> : null}
+                                      <Badge variant="outline" className={`text-xs px-1.5 py-0 ${style.cls}`}>{style.label}</Badge>
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                            );
+                          }
+                          case "lastContact": {
+                            const cs = (lead as LeadWithComms).commSummary;
+                            return (
+                              <td key="lastContact" className="p-3 sm:p-4 text-sm" onClick={() => setSelectedLead(lead)}>
+                                {commStatusFilter === "recently_updated" ? (() => {
+                                  const actAt = cs?.lastActivityAt;
+                                  const daysSince = actAt ? Math.floor((Date.now() - new Date(actAt).getTime()) / 86_400_000) : null;
+                                  return (
+                                    <div data-testid={`last-contact-${lead.id}`}>
+                                      <span className="font-medium text-foreground">{formatDaysAgo(daysSince)}</span>
+                                      {actAt && <div className="text-xs text-muted-foreground mt-0.5">{new Date(actAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: daysSince !== null && daysSince > 364 ? "numeric" : undefined })}</div>}
+                                    </div>
+                                  );
+                                })() : (() => {
+                                  const days = cs?.daysSinceContact;
+                                  const total = (cs?.outgoingCount ?? 0) + (cs?.incomingCount ?? 0);
+                                  return (
+                                    <div data-testid={`last-contact-${lead.id}`}>
+                                      <span className={`font-medium ${days !== null && days !== undefined && days > 60 ? "text-orange-400" : "text-foreground"}`}>{formatDaysAgo(days)}</span>
+                                      {total > 0 && <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MessageSquare className="h-3 w-3" />{total} email{total !== 1 ? "s" : ""}</div>}
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                            );
+                          }
+                          default: return null;
+                        }
+                      })}
                       <td className="p-3 sm:p-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Link href={`/opportunities/${lead.id}`}>
@@ -906,7 +941,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                   ))}
                   {allLeads.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="p-8 text-center text-muted-foreground">
+                      <td colSpan={visibleLeadCols.length + 2} className="p-8 text-center text-muted-foreground">
                         {commStatusFilter !== "all" || statusFilter !== "all" || stateFilter !== "all" || countryFilter !== "all" || search ? (
                           <div className="flex flex-col items-center gap-2">
                             <span>No leads match the current filters.</span>

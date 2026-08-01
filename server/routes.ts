@@ -24915,6 +24915,41 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ── Per-user column preferences ──────────────────────────────────────────────
+  app.get("/api/user-column-prefs/:viewType", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const { viewType } = req.params;
+      const rows = await db.execute(sql.raw(
+        `SELECT columns_json FROM user_column_prefs WHERE user_id = ${userId} AND view_type = '${viewType.replace(/'/g, "''")}' LIMIT 1`
+      )).then((r: any) => r.rows ?? []);
+      if (!rows[0]) return res.json({ columnsJson: null });
+      res.json({ columnsJson: rows[0].columns_json });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/user-column-prefs/:viewType", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const { viewType } = req.params;
+      const { columnsJson } = req.body;
+      if (typeof columnsJson !== "string") return res.status(400).json({ message: "columnsJson required" });
+      const safeViewType = viewType.replace(/'/g, "''");
+      const safeCols = columnsJson.replace(/'/g, "''");
+      await db.execute(sql.raw(`
+        INSERT INTO user_column_prefs (user_id, view_type, columns_json, updated_at)
+        VALUES (${userId}, '${safeViewType}', '${safeCols}', NOW())
+        ON CONFLICT (user_id, view_type) DO UPDATE
+          SET columns_json = EXCLUDED.columns_json, updated_at = NOW()
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ─── Bulk Actions — Leads ───────────────────────────────────────────────────
   app.post("/api/leads/bulk/assign", requirePermission("crm", "edit"), async (req, res) => {
     try {
@@ -36698,6 +36733,19 @@ export function registerConfluenceRoutes(app: Express) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (channel_id, user_id)
+    );
+  `)).catch(() => {});
+
+  // Additive migration: per-user column preferences for Leads & Accounts tables
+  if (!skipInReadOnlyMode("user-column-prefs-migration")) db.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS user_column_prefs (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      view_type TEXT NOT NULL,
+      columns_json TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, view_type)
     );
   `)).catch(() => {});
 

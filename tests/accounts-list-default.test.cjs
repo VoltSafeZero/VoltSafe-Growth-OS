@@ -108,8 +108,8 @@ check(
   })()
 );
 check(
-  "list view has responsive hidden columns (sm/md/lg)",
-  src.includes("hidden sm:table-cell") || src.includes("hidden md:table-cell")
+  "list view columns are user-configurable (column customizer present)",
+  src.includes("ColumnCustomizerPopover") && src.includes("visibleAccountCols")
 );
 check(
   "list view has bulk checkbox select-all",
