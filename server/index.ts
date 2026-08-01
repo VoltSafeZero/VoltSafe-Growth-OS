@@ -494,17 +494,20 @@ app.use((req, res, next) => {
   if (process.env.PRODUCTION_READONLY_MODE === "true") {
     app.use("/api", (req: Request, res: Response, next: NextFunction) => {
       const isReadMethod = ["GET", "HEAD", "OPTIONS"].includes(req.method);
-      const isAuthPath =
-        req.path.startsWith("/session") ||
-        req.path.startsWith("/auth") ||
-        req.path.startsWith("/login") ||
-        req.path.startsWith("/logout") ||
-        req.path.startsWith("/oauth") ||
-        req.path.startsWith("/google");
-      if (!isReadMethod && !isAuthPath) {
+      // Exact-match allowlist — only the minimum two POST endpoints required for
+      // login and logout.  Every other mutation path (change-password, forced
+      // change-password, forgot-password, reset-password-by-token, timezone,
+      // WebAuthn, OAuth, Google, notification state, preferences, token refresh)
+      // is intentionally blocked.  Broad prefix exemptions (/api/auth, /api/session,
+      // /api/oauth, /api/google) are NOT used here — they would silently pass all
+      // future additions to those prefixes.
+      const isAllowedMutation =
+        req.path === "/auth/login" ||   // POST /api/auth/login  — password login
+        req.path === "/auth/logout";    // POST /api/auth/logout — session destroy
+      if (!isReadMethod && !isAllowedMutation) {
         return res.status(405).json({
           error: "Validation deployment: read-only mode active",
-          detail: "All mutation endpoints are disabled. Use GET requests only.",
+          detail: "Only GET requests and /api/auth/login + /api/auth/logout are permitted.",
           method: req.method,
           path: `/api${req.path}`,
           mode: "PRODUCTION_READONLY_MODE=true",
@@ -512,7 +515,7 @@ app.use((req, res, next) => {
       }
       next();
     });
-    log("[readonly-mode] PRODUCTION_READONLY_MODE=true — POST/PATCH/PUT/DELETE blocked on all /api/* except auth/session");
+    log("[readonly-mode] PRODUCTION_READONLY_MODE=true — all mutations blocked except POST /api/auth/login and POST /api/auth/logout");
   }
 
   // ── Register routes + frontend IMMEDIATELY after port opens ──────────────────
