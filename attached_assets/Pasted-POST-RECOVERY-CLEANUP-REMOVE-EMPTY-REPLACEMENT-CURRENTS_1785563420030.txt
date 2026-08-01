@@ -1,0 +1,123 @@
+POST-RECOVERY CLEANUP — REMOVE EMPTY REPLACEMENT CURRENTS TABLES SAFELY
+
+The production Currents routing recovery has passed:
+
+- /api/current/* returns JSON
+- /api/currents/* returns 404 JSON
+- original current_* data is intact
+- original row counts are unchanged
+- production is stable
+
+Four replacement tables were nevertheless created in production during schema synchronization:
+
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+All four contain zero rows and are not referenced by application code.
+
+Do not republish yet.
+Do not modify original current_* tables.
+Do not touch Currents production history.
+
+==================================================
+1. VERIFY THEY ARE COMPLETELY UNUSED
+==================================================
+
+Search the entire repository, compiled bundle, startup migrations, schema definitions, tests, and deployment configuration for:
+
+- currents_channels
+- currents_posts
+- currents_reactions
+- currents_read_state
+
+Report every match.
+
+Acceptance requirement:
+
+- zero executable production-code references
+- zero foreign keys from any legitimate table into these tables
+- zero views, triggers, functions, indexes, or sequences depending on them
+- zero rows in all four tables
+
+Run read-only dependency queries against production before proposing deletion.
+
+==================================================
+2. VERIFY DEVELOPMENT SCHEMA CONTAMINATION
+==================================================
+
+Confirm the four tables exist in the development database.
+
+Identify exactly how Replit detects and synchronizes database schema during publish.
+
+Determine whether simply dropping them from production would cause them to be recreated on the next publish.
+
+Do not guess.
+
+==================================================
+3. REMOVE THEM FROM DEVELOPMENT FIRST
+==================================================
+
+Create a proper reviewed migration or schema change that removes only:
+
+- currents_read_state
+- currents_reactions
+- currents_posts
+- currents_channels
+
+Use dependency-safe order.
+
+The migration must:
+
+- refuse to run if any table contains rows
+- refuse to run if any unexpected dependency exists
+- log the verified row counts
+- never use CASCADE
+- never reference any original current_* table
+- be idempotent where appropriate
+
+Do not execute it yet.
+
+==================================================
+4. TEST AGAINST DEVELOPMENT
+==================================================
+
+Before applying:
+
+- create a schema-only backup or record the exact DDL
+- verify all four tables contain zero rows
+- run the migration in development
+- confirm all four replacement tables are gone
+- confirm all original current_* tables remain
+- run Currents regression tests
+- run rollback-gate tests
+- run seed kill-switch tests
+- run npm run build
+
+==================================================
+5. PREPARE PRODUCTION CLEANUP
+==================================================
+
+After development passes, produce the exact production SQL/migration plan.
+
+Before production execution, recheck:
+
+- all four tables still contain zero rows
+- no dependencies appeared
+- original current_* counts are unchanged
+
+Do not publish or run the production cleanup automatically.
+
+Stop and report:
+
+- files changed
+- migration contents
+- dev before/after table inventory
+- original Currents counts
+- tests
+- build result
+- whether the next publish would recreate the tables
+- production cleanup SQL
+
+Wait for explicit approval before touching production.
