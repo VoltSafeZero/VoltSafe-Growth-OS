@@ -1,0 +1,246 @@
+ROLLBACK GATE CORRECTION — VERIFY GUARDS AND ELIMINATE ALL STARTUP WRITES
+
+Do not publish.
+Do not push to origin/main.
+Do not connect the rollback candidate to the live production database.
+Do not run migrations.
+Do not cherry-pick the security commits yet.
+
+The staging report has three unresolved issues:
+
+1. Its description of the seed condition is contradictory.
+2. Service-level startup migrations still execute.
+3. Currents row counts were taken from development, not production.
+
+Work on recovery/pre-mail-stable-staging only.
+
+==================================================
+1. SHOW THE EXACT SEED GUARD
+==================================================
+
+Print the exact current source of:
+
+- the call-site guard in server/index.ts
+- the first 30 executable lines of seedProductionData()
+
+Confirm with a truth table:
+
+NODE_ENV | ALLOW_DESTRUCTIVE_SEED | DB query reachable | TRUNCATE reachable | pg_restore reachable
+
+Required behavior:
+
+production | any value | NO | NO | NO
+staging    | false/unset | NO | NO | NO
+development| false/unset | NO | NO | NO
+development| true | YES | conditionally YES | conditionally YES
+
+Production must remain blocked even when ALLOW_DESTRUCTIVE_SEED=true.
+
+Add a test explicitly setting:
+
+NODE_ENV=production
+ALLOW_DESTRUCTIVE_SEED=true
+
+and prove no DB access, TRUNCATE, dump inspection or pg_restore occurs.
+
+==================================================
+2. INVENTORY EVERY STARTUP WRITE PATH
+==================================================
+
+Search the full repository for every schema or data mutation invoked during startup.
+
+Include:
+
+- CREATE TABLE
+- ALTER TABLE
+- CREATE INDEX
+- DROP
+- TRUNCATE
+- INSERT
+- UPDATE
+- DELETE
+- backfill
+- ensure*Schema
+- migrate*Schema
+- startup migration
+- seed
+- repair
+- cleanup
+
+Trace every call from server/index.ts, route registration and service initialization.
+
+Produce a table:
+
+Function
+File
+Call site
+Runs during startup
+DDL/DML performed
+Idempotent
+Data-writing
+Currently gated by RUN_STARTUP_MIGRATIONS
+Safe for first rollback boot
+
+Do not call IF NOT EXISTS automatically safe.
+
+==================================================
+3. ADD ONE GLOBAL FIRST-BOOT WRITE GATE
+==================================================
+
+Introduce a temporary rollback-validation flag:
+
+ROLLBACK_VALIDATION_READ_ONLY=true
+
+When enabled:
+
+- no startup DDL runs
+- no startup DML/backfill runs
+- no seeding runs
+- no cleanup/retention mutation runs
+- no sync job writes before the app is verified
+- the app may read data and serve pages
+
+Do not apply this flag permanently to normal production behavior.
+It is for the isolated staging validation only.
+
+Log every skipped startup writer by function name.
+
+Add tests proving every discovered startup writer is skipped while the flag is true.
+
+==================================================
+4. PRODUCTION DATABASE READ-ONLY VERIFICATION
+==================================================
+
+Do not query through the development DATABASE_URL.
+
+Using the actual deployment database connection, or a cloned production branch, run read-only queries:
+
+SELECT current_database();
+SELECT pg_size_pretty(pg_database_size(current_database()));
+
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema='public'
+  AND (
+    table_name LIKE 'current_%'
+    OR table_name LIKE 'currents_%'
+    OR table_name='channel_read_state'
+  )
+ORDER BY table_name;
+
+Then obtain counts for every existing original Currents table:
+
+current_channels
+current_messages
+current_reactions
+current_pins
+current_conversations
+current_conversation_members
+current_channel_members
+current_thread_replies
+current_structured_items
+current_notification_prefs
+current_custom_emojis
+channel_read_state
+
+Also report whether replacement tables exist:
+
+currents_channels
+currents_posts
+currents_reactions
+currents_read_state
+
+Do not create or modify anything.
+
+If actual production credentials cannot be accessed, create a production database clone through the provider and query the clone. Do not proceed using dev counts as a substitute.
+
+==================================================
+5. VERIFY MIGRATION HISTORY COMPATIBILITY
+==================================================
+
+Read-only.
+
+Report the live production migration-history rows and compare them to the files in 0dc8f604.
+
+Explicitly identify:
+
+- filename collisions
+- migrations present in DB but absent in candidate
+- migrations present in candidate but absent in DB
+- whether candidate startup code relies on filename, numeric prefix or schema inspection
+- whether any migration would run if all gates were removed
+
+No migration may execute.
+
+==================================================
+6. STAGING BOOT AGAINST PRODUCTION CLONE
+==================================================
+
+Only after Sections 1–5 pass:
+
+Start the rollback candidate against a cloned production database with:
+
+NODE_ENV=staging
+ROLLBACK_VALIDATION_READ_ONLY=true
+RUN_STARTUP_MIGRATIONS=false
+ALLOW_DESTRUCTIVE_SEED=false
+
+Verify logs show zero:
+
+- TRUNCATE
+- pg_restore
+- CREATE
+- ALTER
+- INSERT
+- UPDATE
+- DELETE
+- backfill
+- sync write
+- cleanup mutation
+
+Then verify read-only module loading:
+
+- Currents
+- Mail
+- Leads
+- Accounts
+- Contacts
+- Opportunities
+- Tasks
+- Calendar
+- Cortex
+- Today
+- Work
+- Mission Control
+
+==================================================
+7. FINAL REPORT
+==================================================
+
+Exact seed guard correct: YES/NO
+Production + ALLOW=true still blocked: YES/NO
+
+Startup writers discovered:
+Startup writers fully gated in validation mode: YES/NO
+Uncontrolled startup writes remaining:
+
+Actual production DB identified: YES/NO
+Production DB size:
+Production clone created: YES/NO
+
+Original current_* tables in production:
+Original Currents row counts:
+Replacement currents_* tables in production:
+
+Migration compatibility:
+Filename collisions:
+Migration execution during validation: NONE/DETAILS
+
+Rollback staging boot successful: YES/NO
+Currents loaded against production clone: YES/NO
+Major modules loaded: YES/NO
+
+Ready to push staging branch: NO
+Ready for production rollback: NO
+
+Stop after the report.
