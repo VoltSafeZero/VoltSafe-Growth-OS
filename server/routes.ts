@@ -38386,6 +38386,69 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // GET /api/current/notifications/access-check?notifId=X
+  // Re-validates access to a mention notification's linked content AFTER the notification was
+  // created. Used by the client before navigating to a deep-link: if the user has since lost
+  // access (was removed from a private channel, or the message was deleted), we return a safe
+  // { accessible: false } so the client can show a "no longer accessible" state instead of
+  // a confusing blank/error page.
+  app.get("/api/current/notifications/access-check", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const notifId = Number(req.query.notifId);
+      if (!notifId || isNaN(notifId)) {
+        return res.status(400).json({ error: "notifId required" });
+      }
+      // Fetch the notification scoped to this user
+      const notifRows = await db.execute(sql.raw(`
+        SELECT id, linked_object_type, linked_object_id, action_url
+        FROM notifications
+        WHERE id = ${notifId} AND user_id = ${userId}
+        LIMIT 1
+      `));
+      if (!(notifRows.rows as any[]).length) {
+        return res.status(404).json({ accessible: false, reason: "notification_not_found" });
+      }
+      const notif = notifRows.rows[0] as any;
+      if (notif.linked_object_type !== "current_message") {
+        // Non-Currents notifications are always considered accessible
+        return res.json({ accessible: true });
+      }
+      const msgId = Number(notif.linked_object_id);
+      // Fetch message + channel info
+      const msgRows = await db.execute(sql.raw(`
+        SELECT cm.id, cm.deleted_at, cc.id AS channel_id, cc.is_private, cc.slug
+        FROM current_messages cm
+        JOIN current_channels cc ON cc.id = cm.channel_id
+        WHERE cm.id = ${msgId}
+        LIMIT 1
+      `));
+      if (!(msgRows.rows as any[]).length) {
+        return res.json({ accessible: false, reason: "message_deleted" });
+      }
+      const msg = msgRows.rows[0] as any;
+      if (msg.deleted_at) {
+        return res.json({ accessible: false, reason: "message_deleted" });
+      }
+      if (!msg.is_private) {
+        return res.json({ accessible: true });
+      }
+      // Private channel: verify the user is still a member
+      const memberRows = await db.execute(sql.raw(`
+        SELECT 1 FROM current_channel_members
+        WHERE channel_id = ${msg.channel_id} AND user_id = ${userId}
+        LIMIT 1
+      `));
+      const accessible = (memberRows.rows as any[]).length > 0;
+      return res.json({
+        accessible,
+        reason: accessible ? undefined : "not_a_member",
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "access_check_failed", message: err.message });
+    }
+  });
+
   // GET /api/current/mentions — messages where the current user was mentioned (channel + record)
   app.get("/api/current/mentions", requireAuth, async (req, res) => {
     try {

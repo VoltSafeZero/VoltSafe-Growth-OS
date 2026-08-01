@@ -1,0 +1,294 @@
+UNIVERSAL @MENTIONS — PHASE 2 ACCEPTANCE, WIRING PROOF, AND REMAINING SCOPE
+
+The server-side mention changes and automated tests passed, but the universal @mention requirement is not yet complete.
+
+Do not publish.
+Do not begin unrelated work.
+Do not modify Mail.
+Do not alter Currents outside mention, membership, DM search, and notification behavior.
+
+==================================================
+PART 1 — VERIFY EXACT GIT STATE
+==================================================
+
+Report:
+
+- current branch
+- current HEAD SHA
+- origin/main SHA
+- git status
+- whether the Phase 2 work is committed
+- whether it is pushed
+- whether it is deployed
+- every file changed
+- exact migration SQL added
+- exact 18 development rows deleted and why they were duplicates
+
+Do not make further data changes during this report.
+
+==================================================
+PART 2 — PROVE THE CANONICAL SEARCH HOOK IS ACTUALLY WIRED
+==================================================
+
+The report says client/src/hooks/use-current-users.ts was created.
+
+Prove which production components actually import and use it.
+
+Audit and report each surface:
+
+- Currents message composer
+- thread reply composer
+- edit-message composer
+- channel creation member picker
+- private-channel Add Member picker
+- Members tab search
+- New Direct Message search
+- Group DM picker
+
+For each report:
+
+- component file
+- prior search implementation
+- current implementation
+- whether useCurrentUsers is used
+- whether leading @ is normalized
+- whether @all is allowed
+- eligible-user scope
+- permission filtering
+
+Required result:
+
+All relevant Currents user-search surfaces use one canonical normalization and matching path.
+
+If any surface still has independent filtering logic, fix it and add a regression test.
+
+==================================================
+PART 3 — AUTHENTICATED BROWSER PROOF OF ORIGINAL BUGS
+==================================================
+
+Using an authenticated development browser, prove:
+
+Members tab:
+
+- typing scott finds Scott Carlson
+- typing @scott finds Scott Carlson
+- typing @ alone behaves correctly
+- public channel shows eligible active users
+- private channel shows only permitted members
+- Add Member search finds eligible non-members
+- selecting Scott actually adds Scott
+- duplicate add is harmless
+
+New Direct Message:
+
+- typing scott finds Scott Carlson
+- typing @scott finds Scott Carlson
+- selecting Scott opens the existing 1:1 DM if present
+- otherwise exactly one DM is created
+- a duplicate DM is not created
+
+Capture screenshots and network responses.
+
+==================================================
+PART 4 — CURRENTS MENTION NOTIFICATION ACCEPTANCE
+==================================================
+
+Using two authenticated users, verify end to end:
+
+1. User A mentions User B in a channel message.
+2. The saved message stores User B’s canonical user ID.
+3. Exactly one current_mentions row exists.
+4. Exactly one global notification exists.
+5. User B sees the notification.
+6. The notification links to the exact channel and message.
+7. Opening it scrolls/highlights the exact message.
+8. The notification becomes read at the correct time.
+9. Mentioning User B twice in one message still creates one notification.
+10. Editing the message and removing User B removes or dismisses the stale mention correctly.
+11. Editing unrelated text does not generate another notification.
+12. Mentioning User B in a thread links to the exact reply.
+13. Direct mention still appears when the channel is muted.
+14. A self-mention does not notify the author.
+15. A deactivated user is not offered.
+
+Provide row-level DB evidence without exposing private message content.
+
+==================================================
+PART 5 — VERIFY @ALL SAFETY
+==================================================
+
+The new @all implementation must be proven, not assumed.
+
+Verify:
+
+- @all appears only in permitted composer contexts
+- it is never treated as a real user
+- it expands only to eligible active channel members
+- private-channel non-members are excluded
+- the author is excluded
+- suspended/deactivated users are excluded
+- each recipient receives exactly one notification
+- duplicate @all tokens do not duplicate notifications
+- direct @user plus @all does not notify that user twice
+- channel mute rules behave exactly as designed
+- notification previews do not expose private content
+
+Report exact recipient-selection SQL or code.
+
+==================================================
+PART 6 — DEEP-LINK AND PERMISSION RECHECK
+==================================================
+
+Audit and test the notification-open path.
+
+Required behavior:
+
+- notification stores exact source route
+- channel message includes channel and message ID
+- thread mention includes channel, parent message, and reply ID
+- access is checked again when opened
+- removed private-channel members cannot open the content
+- unauthorized users receive a safe no-access response
+- notification excerpt and record title are not leaked before permission succeeds
+
+Add tests for access removal after the mention was created.
+
+==================================================
+PART 7 — GLOBAL_MENTIONS CONSTRAINT SAFETY
+==================================================
+
+Audit the new unique constraint:
+
+(entity_type, entity_id, mentioned_user_id)
+
+Confirm whether entity_id uniquely identifies:
+
+- a Currents message
+- a Currents thread reply
+- a Lead note
+- an Account note
+- a Task comment
+- an Opportunity comment
+
+If multiple sub-record types can share the same entity_id, the constraint may collide incorrectly.
+
+Report whether source_subrecord_id or mention location must be included.
+
+Do not apply another migration until this is proven.
+
+Also report:
+
+- how the 18 deleted duplicate development rows were selected
+- whether any represented distinct thread replies or locations
+- whether production contains duplicates
+- proposed production cleanup plan, read-only only
+
+==================================================
+PART 8 — CMS-WIDE IMPLEMENTATION STATUS
+==================================================
+
+The prior report only inventoried fields. Classify every candidate as:
+
+- ALREADY IMPLEMENTED
+- PLANNED
+- INAPPROPRIATE
+
+For each implemented field prove:
+
+- shared mention component used
+- canonical user ID stored
+- notification created
+- precise deep-link stored
+- permissions enforced
+
+At minimum report current status for:
+
+- Lead notes/comments
+- Account notes/comments
+- Contact notes
+- Opportunity notes/comments
+- Task description
+- Task comments
+- Meeting notes
+- Calendar notes
+- Projects
+- Tickets
+- Quotes
+- Campaign collaboration notes
+- Cortex collaborative notes
+
+Do not claim “universal” while these remain plain text.
+
+==================================================
+PART 9 — DEDICATED TEST GATE
+==================================================
+
+Add tests for:
+
+- every Currents picker using canonical normalization
+- scott and @scott parity
+- public/private member scope
+- duplicate DM prevention
+- structured mention identity
+- duplicate-notification suppression
+- edit cleanup
+- exact message deep-link
+- exact thread-reply deep-link
+- muted-channel direct mention
+- @all recipient safety
+- permission recheck on open
+- removed-access behavior
+- private-content non-disclosure
+- global_mentions uniqueness across entity/subrecord types
+- no trigger inside email addresses
+
+Run:
+
+- currents-mentions-phase2
+- currents-mentions-fixes
+- currents-routing
+- currents-search
+- currents-attachments
+- channel-add-member
+- mention-display-rule
+- mention-token-leak
+- notifications tests
+- permissions tests
+- rollback-gate
+- seed-kill-switch
+- npm run build
+
+All must pass.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+Phase 2 SHA:
+Pushed:
+Deployed:
+Canonical hook wired to every Currents surface:
+Original screenshot bugs browser-verified:
+Direct mention notification verified:
+Thread mention verified:
+Exact deep-link verified:
+Permission recheck verified:
+@all recipient rules verified:
+Duplicate suppression verified:
+Edit cleanup verified:
+Global constraint safe:
+CMS-wide modules implemented:
+CMS-wide modules still pending:
+Files changed:
+Migrations:
+Development data deleted:
+Production data changed:
+Tests:
+Build:
+Screenshots:
+Ready to publish:
+
+Do not publish automatically.
+Stop after the report.

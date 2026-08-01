@@ -1,35 +1,49 @@
 /**
  * use-current-users.ts — Canonical user-search hook for all Currents pickers.
  *
- * Used by:
- *   - New Direct Message search
- *   - Group DM member picker
- *   - Channel Add Member picker
- *   - Channel Members search
- *   - Message/thread @mention autocomplete (via useMentionComposer)
- *   - CMS-wide MentionInput (via useMentionComposer)
+ * Used by (or should be used by) every Currents user-search surface:
+ *   - Channel creation / edit member picker  (MemberPickerInline)
+ *   - Private-channel Add Member picker      (MemberPickerInline)
+ *   - Members tab search                     (client-side filter, no API call)
+ *   - New Direct Message search              (NewDmDialog)
+ *   - Group DM add-member picker             (GroupMemberDialog)
+ *   - Channel/thread @mention autocomplete   (useComposerMentions)
+ *   - CMS-wide MentionInput                  (useMentionComposer)
  *
- * Rules enforced here (belt-and-suspenders; server also applies them):
- *   - Strips one leading @ — so "@scott" finds "Scott Carlson"
- *   - Trims whitespace
- *   - "@" alone or empty string → lists all eligible users
- *   - Returns the @all virtual broadcast entry when query matches
- *     "all", "everyone", or "team"
- *   - Active users only (enforced server-side)
- *   - Partial name/email matching (enforced server-side)
- *   - Deterministic ranking (enforced server-side: ORDER BY name ASC)
- *   - Deduplication by user ID (enforced server-side)
+ * Normalization rules (belt-and-suspenders; server also applies these):
+ *   - Strips one leading @ — so "@scott" is identical to "scott"
+ *   - Trims whitespace before sending
+ *
+ * @all virtual entry:
+ *   - Injected CLIENT-SIDE when includeAll=true (server returns real users only)
+ *   - Shown when query is empty, or matches "all" / "everyone" / "team"
+ *   - id=0 is the sentinel; callers must never send id=0 to /api/current/dm
+ *
+ * @param rawQuery    Raw input value (may include leading @).
+ * @param enabled     Pass false to suppress the query entirely.
+ * @param includeAll  Pass false for pickers that must never show @all
+ *                    (New DM, Add Member, channel picker). Default true.
  */
 
 import { useQuery } from "@tanstack/react-query";
 
 export type CurrentUser = {
-  id: number;       // 0 = @all virtual broadcast entry
+  id: number;          // 0 = @all virtual broadcast entry
   name: string;
   email: string;
   avatarUrl: string | null;
   department: string | null;
   isAll?: boolean;
+};
+
+/** The @all virtual broadcast entry (id=0). Never send this ID to the server. */
+const ALL_ENTRY: CurrentUser = {
+  id: 0,
+  name: "all",
+  email: "",
+  avatarUrl: null,
+  department: null,
+  isAll: true,
 };
 
 /**
@@ -41,14 +55,18 @@ export function normalizeUserQuery(raw: string): string {
 }
 
 /**
- * Fetch the list of eligible teammates matching `rawQuery`.
- *
- * @param rawQuery  Raw input value (may include a leading @).
- * @param enabled   Set to false to suppress the query (e.g. while typing debounce).
- * @param includeAll  If false, the virtual @all entry is excluded from results.
- *                    Default true. Pass false for pickers that don't support @all
- *                    (e.g. New DM, Add Member).
+ * Whether a given normalized query should show the @all entry.
+ * Matches empty string, "all", "everyone", "team" (prefix match).
  */
+function shouldShowAll(q: string): boolean {
+  return (
+    !q ||
+    "all".startsWith(q) ||
+    "everyone".startsWith(q) ||
+    "team".startsWith(q)
+  );
+}
+
 export function useCurrentUsers(
   rawQuery: string,
   enabled = true,
@@ -59,17 +77,22 @@ export function useCurrentUsers(
   const query = useQuery<CurrentUser[]>({
     queryKey: ["/api/current/users", q],
     queryFn: () =>
-      fetch(`/api/current/users?q=${encodeURIComponent(q)}`, { credentials: "include" })
-        .then((r) => r.json()),
+      fetch(`/api/current/users?q=${encodeURIComponent(q)}`, {
+        credentials: "include",
+      }).then((r) => r.json()),
     enabled,
     staleTime: 10_000,
   });
 
-  // The server already prepends the @all virtual entry when appropriate.
-  // If the caller wants @all excluded (DM picker, Add Member), filter it out.
-  const data = includeAll
-    ? (query.data ?? [])
-    : (query.data ?? []).filter((u) => !u.isAll);
+  const rawData = (query.data ?? []).filter((u) => !u.isAll); // strip any stale @all from cache
+
+  // @all is always injected client-side; server never returns it
+  let data: CurrentUser[];
+  if (includeAll && shouldShowAll(q)) {
+    data = [ALL_ENTRY, ...rawData];
+  } else {
+    data = rawData;
+  }
 
   return { ...query, data };
 }

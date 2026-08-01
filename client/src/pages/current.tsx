@@ -69,6 +69,7 @@ import {
 import type { CurrentAttachment } from "@/components/current/current-attachment-display";
 import { CurrentSummaryPanel } from "@/components/current/current-summary-panel";
 import { tokensToCleanText } from "@/hooks/use-mention-composer";
+import { useCurrentUsers, normalizeUserQuery } from "@/hooks/use-current-users";
 import type { CurrentSummaryData } from "@/components/current/current-summary-panel";
 import { CreateTaskFromCurrentDialog } from "@/components/current/create-task-from-current-dialog";
 import type { CreateTaskSource } from "@/components/current/create-task-from-current-dialog";
@@ -223,6 +224,7 @@ interface MentionUser {
   email: string;
   avatarUrl: string | null;
   department: string | null;
+  isAll?: boolean; // true only for the @all virtual broadcast entry (id=0)
 }
 
 interface MentionMessage {
@@ -450,12 +452,8 @@ function MemberPickerInline({
   excludeIds?: number[];
 }) {
   const [q, setQ] = useState("");
-  const { data: users = [] } = useQuery<MentionUser[]>({
-    queryKey: ["/api/current/users", q],
-    queryFn: () =>
-      fetch(`/api/current/users?q=${encodeURIComponent(q)}`, { credentials: "include" }).then((r) => r.json()),
-    staleTime: 10_000,
-  });
+  // Use canonical hook: strips leading @, excludes @all (pickers don't broadcast)
+  const { data: users = [] } = useCurrentUsers(q, true, false);
   const nameMapRef = useRef<Record<number, string>>({});
   users.forEach((u) => { nameMapRef.current[u.id] = u.name; });
   const allExcluded = new Set([...excludeIds, ...selectedIds]);
@@ -610,17 +608,10 @@ function useComposerMentions(taRef: React.RefObject<HTMLTextAreaElement>) {
   // Registry of inserted mention positions in clean-text coordinate space.
   const mentionEntriesRef = useRef<MentionEntry[]>([]);
 
-  const { data: mentionUsers = [], isLoading: mentionLoading } = useQuery<
-    MentionUser[]
-  >({
-    queryKey: ["/api/current/users", mentionQuery],
-    queryFn: () =>
-      fetch(`/api/current/users?q=${encodeURIComponent(mentionQuery)}`, {
-        credentials: "include",
-      }).then((r) => r.json()),
-    enabled: mentionActive,
-    staleTime: 10_000,
-  });
+  // Use canonical hook: strips leading @, injects @all virtual entry
+  const { data: mentionUsers = [], isLoading: mentionLoading } = useCurrentUsers(
+    mentionQuery, mentionActive, true
+  );
 
   const clampedIdx = Math.min(mentionIdx, Math.max(0, mentionUsers.length - 1));
 
@@ -2557,15 +2548,8 @@ function NewDmDialog({
     if (!open) { setQ(""); setDebouncedQ(""); setSelectedUsers([]); }
   }, [open]);
 
-  const { data: users = [], isLoading } = useQuery<MentionUser[]>({
-    queryKey: ["/api/current/users", debouncedQ],
-    queryFn: () =>
-      fetch(`/api/current/users?q=${encodeURIComponent(debouncedQ)}`, {
-        credentials: "include",
-      }).then((r) => r.json()),
-    staleTime: 10_000,
-    enabled: open,
-  });
+  // Use canonical hook: strips leading @, excludes @all (1:1 DM has no broadcast)
+  const { data: users = [], isLoading } = useCurrentUsers(debouncedQ, open, false);
 
   const selectedIds = new Set(selectedUsers.map((u) => u.id));
 
@@ -2755,13 +2739,10 @@ function GroupMemberDialog({
     ...(conversation?.members.map((m) => m.id) ?? []),
   ]);
 
-  const { data: searchUsers = [], isLoading: searchLoading } = useQuery<MentionUser[]>({
-    queryKey: ["/api/current/users", debouncedQ],
-    queryFn: () =>
-      fetch(`/api/current/users?q=${encodeURIComponent(debouncedQ)}`, { credentials: "include" }).then((r) => r.json()),
-    staleTime: 10_000,
-    enabled: open && !confirmLeave,
-  });
+  // Use canonical hook: strips leading @, excludes @all (group DM has no broadcast)
+  const { data: searchUsers = [], isLoading: searchLoading } = useCurrentUsers(
+    debouncedQ, open && !confirmLeave, false
+  );
 
   const filteredUsers = searchUsers.filter((u) => !existingMemberIds.has(u.id));
   const selectedIds = new Set(selectedNew.map((u) => u.id));
