@@ -1,0 +1,280 @@
+CONTROLLED ROLLBACK — PRODUCTION-CLONE FUNCTIONAL VALIDATION
+
+Do not deploy to production.
+Do not push to origin/main.
+Do not connect the rollback candidate to the live production database.
+Do not run migrations.
+Do not run seeding.
+Do not alter production data.
+
+Current safe rollback candidate:
+
+Branch: recovery/pre-mail-stable-staging
+SHA: e71a0d20
+Base application: 0dc8f604
+Original Currents present
+Replacement Currents absent
+
+Production database facts already verified:
+
+- database name: neondb
+- current size: approximately 1,511 MB
+- all original current_* Currents tables exist
+- replacement currents_* incident tables do not exist
+
+==================================================
+1. CREATE AN ISOLATED PRODUCTION DATABASE CLONE
+==================================================
+
+Using the database provider's branch/clone feature, create a new isolated clone of the current production database.
+
+Do not restore over production.
+
+Report:
+
+- provider
+- production project/branch name
+- clone branch/database name
+- clone creation timestamp
+- source production timestamp
+- clone size
+- confirmation that production remains untouched
+
+The clone must initially be read-only for application validation where possible.
+
+Do not expose connection credentials.
+
+==================================================
+2. VERIFY CLONE IDENTITY
+==================================================
+
+Run read-only:
+
+SELECT current_database();
+SELECT current_user;
+SELECT version();
+SELECT pg_size_pretty(pg_database_size(current_database()));
+SELECT COUNT(*) FROM leads;
+SELECT COUNT(*) FROM accounts;
+SELECT COUNT(*) FROM contacts;
+SELECT COUNT(*) FROM activities;
+SELECT COUNT(*) FROM email_messages;
+SELECT COUNT(*) FROM current_channels;
+SELECT COUNT(*) FROM current_messages;
+
+Compare each count with production.
+
+The clone must match production before testing begins.
+
+==================================================
+3. ENFORCE READ-ONLY VALIDATION
+==================================================
+
+Use a database account with read-only permissions if available.
+
+Also start the application with:
+
+NODE_ENV=staging
+ROLLBACK_VALIDATION_READ_ONLY=true
+RUN_STARTUP_MIGRATIONS=false
+ALLOW_DESTRUCTIVE_SEED=false
+
+Where supported, enforce:
+
+SET default_transaction_read_only = on;
+
+Confirm an intentional test INSERT inside a rolled-back test transaction is rejected by the database account. Do not modify real records.
+
+Application-level gates are not sufficient by themselves; database-level read-only protection is required for this validation.
+
+==================================================
+4. STARTUP WRITE AUDIT
+==================================================
+
+Start the rollback application against the clone.
+
+Capture startup logs and verify:
+
+- seed call-site skipped
+- seed function blocked
+- explicit migrations skipped
+- all 27 identified startup writers skipped
+- no TRUNCATE
+- no pg_restore
+- no CREATE TABLE
+- no ALTER TABLE
+- no CREATE INDEX
+- no INSERT
+- no UPDATE
+- no DELETE
+- no backfill
+- no sync writers
+- no retention/cleanup writers
+
+Report any attempted write rejected by the database.
+
+==================================================
+5. AUTHENTICATED FUNCTIONAL WALKTHROUGH
+==================================================
+
+Use an authenticated staging session and verify the actual interface.
+
+Currents:
+
+- navigation item appears
+- original /current route loads
+- public channels load
+- private channels load only for permitted members
+- DMs load
+- group DMs load
+- existing messages render
+- threads load
+- mentions render
+- reactions render
+- pins load
+- attachments render
+- files tab loads
+- search works
+- channel members load
+- CRM-linked feeds load
+- task creation dialog opens
+- read/unread indicators render
+
+VoltSafe Mail:
+
+- pre-campaign inbox loads
+- Trevor mailbox loads
+- private mailboxes load if supported by this version
+- Sales mailbox loads
+- Support mailbox loads
+- basic mailbox switching works
+- no local-mailbox 500
+- no endless spinner
+
+Other modules:
+
+- Today
+- Work
+- Mission Control
+- Leads
+- Accounts
+- Contacts
+- Opportunities
+- Tasks
+- Calendar
+- Cortex
+- Admin
+- Permissions
+
+Do not fix defects during the walkthrough. Record them.
+
+==================================================
+6. SCHEMA/API COMPATIBILITY REPORT
+==================================================
+
+For every error encountered, report:
+
+- module
+- page/route
+- API endpoint
+- HTTP status
+- database error
+- missing table/column
+- whether caused by newer production schema
+- whether caused by rollback code expecting an older schema
+- whether a compatibility shim can solve it without migration
+
+Do not change schema.
+
+==================================================
+7. COMPARE WITH CURRENT PRODUCTION
+==================================================
+
+Produce a side-by-side matrix:
+
+Module | Current production | Rollback staging | Better version | Notes
+
+Include:
+
+- Currents
+- Mail
+- Leads
+- Accounts
+- Contacts
+- Opportunities
+- Tasks
+- Calendar
+- Cortex
+- Today
+- Work
+- Mission Control
+- Permissions
+
+Clearly state what would improve and what would regress if the rollback were promoted.
+
+==================================================
+8. CONTINUE THE 40+ GB DATABASE INVESTIGATION
+==================================================
+
+Search the database provider for:
+
+- other branches
+- archived branches
+- deleted branches recoverable through history
+- backups
+- PITR points
+- branches sized near 40 GB
+- historical storage metrics
+- branch creation/deletion events
+- project audit logs
+
+Report:
+
+- every branch/database name
+- current size
+- creation timestamp
+- last activity
+- deletion status
+- recovery availability
+
+Do not restore anything.
+
+==================================================
+9. FINAL REPORT
+==================================================
+
+Rollback branch:
+Rollback SHA:
+
+Production clone created: YES/NO
+Clone name:
+Clone matches production counts: YES/NO
+Database-level read-only enforced: YES/NO
+
+Startup writers skipped:
+Attempted writes rejected:
+Unexpected writes:
+
+Original Currents loaded: YES/NO
+Original Currents data visible: YES/NO
+Mail loaded: YES/NO
+Major CMS modules loaded:
+Schema incompatibilities:
+API incompatibilities:
+
+40+ GB database located: YES/NO
+Possible historical branch:
+PITR available:
+
+Rollback benefits:
+Rollback regressions:
+Required compatibility fixes:
+
+Ready to push rollback branch: NO
+Ready to deploy to production: NO
+Recommended next action:
+
+Do not modify code.
+Do not push.
+Do not publish.
+Stop after the report.
