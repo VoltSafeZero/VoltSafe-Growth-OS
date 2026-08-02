@@ -52,13 +52,12 @@ function computeSmartPriority(input) {
   const orgTimezone = input.orgTimezone ?? TZ;
 
   // §4 fix: effectiveDueAt = dueAt ?? waitingSinceAt (createdAt NEVER used)
-  const effectiveDueAt = input.dueAt ?? input.waitingSinceAt ?? null;
-  const effectiveDueSource =
-    input.dueAt !== null       ? 'dueAt' :
-    input.waitingSinceAt !== null ? 'waitingSinceAt' : null;
+  // waitingSinceAt is Date (non-nullable) — DB column is NOT NULL DEFAULT NOW()
+  const effectiveDueAt = input.dueAt ?? input.waitingSinceAt;
+  const effectiveDueSource = input.dueAt !== null ? 'dueAt' : 'waitingSinceAt';
 
   let overdueCalendarDays = null;
-  if (effectiveDueAt !== null) {
+  {
     const days = calendarDaysBetween(effectiveDueAt, now, orgTimezone);
     if (days > 0) overdueCalendarDays = days;
   }
@@ -86,8 +85,8 @@ function compareSmartPriority(a, b) {
   const aTs = a.relevantTimestamp?.getTime() ?? Infinity;
   const bTs = b.relevantTimestamp?.getTime() ?? Infinity;
   if (aTs !== bTs) return aTs - bTs;
-  const aDue = a.effectiveDueAt?.getTime() ?? Infinity;
-  const bDue = b.effectiveDueAt?.getTime() ?? Infinity;
+  const aDue = a.effectiveDueAt.getTime();
+  const bDue = b.effectiveDueAt.getTime();
   if (aDue !== bDue) return aDue - bDue;
   if (a.manualPriorityRank !== b.manualPriorityRank) return a.manualPriorityRank - b.manualPriorityRank;
   if (a.value !== b.value) return b.value - a.value;

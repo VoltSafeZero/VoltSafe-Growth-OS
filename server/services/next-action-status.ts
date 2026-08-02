@@ -207,7 +207,11 @@ const FIT_RANK: Record<string, number> = {
 export interface SmartPriorityInput {
   status:          NextActionStatus;
   dueAt:           Date | null;
-  waitingSinceAt:  Date | null;
+  /**
+   * DB column waiting_since_at is NOT NULL (DEFAULT NOW()) — trigger always populates it.
+   * Type is Date (non-nullable). No open row can have both dueAt=null AND waitingSinceAt=null.
+   */
+  waitingSinceAt:  Date;
   /** Retained for backward compat. NOT used in due-date ordering (spec §4). */
   createdAt:       Date;
   manualPriority:  'high' | 'medium' | 'low' | null;
@@ -261,15 +265,14 @@ export function computeSmartPriority(input: SmartPriorityInput): SmartPriorityRe
   const now         = input.now         ?? new Date();
   const orgTimezone = input.orgTimezone ?? 'America/Vancouver';
 
-  // effectiveDueAt = dueAt ?? waitingSinceAt ?? null  (spec §4)
+  // effectiveDueAt = dueAt ?? waitingSinceAt  (spec §4; DB guarantees waitingSinceAt NOT NULL)
   // createdAt is intentionally NOT used — "createdAt has no effect on due ordering."
   // null-due action waiting 10d → effectiveDueAt=10d-ago → sorts FIRST (most urgent within DUE)
   // null-due action waiting 0d  → effectiveDueAt=today   → sorts LAST within DUE bucket
-  const effectiveDueAt: Date | null = input.dueAt ?? input.waitingSinceAt ?? null;
-  const effectiveDueSource: 'dueAt' | 'waitingSinceAt' | null =
-    input.dueAt !== null       ? 'dueAt' :
-    input.waitingSinceAt !== null ? 'waitingSinceAt' :
-    null;
+  // The ?? null fallback is removed: waitingSinceAt is DB NOT NULL, type is Date (never null).
+  const effectiveDueAt: Date = input.dueAt ?? input.waitingSinceAt;
+  const effectiveDueSource: 'dueAt' | 'waitingSinceAt' =
+    input.dueAt !== null ? 'dueAt' : 'waitingSinceAt';
 
   // overdueCalendarDays: positive integer if effectiveDueAt is in the past; null otherwise.
   let overdueCalendarDays: number | null = null;
@@ -326,7 +329,7 @@ export function compareSmartPriority(a: SmartPriorityResult, b: SmartPriorityRes
   const bTs = b.relevantTimestamp?.getTime() ?? Infinity;
   if (aTs !== bTs) return aTs - bTs;
 
-  // Tie-break 2: effectiveDueAt ASC (null = no due date → sorts last = lowest urgency)
+  // Tie-break 2: effectiveDueAt ASC (never null — waitingSinceAt always fills in)
   const aDue = a.effectiveDueAt.getTime();
   const bDue = b.effectiveDueAt.getTime();
   if (aDue !== bDue) return aDue - bDue;

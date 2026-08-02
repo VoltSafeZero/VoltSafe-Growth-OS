@@ -1,0 +1,229 @@
+RUN 1 CLOSEOUT — RESOLVE ONLY THE REMAINING CONTRADICTIONS
+
+Do not begin Phase 2.
+Do not modify UI.
+Do not publish.
+Do not change production data.
+Do not perform unrelated schema work.
+
+==================================================
+1. RECONCILE ACTIVE-WORK COUNTS
+==================================================
+
+The prior report contains:
+
+- Active-work count: 44,182
+- EXPLAIN “active-work scope”: 17 rows
+
+Identify the exact SQL predicate behind each number.
+
+Return:
+
+- exact SQL for 44,182
+- exact SQL for 17
+- why they differ
+- which one, if either, represents the intended My Work scope
+
+Do not use bulk-imported status values alone as proof of active work.
+
+Test and report this conservative active-work predicate:
+
+source IS DISTINCT FROM 'test_suite'
+AND (
+  EXISTS open next_action
+  OR owner_user_id IS NOT NULL
+  OR meaningful communication exists
+  OR open linked task exists
+  OR active opportunity exists
+)
+
+Return:
+
+- total eligible
+- count by each signal
+- overlap counts
+- imported records promoted into work
+- organic records included
+- test_suite records included (must equal zero)
+- sample 20 resulting records
+
+Also report a broader CRM-qualified pool separately.
+Do not call CRM-qualified records active work.
+
+==================================================
+2. EXCLUDE TEST DATA EXPLICITLY
+==================================================
+
+Prove every proposed default work-queue predicate excludes:
+
+source = 'test_suite'
+
+Do not rely on status, owner, or task values to remove test fixtures.
+
+Return test-data counts for:
+
+- all Leads
+- active-work predicate
+- prospecting pool
+- default Leads query
+
+==================================================
+3. PROVE REAL MIGRATION EXECUTION
+==================================================
+
+Create a genuinely clean disposable database or isolated schema.
+
+Return its database identity and initial proof that these objects are absent:
+
+- next_actions
+- org_settings
+- Run 1-added Lead/Account columns
+- trigger
+- indexes
+
+Start the real application migration path with:
+
+RUN_STARTUP_MIGRATIONS=true
+
+Capture exact logs.
+
+Then prove those objects were created.
+
+Run the exact same application path a second time and capture exact logs.
+
+Return:
+
+- first-run exit code
+- second-run exit code
+- first-run object creation
+- second-run no-op/idempotency
+- singleton row count
+- duplicate triggers/indexes count
+- errors
+
+Clearly list every DROP statement used by the Run 1 migrations.
+Explain why each is safe.
+Do not claim “no DROP” if DROP TRIGGER IF EXISTS is present.
+
+==================================================
+4. COMPLETE SQL/TYPESCRIPT EQUIVALENCE
+==================================================
+
+Prove SQL state and bucket equal TypeScript state and bucket for:
+
+1. UNKNOWN
+2. NEVER_CONTACTED
+3. NO_ACTION
+4. SCHEDULED
+5. DUE — null due_at
+6. DUE — due today
+7. DUE — exactly 3 days overdue
+8. CRITICAL — exactly 4 days overdue
+9. WAITING_CUSTOMER — exactly 14 days
+10. CUSTOMER_NUDGE_DUE — exactly 15 days
+11. BLOCKED
+12. SNOOZED — future
+13. expired snooze falling through
+14. completed action ignored
+15. cancelled action ignored
+16. DST spring-forward
+17. DST fall-back
+
+Return a row-by-row table:
+
+fixture | TS state | SQL state | TS bucket | SQL bucket | PASS/FAIL
+
+Required: 17/17 PASS.
+
+==================================================
+5. VERIFY DATABASE INVARIANTS
+==================================================
+
+Confirm from PostgreSQL:
+
+- waiting_since_at is NOT NULL
+- trigger always populates it
+- no current row can produce both due_at NULL and waiting_since_at NULL
+
+Simplify effectiveDueAt to:
+
+dueAt ?? waitingSinceAt
+
+Do not retain an unreachable null fallback unless the type is genuinely nullable.
+
+==================================================
+6. RESOLVE ACCOUNTS PRIORITY TRUTH
+==================================================
+
+Query PostgreSQL directly and report:
+
+- whether accounts.priority exists
+- type
+- nullability
+- default
+- row count by value
+
+Do not rely on prior reports.
+
+==================================================
+7. ISOLATE UNRELATED TASK #227 CHANGES
+==================================================
+
+List every file and database change related to accounts.industry.
+
+State whether it belongs to the Next Action commit.
+
+Recommendation:
+
+- separate it into its own commit, or
+- prove it was already independently approved
+
+Do not mix its tests or migration evidence into the Run 1 Next Action verdict.
+
+==================================================
+8. FINAL PERFORMANCE TEST
+==================================================
+
+Run EXPLAIN ANALYZE for the final conservative active-work predicate:
+
+- exclude test_suite
+- include open action / owner / meaningful comm / open task / active opportunity
+- Smart Priority SQL order
+- LIMIT 50
+
+Return:
+
+- eligible row count
+- complete plan
+- execution time
+- planning time
+- sort method
+- memory
+- indexes used
+
+==================================================
+FINAL REPORT
+==================================================
+
+44,182 vs 17 reconciled:
+Final active-work predicate:
+Final active-work count:
+Test-suite rows in default queue:
+CRM-qualified count:
+Migration run from clean database:
+Second migration run:
+DROP statements disclosed:
+SQL/TS equivalence:
+Database invariant verified:
+accounts.priority truth:
+Task #227 isolated:
+Final EXPLAIN timing:
+Git SHA:
+Files changed:
+Tests:
+Build:
+Production data modified:
+Ready for Phase 2:
+
+Do not publish.
+Stop after the report.
