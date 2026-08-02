@@ -1,0 +1,135 @@
+Do not close Task #227 yet. The current report shows two unresolved issues and incomplete evidence.
+
+==================================================
+BLOCKER 1 — CONTACT DRAWER EXPANSION IS MISSING
+==================================================
+
+The agreed scope requires drawer expansion for:
+
+- Leads/opportunities
+- Accounts
+- Contacts
+
+The implementation report only confirms handlers for:
+
+- Lead → /opportunities/:id
+- Account → /accounts/:id
+
+Find the Contact detail drawer or equivalent contact profile overlay and implement the same route-navigation behaviour.
+
+Requirements:
+
+1. Identify the canonical registered full-page Contact route from the router.
+2. Wire the Contact drawer expand button to that route.
+3. Close/reset the Contact drawer after navigation.
+4. Confirm the CSS fullscreen toggle is not triggered.
+5. Add automated tests proving:
+   - correct Contact route,
+   - drawer closes,
+   - no fullscreen CSS state,
+   - no overlay remains mounted.
+
+If Contacts genuinely have no expandable drawer, prove that by listing the related components and routes. Do not silently omit Contacts.
+
+==================================================
+BLOCKER 2 — INDUSTRY AND MARKET SEGMENT MUST REMAIN SEPARATE
+==================================================
+
+The report says:
+
+“industry=marine maps to marketSegment='marina'”
+
+That is not an acceptable implementation unless the actual schema has no separate industry field and this limitation is explicitly documented.
+
+Industry and market segment are separate filters:
+
+- Industry = Marine
+- Market Segment = Marina
+
+The backend request must apply both independently:
+
+industry = "marine"
+AND
+marketSegment = "marina"
+
+Investigate and report:
+
+1. The exact database columns used for:
+   - Industry
+   - Market Segment
+
+2. The exact predicate generated for:
+   - industry=marine
+   - marketSegment=marina
+
+3. Whether both filters currently resolve to the same `marketSegment` column.
+
+4. Whether the Accounts table actually contains a separate industry field.
+
+If a separate industry column exists:
+- Filter it directly.
+- Do not translate `marine` into `marina`.
+- Combine the two predicates using AND.
+
+If a separate industry column does not exist:
+- Do not pretend the Industry filter is implemented.
+- Clearly report the schema limitation.
+- Either add/use the correct existing classification field or propose the smallest safe schema correction before proceeding.
+- Do not create a duplicate UI filter that merely applies the Marina predicate twice.
+
+Add tests with records that distinguish these concepts, for example:
+
+- Marine + Marina → included
+- Marine + Manufacturer → excluded when Segment=Marina
+- Industrial + Marina → excluded when Industry=Marine
+- Marine + Distributor → excluded when Segment=Marina
+- Marine + Marina remains included
+
+The test data must prove that changing Industry and Segment independently changes the result set independently.
+
+==================================================
+REQUIRED EVIDENCE BEFORE COMPLETION
+==================================================
+
+Provide the following actual evidence, not only a summary:
+
+1. Contact expansion:
+   - component name,
+   - route,
+   - test result.
+
+2. Accounts initial request:
+   - full relevant query parameters showing:
+     - industry=marine
+     - marketSegment=marina
+
+3. Backend predicate:
+   - exact storage/query logic for each parameter.
+
+4. Database result proof:
+   - total matching `Industry=Marine AND Segment=Marina`,
+   - same count returned by the Accounts endpoint.
+
+5. Stakeholder persistence:
+   - POST response,
+   - subsequent GET containing the contact,
+   - database row,
+   - refresh/reopen proof.
+
+6. Duplicate prevention:
+   - first request result,
+   - second request result,
+   - final row count remains exactly 1.
+
+7. Run and report:
+   - stakeholder tests,
+   - Pipeline tests,
+   - type-check,
+   - production build.
+
+Include exact pass/fail counts and command exit codes.
+
+Task #227 must remain open until:
+- Contact expansion is implemented or conclusively proven inapplicable,
+- Industry and Segment are independently filtered,
+- type-check and build pass.

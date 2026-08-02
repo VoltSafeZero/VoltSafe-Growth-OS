@@ -2802,6 +2802,33 @@ export async function migrateContactLinkConstraints(): Promise<void> {
   }
 }
 
+// ── Accounts: add independent `industry` column (Task #227 Blocker 2) ─────────
+export async function migrateAccountsIndustryColumn(): Promise<void> {
+  // Gate: respect ROLLBACK_VALIDATION_READ_ONLY / ROLLBACK_FIRST_BOOT_READ_ONLY
+  if (process.env.ROLLBACK_VALIDATION_READ_ONLY === "true"
+    || process.env.ROLLBACK_FIRST_BOOT_READ_ONLY === "true") {
+    console.log("[rollback-gate] migrateAccountsIndustryColumn SKIPPED (read-only mode active)");
+    return;
+  }
+  try {
+    // Add column (idempotent)
+    await db.execute(sql.raw(`
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS industry TEXT
+    `));
+    // Backfill: marina market_segment → marine industry
+    // Only sets rows where industry is still NULL to preserve any future manual overrides.
+    await db.execute(sql.raw(`
+      UPDATE accounts
+      SET industry = 'marine'
+      WHERE market_segment = 'marina'
+        AND industry IS NULL
+    `));
+    console.log("[migration] accounts.industry column ready and backfilled.");
+  } catch (err: any) {
+    console.error("[migration] migrateAccountsIndustryColumn error (non-fatal):", err?.code ?? err?.message);
+  }
+}
+
 // ── Org Settings Singleton — Run 1 ───────────────────────────────────────────
 export async function migrateOrgSettingsSchema(): Promise<void> {
   // Gate: respect ROLLBACK_VALIDATION_READ_ONLY / ROLLBACK_FIRST_BOOT_READ_ONLY

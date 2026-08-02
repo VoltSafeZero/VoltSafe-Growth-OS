@@ -1,0 +1,241 @@
+RUN 1 FINAL ACCEPTANCE — DO NOT START PHASE 2
+
+Do not modify UI.
+Do not publish.
+Do not modify production data.
+Do not begin Phase 2.
+
+==================================================
+1. CORRECT SOURCE NULL SEMANTICS
+==================================================
+
+The current recommended predicate uses:
+
+NOT (source IN (...))
+
+This incorrectly excludes source IS NULL.
+
+Report counts using explicit categories:
+
+- source IS NULL
+- source IN ('marina_directory','boating_ontario','test_suite')
+- source IS NOT NULL AND source NOT IN that list
+
+Do not classify NULL-source records automatically as imported or organic.
+
+Use SQL-safe comparisons such as IS DISTINCT FROM or explicit IS NULL logic.
+
+==================================================
+2. SEPARATE PROVENANCE FROM ACTIVE WORK
+==================================================
+
+Do not call all non-imported records “active work.”
+
+Return separate counts for:
+
+A. Prospect pool
+B. CRM-qualified pool
+C. Active work
+D. Test data
+E. Archived/closed
+
+Define ACTIVE WORK as having at least one:
+
+- open Next Action
+- assigned owner
+- meaningful communication
+- open linked task
+- active opportunity
+- explicit active-work designation
+
+Report overlap counts and false positives/negatives.
+
+Evaluate adding an explicit future field:
+
+work_scope:
+- prospect_pool
+- active_work
+- archived
+
+Recommendation only. Do not implement it in this run.
+
+==================================================
+3. RECORD 22 VS 19 HONESTLY
+==================================================
+
+Current replay count is 19.
+
+Unless production replay, API history, audit history, or deletion logs prove why
+the screenshot showed 22, report:
+
+22-vs-19 verdict: UNRESOLVED HISTORICAL DIFFERENCE
+
+Do not state that three rows were deleted or changed without evidence.
+
+==================================================
+4. FIX EFFECTIVE DUE DATE NOW
+==================================================
+
+Correct:
+
+effectiveDueAt = dueAt ?? waitingSinceAt
+
+Never use createdAt for due semantics.
+
+Expose:
+
+- effectiveDueAt
+- effectiveDueSource
+- overdueCalendarDays
+
+Add tests:
+
+- null-due action waiting 10 days outranks a dated action 1 day overdue
+- null-due action becoming VoltSafe-owned today is fresh
+- dated action 10 days overdue outranks a fresh null-due action
+- createdAt has no effect on due ordering
+
+==================================================
+5. VERIFY THE REAL MIGRATION PATH
+==================================================
+
+Use a disposable database or isolated schema.
+
+Run the actual application migration functions with:
+
+RUN_STARTUP_MIGRATIONS=true
+
+Do not manually execute copied DDL.
+
+Verify:
+
+- next_actions created
+- org_settings created
+- Lead/Account fields created
+- constraints created
+- foreign keys created
+- trigger function and trigger created
+- partial unique indexes created
+- singleton settings row created
+
+Run the same path a second time.
+
+Required:
+
+- second run clean
+- no duplicate trigger
+- no duplicate indexes
+- no duplicate settings row
+- no data loss
+
+==================================================
+6. VERIFY ROLLBACK GATES
+==================================================
+
+Test:
+
+A.
+RUN_STARTUP_MIGRATIONS=false
+
+B.
+RUN_STARTUP_MIGRATIONS=true
+ROLLBACK_VALIDATION_READ_ONLY=true
+
+C.
+RUN_STARTUP_MIGRATIONS=true
+ROLLBACK_FIRST_BOOT_READ_ONLY=true
+
+Prove no Run 1 migration SQL executes in all three blocked cases.
+
+==================================================
+7. VERIFY TRIGGER BEHAVIOR LIVE
+==================================================
+
+Prove with fixtures:
+
+- insert populates waiting_since_at
+- insert populates updated_at
+- unrelated update changes updated_at only
+- waiting_on change resets waiting_since_at
+- customer → voltsafe sets due_at NULL
+- completion sets completed_at
+- cancellation sets cancelled_at
+- second open action is rejected
+- completed history permits a new open action
+
+==================================================
+8. SQL / TYPESCRIPT EQUIVALENCE
+==================================================
+
+Build the SQL CASE expression for all ten states without wiring the UI.
+
+For fixtures covering every state and boundary, prove:
+
+SQL state = TypeScript state
+SQL bucket = TypeScript bucket
+
+Include:
+
+- 3 vs 4 days overdue
+- 14 vs 15 customer-wait days
+- null due_at using waiting_since_at
+- future and expired snooze
+- blocker precedence
+- unknown history
+- never contacted
+- completed/cancelled ignored
+- Vancouver DST transitions
+
+Run EXPLAIN ANALYZE for:
+
+- all 55,129 Leads
+- proposed active-work scope
+- first 50 Smart Priority results
+
+Report real timings and plans.
+
+==================================================
+9. GIT AND TEST REPORT
+==================================================
+
+Return:
+
+- branch
+- HEAD SHA
+- origin/main SHA
+- git status
+- pushed
+- deployed
+- every file changed
+- migration functions and exact batch
+- tests with exact pass/fail counts
+- npm run build result
+
+==================================================
+FINAL REPORT
+==================================================
+
+22-vs-19 verdict:
+Source NULL handling:
+Provenance groups:
+CRM-qualified count:
+Active-work definition:
+Active-work count:
+Explicit work_scope recommendation:
+effectiveDueAt corrected:
+Migration path verified:
+Second migration run:
+Rollback gates verified:
+Trigger verified:
+SQL/TS equivalence:
+EXPLAIN timings:
+Slip clean parse rate:
+Account proposals:
+Backfills applied:
+Production data modified:
+Tests:
+Build:
+Ready for Phase 2:
+
+Do not publish.
+Stop after the report.

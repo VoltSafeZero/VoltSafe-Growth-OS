@@ -171,6 +171,11 @@ export const accounts = pgTable("accounts", {
   slipCount: integer("slip_count"),
   // Phase 2D taxonomy fields — columns exist in DB via migration 0005
   marketSegment: text("market_segment"),
+  // Industry classification — independent of market_segment (Task #227 Blocker 2).
+  // Column added via migrateAccountsIndustryColumn(); backfilled from market_segment='marina'→'marine'.
+  // FILTER_INDUSTRY_OPTIONS values: marine|agnostic|utilities_grid|industrial|commercial_real_estate|
+  //   transportation|government|energy_infrastructure|manufacturing|other
+  industry: text("industry"),
   slipRange: text("slip_range"),
   segment: text("segment").notNull().default("marina"),
   slipMix: text("slip_mix"),

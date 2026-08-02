@@ -1035,12 +1035,11 @@ export class DatabaseStorage implements IStorage {
     if (options?.stateProvince) {
       conditions.push(eq(accounts.stateProvince, options.stateProvince));
     }
-    // `industry` maps to marketSegment for accounts (no separate primaryIndustry column).
-    // "marine" is the CRM default and maps to marketSegment='marina'.
-    // When both industry=marine AND marketSegment=marina are passed the condition is
-    // AND of the same predicate — redundant but correct (no double-counting).
-    if (options?.industry === "marine") {
-      conditions.push(eq(accounts.marketSegment, "marina"));
+    // `industry` filters on the dedicated accounts.industry column (Task #227 fix).
+    // This is independent of marketSegment — both filters may be applied simultaneously via AND.
+    // Backfilled: market_segment='marina' rows have industry='marine'.
+    if (options?.industry) {
+      conditions.push(eq(accounts.industry, options.industry));
     }
     if (options?.onlyPromoted) {
       conditions.push(sql`(accounts.converted_from_lead_id IS NULL OR EXISTS (SELECT 1 FROM leads WHERE leads.id = accounts.converted_from_lead_id AND leads.status = 'converted'))`);
