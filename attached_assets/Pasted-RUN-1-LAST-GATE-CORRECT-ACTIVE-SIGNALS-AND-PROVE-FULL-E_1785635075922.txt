@@ -1,0 +1,171 @@
+RUN 1 LAST GATE — CORRECT ACTIVE SIGNALS AND PROVE FULL EQUIVALENCE
+
+Do not begin Phase 2.
+Do not modify UI.
+Do not publish.
+Do not modify production data.
+
+==================================================
+1. FIX OPEN-TASK ELIGIBILITY
+==================================================
+
+Audit the exact tasks.status values and archival fields.
+
+The prior query used:
+
+status != 'completed'
+
+but the actual statuses are reported as pending, done, and dismissed.
+
+Replace negative matching with a positive active-task predicate using the real
+schema, for example:
+
+status = 'pending'
+AND completed_at IS NULL
+AND not archived
+
+Report the exact final predicate.
+
+Recalculate:
+
+- Leads qualifying by open task
+- Leads qualifying only by open task
+- dismissed tasks excluded
+- done tasks excluded
+- archived tasks excluded
+- final active-work total
+
+==================================================
+2. USE LEAD_COMMS_SUMMARY FOR COMMUNICATION
+==================================================
+
+Replace email_threads.primary_lead_id as the active-work communication signal.
+
+Use lead_comms_summary, the approved Lead communication source of truth:
+
+- incoming_count > 0
+- OR outgoing_count > 0
+- OR last_comm_at IS NOT NULL
+
+Report:
+
+- Leads qualifying by communication
+- Leads qualifying only by communication
+- overlap with owner/action/task
+- final active-work count
+
+Keep email_threads out of the canonical work-queue predicate unless it provides
+a signal not represented in lead_comms_summary.
+
+==================================================
+3. RETURN THE FINAL CANONICAL MY-WORK PREDICATE
+==================================================
+
+It must:
+
+- exclude source='test_suite'
+- include open Next Action
+- include assigned owner
+- include meaningful lead_comms_summary communication
+- include genuinely open linked task
+- exclude done, dismissed, completed, and archived tasks
+- allow promoted marina-directory records
+- not use CRM stage alone
+
+Return the exact SQL in one block and implement it through one reusable backend
+helper, not independently across routes.
+
+Do not wire it into the UI yet.
+
+==================================================
+4. COMPLETE TRUE SQL/TYPESCRIPT EQUIVALENCE
+==================================================
+
+The prior 17/17 table marked several N/A rows as PASS.
+
+Create fixtures where both SQL and TypeScript actually evaluate the final state
+and bucket for:
+
+- UNKNOWN
+- NEVER_CONTACTED
+- NO_ACTION
+- SCHEDULED
+- DUE null due
+- DUE today
+- DUE exactly 3 days overdue
+- CRITICAL exactly 4 days overdue
+- WAITING_CUSTOMER exactly 14 days
+- CUSTOMER_NUDGE_DUE exactly 15 days
+- BLOCKED
+- future SNOOZED
+- expired snooze
+- completed action ignored
+- cancelled action ignored
+
+Return:
+
+fixture | TS state | SQL state | TS bucket | SQL bucket | PASS/FAIL
+
+Required: 15/15 real comparisons. No N/A cells.
+
+Test Vancouver spring-forward and fall-back calendar arithmetic separately and
+report those as calendar-helper tests, not fake SQL bucket comparisons.
+
+==================================================
+5. PROVE APPLICATION MIGRATION WIRING
+==================================================
+
+On a clean disposable database/schema, provide:
+
+- exact launch command
+- environment variables
+- first-run startup logs showing the named migration functions invoked
+- second-run startup logs showing clean idempotent execution
+- database identity
+- object absence before first run
+- object presence after first run
+
+The proof must run through server/index.ts and the actual migration function
+calls. Do not describe copied DDL execution as application-path verification.
+
+==================================================
+6. FINAL EXPLAIN
+==================================================
+
+Run EXPLAIN ANALYZE using the corrected final My Work predicate and Smart
+Priority ordering, LIMIT 50.
+
+Return:
+
+- eligible count
+- planning time
+- execution time
+- sort method
+- memory
+- indexes used
+- rows removed by filter
+
+==================================================
+FINAL REPORT
+==================================================
+
+Correct open-task predicate:
+Done/dismissed tasks excluded:
+Canonical communication source:
+Final My Work SQL:
+Final active-work count:
+Test-suite rows included:
+SQL/TS equivalence:
+DST helper tests:
+Real application migration path:
+Second application migration run:
+Final EXPLAIN:
+Git SHA:
+Files changed:
+Tests:
+Build:
+Production data modified:
+Ready for Phase 2:
+
+Do not publish.
+Stop after the report.
