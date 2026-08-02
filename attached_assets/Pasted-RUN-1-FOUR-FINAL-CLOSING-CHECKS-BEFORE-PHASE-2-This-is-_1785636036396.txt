@@ -1,0 +1,255 @@
+RUN 1 — FOUR FINAL CLOSING CHECKS BEFORE PHASE 2
+
+This is a narrow verification pass only.
+
+Do not modify UI.
+Do not begin Phase 2.
+Do not publish or deploy.
+Do not modify production data.
+Do not change the Next Action architecture.
+Do not rerun unrelated Task #227 work.
+Do not make speculative claims.
+
+==================================================
+1. REPLAY THE EXACT “22 LEADS” FILTER
+==================================================
+
+The Leads screenshot showed:
+
+- Industry / Segment: Marine
+- Market Segment / Type: Marina
+- Stage: Prospect
+
+Replay the exact query used by the Leads page using the real client state,
+API parameter names, storage-layer branches, database columns, and stored enum
+values.
+
+Report all four layers:
+
+1. UI labels shown
+2. React state values
+3. Exact /api/leads query parameters
+4. Exact SQL predicate executed
+
+Run the exact count query.
+
+Return:
+
+- current count
+- whether it equals 22
+- delta from 22
+- overlap count with the final 21-row My Work predicate
+- rows in the screenshot-filter result but not My Work
+- rows in My Work but not the screenshot-filter result
+
+Do not claim deletion, status changes, caching, or an environment difference
+unless direct evidence proves it.
+
+If the current result is 19 and no historical evidence explains 22, report:
+
+22-count verdict: UNRESOLVED HISTORICAL DIFFERENCE
+
+Also report:
+
+- total Leads with non-empty legacy slips
+- total Leads without slips
+- slip-count Leads inside this exact three-filter result
+- slip-count Leads outside it
+
+Keep the 47,588 missing-slip count as corroborating data-quality evidence, but
+do not claim it independently proves import provenance.
+
+==================================================
+2. VERIFY TEST_SUITE ENVIRONMENT SCOPE
+==================================================
+
+The development database contains 39,733 Leads with:
+
+source = 'test_suite'
+
+Determine whether the same source value exists in production.
+
+Use safe read-only access only.
+
+Report separately:
+
+DEVELOPMENT:
+- current_database()
+- total Leads
+- source='test_suite' count
+- percentage of Leads
+
+PRODUCTION:
+- whether read-only database access is available
+- current_database(), if available
+- total Leads
+- source='test_suite' count
+- percentage of Leads
+
+Return exactly one production verdict:
+
+- ABSENT FROM PRODUCTION
+- PRESENT IN PRODUCTION
+- UNKNOWN — PRODUCTION DATABASE NOT VERIFIED
+
+Do not infer production state from development.
+
+If present in production, state plainly that this is a production data-hygiene
+issue requiring a separate cleanup plan.
+
+If absent from production, state plainly that the permanent production queue
+should not require a test_suite workaround solely because development is
+contaminated, although development queries and automated tests must still
+exclude it until cleanup occurs.
+
+Do not delete or update any test_suite records in this run.
+
+==================================================
+3. RECHECK SMART-PRIORITY QUERY PERFORMANCE
+==================================================
+
+The previous EXPLAIN reported:
+
+- planning time: 181.540 ms
+- execution time: 11.885 ms
+
+That planning time is unusually high.
+
+Run ANALYZE on the development tables used by the canonical My Work query:
+
+- leads
+- tasks
+- lead_comms_summary
+- next_actions
+
+ANALYZE is allowed in development only.
+Do not run VACUUM FULL.
+Do not modify production.
+
+Then run the exact canonical My Work + Smart Priority query using:
+
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE, SETTINGS)
+
+Run it twice:
+
+A. First run after ANALYZE
+B. Immediate warm repeat
+
+Use the final predicate:
+
+- exclude source='test_suite' in development
+- include open Next Action
+- include assigned owner
+- include meaningful lead_comms_summary activity
+- include genuinely open linked task
+- exclude completed, done, dismissed, and archived tasks
+- Smart Priority SQL ordering
+- LIMIT 50
+
+For both runs report:
+
+- eligible row count
+- planning time
+- execution time
+- total time
+- sort method
+- sort memory
+- shared buffer hits
+- shared buffer reads
+- rows removed by filter
+- indexes used
+- sequential scans used
+- whether planning time materially decreased after ANALYZE
+- whether warm execution improved
+
+Do not call the first run “cold” unless shared buffer reads prove it was
+actually cold. Label it accurately as:
+
+- post-ANALYZE first run
+- immediate warm repeat
+
+Explain whether the query is safe for every Leads-page load at current scale.
+
+If planning time remains unusually high, identify the likely source from the
+plan rather than guessing.
+
+==================================================
+4. REPORT EXACT GIT / DELIVERY STATE
+==================================================
+
+Run and report:
+
+- repository root
+- current branch
+- local HEAD SHA
+- origin/main SHA
+- git status --short
+- commits ahead of origin/main
+- commits behind origin/main
+- whether Run 1 commits are pushed
+- whether Run 1 is deployed
+- whether the working tree contains unrelated modified or untracked files
+
+Use:
+
+git rev-parse --show-toplevel
+git branch --show-current
+git rev-parse HEAD
+git rev-parse origin/main
+git status --short
+git rev-list --left-right --count origin/main...HEAD
+
+Do not infer pushed or deployed status from a local commit alone.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return exactly:
+
+22-filter UI labels:
+22-filter client values:
+22-filter API parameters:
+22-filter SQL:
+22-filter current count:
+Equals 22:
+Overlap with My Work:
+22-count verdict:
+
+Leads with slips:
+Leads without slips:
+Slip rows inside filter:
+Slip rows outside filter:
+
+Development test_suite count:
+Development test_suite percentage:
+Production test_suite verdict:
+Production test_suite count:
+Production cleanup required:
+
+ANALYZE completed:
+Post-ANALYZE first-run planning time:
+Post-ANALYZE first-run execution time:
+Warm-repeat planning time:
+Warm-repeat execution time:
+Buffers:
+Indexes used:
+Performance verdict:
+
+Repository root:
+Branch:
+HEAD SHA:
+origin/main SHA:
+Ahead:
+Behind:
+Git status:
+Pushed:
+Deployed:
+Unrelated working-tree changes:
+
+Production data modified:
+Code files changed in this run:
+Ready for Phase 2: YES or NO
+
+Do not proceed to Phase 2.
+Stop after this report.
