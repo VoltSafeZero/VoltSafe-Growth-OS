@@ -1,0 +1,206 @@
+RUN 1 FINAL ACCEPTANCE — ADDENDUM
+
+Do not change or remove any existing acceptance sections. Insert Section 1B before Section 2, add Section 2B beside the existing predicate analysis, and add the three requested lines to the Final Verdict.
+
+SECTION 1B — RECONCILE “22 LEADS” BY EXACT FILTER REPLAY
+
+The Leads page screenshot shows three active dropdown selections, not default or “All” values:
+
+- Segment = Marine
+- Type = Marina
+- Stage = Prospect
+
+Do not explain the visible 22-row result using pagination, default sorting, environment differences, or stale state until the exact filter combination has been tested.
+
+Run the exact database query equivalent to the production /api/leads request for:
+
+segment = Marine
+AND type = Marina
+AND stage = Prospect
+
+Use the real database columns and stored enum values. Do not assume the visible display labels exactly match the stored values.
+
+Report:
+
+1. The exact SQL executed.
+2. The count returned.
+3. Whether the count equals 22.
+4. If it does not equal 22:
+   - the precise difference;
+   - whether pagination explains only the displayed page size rather than the total count;
+   - whether there is another server-side or client-side filter;
+   - whether deleted, archived, hidden, permission-restricted, or stale-cache records explain the difference;
+   - the exact request payload and query parameters captured from the UI.
+
+Explicitly capture and report the value of every dropdown and filter at screenshot/request time. Do not merely say “filters were applied.”
+
+Also report:
+
+- Of the 7,541 leads with a non-empty slip count, how many are inside this exact Marine + Marina + Prospect combination?
+- How many are outside it?
+- Of the full 55,129 leads, how many have no slip count?
+- Confirm whether that number is 47,588.
+- Whether the missing-slip-count population independently supports the bulk-import-record theory.
+
+Treat the 47,588 leads with no slip count as material corroborating evidence. Do not discard it merely because slip count is not the primary eligibility field. It is a second, independent signal alongside the finding that only one imported lead has populated communication data.
+
+Only proceed to the broader request-trace explanation from Section 1 if the exact filter replay does not reconcile the count of 22.
+
+SECTION 2B — PREFER EXCLUSION BY SOURCE OVER INCLUSION BY SIGNAL
+
+The existing candidate predicates based on owner, communications, open tasks, edits, or stage may still be calculated for comparison. However, do not make an OR-of-positive-signals heuristic the default architecture without first checking whether imported records can be identified directly.
+
+A behavioral predicate such as:
+
+owner exists
+OR communication exists
+OR open task exists
+OR meaningful edit exists
+OR stage changed
+
+tries to infer whether a record is “real” from side effects. That logic will drift and require re-auditing whenever another bulk import occurs or the imported data shape changes.
+
+There is a visible “Import Marinas” action in the application. The system must classify future imports correctly at ingestion time rather than repeatedly guessing later.
+
+First inspect the leads schema, import code, migrations, and import workflow for fields such as:
+
+- source
+- origin
+- source_type
+- import_batch_id
+- imported_at
+- import_source
+- ingestion_source
+- created_by_import
+- external_dataset
+- provider
+
+Report:
+
+1. Whether an import-source or batch field already exists.
+2. The exact column name and type.
+3. The values currently stored.
+4. The exact value or values representing the marina-directory import.
+5. Whether all existing imported marina rows are consistently tagged.
+6. Whether organic, manual, converted, or promoted leads are distinguishable.
+
+IF A SOURCE FIELD ALREADY EXISTS
+
+Calculate and report predicate E:
+
+NOT marina-import source
+
+For example:
+
+source IS DISTINCT FROM 'marina_import'
+
+Use the actual schema and stored value, not this illustrative literal.
+
+Report:
+
+- eligible count under E;
+- excluded imported count;
+- overlap with predicates B, C, and D;
+- records included by E but excluded by the behavioral predicates;
+- records excluded by E but included by the behavioral predicates.
+
+Also calculate the combined predicate:
+
+NOT imported
+OR (
+    imported
+    AND (
+        owner exists
+        OR communication exists
+        OR open task exists
+        OR another explicitly approved promotion signal exists
+    )
+)
+
+Report its exact count and row-level differences from B, C, D, and E.
+
+IF NO SOURCE FIELD EXISTS
+
+Recommend adding a durable import-origin field as part of Phase 1, such as:
+
+source TEXT NULL
+
+or a controlled enum if the codebase already uses enums safely.
+
+Required future behavior:
+
+- Every new marina-directory import must set source = 'marina_import' or the approved equivalent.
+- Every import run should also receive an import_batch_id where practical.
+- Organic/manual leads must receive a separate explicit source value or remain distinguishable through a documented null/default policy.
+- Promoting an imported lead into active work must not erase its origin. Promotion state should be represented separately from import provenance.
+
+Prepare a one-time backfill plan for the existing imported population.
+
+The backfill proposal must include:
+
+- the evidence used to identify the approximately 55,000 imported rows;
+- safeguards against tagging organic leads incorrectly;
+- dry-run counts;
+- ambiguous-row handling;
+- rollback SQL;
+- verification queries;
+- estimated implementation scope.
+
+Do not execute the backfill during this acceptance run unless explicitly authorized. Report the plan only.
+
+ARCHITECTURAL DECISION
+
+State plainly which design should become the Phase 2 default:
+
+A. exclusion-by-source;
+B. inclusion-by-behavioral-signal;
+C. combined source + promotion logic.
+
+The preferred long-term shape should normally be:
+
+NOT imported
+OR imported-and-explicitly-promoted
+
+Import provenance must be durable and assigned at ingestion. Owner, communications, task, edit, and stage signals may define promotion or active-work status, but they must not substitute for identifying the import source itself.
+
+Explain why the selected design remains correct when:
+
+- “Import Marinas” is clicked again;
+- a new import provider is introduced;
+- imported records begin arriving with more populated fields;
+- an imported lead receives one email or task;
+- an imported lead is manually promoted;
+- a previously organic lead is updated;
+- the importer is rerun idempotently.
+
+SQL / TYPESCRIPT EQUIVALENCE
+
+Any final eligibility rule must have one canonical definition.
+
+Prove that:
+
+- the SQL query;
+- backend predicate;
+- API count;
+- frontend count;
+- tests;
+- cleanup script;
+- future importer behavior
+
+all implement the same semantics.
+
+Do not accept two independently maintained approximations.
+
+FINAL VERDICT — ADD THESE LINES
+
+22-count arithmetic match (Marine + Marina + Prospect):
+Source/import-batch field exists:
+Recommended predicate: exclusion-by-source / inclusion-by-signal / combined:
+
+Also state:
+
+Missing slip-count corroboration:
+- Total leads:
+- Leads with non-empty slip count:
+- Leads with no slip count:
+- Does this independently support the import-record conclusion? YES / NO, with evidence.
