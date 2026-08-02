@@ -1,0 +1,787 @@
+Yes. At this point I would consolidate everything into one master prompt. It incorporates the improvements from the audit, prevents Replit from guessing architecture, and forces it to stop at the right checkpoints instead of blindly coding.
+
+⸻
+
+VoltSafe CMS – Leads & Accounts Next Action System (MASTER IMPLEMENTATION PROMPT)
+
+IMPORTANT EXECUTION RULES
+
+This is a multi-phase implementation.
+
+Do NOT skip phases.
+
+After each phase:
+
+* stop,
+* provide a detailed report,
+* wait for approval before continuing.
+
+Do NOT publish or deploy.
+
+Do NOT modify production data.
+
+Do NOT make assumptions when information can be verified.
+
+⸻
+
+PHASE 0 — READ-ONLY AUDIT (NO CODE CHANGES)
+
+This phase is read-only.
+
+Do NOT create migrations.
+
+Do NOT change code.
+
+Do NOT change data.
+
+Your goal is to verify the existing architecture before implementation.
+
+⸻
+
+A. Dataset reconciliation
+
+The Leads page currently displays approximately 22 working leads, while the development database audit reported approximately 55,129 lead records.
+
+Determine:
+
+* total lead count
+* total account count
+* exact default Leads page filter
+* exact default Accounts page filter
+* whether the 55k records are imported marina directory data
+* how many are active working leads
+* how many have owners
+* how many have communications
+* how many have tasks
+* how many have ever been edited
+
+State clearly whether:
+
+* the 22 visible leads are simply a filtered subset
+* or a completely different dataset.
+
+⸻
+
+B. Communications verification
+
+The UI clearly shows multiple leads with email history.
+
+Examples include:
+
+* Shelter Bay Marina
+* Old Town Bay Marina
+* Eldorado Resort Marina
+* Marina Sicamous
+
+Verify:
+
+* lead_comms_summary
+* email_threads
+* email_messages
+* activities
+
+Determine:
+
+* which table actually drives the email count shown in the Leads page
+* whether lead_comms_summary is complete
+* whether the join is broken
+* whether development simply lacks production communications
+
+If the four example marinas resolve to “never contacted”, diagnose WHY.
+
+Do not “fix” anything.
+
+⸻
+
+C. Existing schema audit
+
+Report:
+
+Identifier types
+
+Current FK patterns
+
+Owner model
+
+Existing settings infrastructure
+
+Task architecture
+
+Soft delete vs hard delete
+
+Communication architecture
+
+Whether polymorphic references already exist
+
+Whether there is already a safe next-action model.
+
+⸻
+
+D. Existing fields
+
+Report whether these already exist.
+
+Leads
+
+* fit
+* priority
+* pedestal_count
+* shore_power_coverage_pct
+* deal_value_override
+
+Accounts
+
+* fit
+* priority
+* next_action
+* next_action_owner
+* next_action_date
+
+Communication timestamps
+
+* first_contact
+* last_inbound
+* last_outbound
+
+State whether they should be:
+
+* derived
+* stored
+* left untouched.
+
+⸻
+
+E. Smart Priority feasibility
+
+Verify whether Smart Priority can be sorted completely in SQL.
+
+Do NOT assume TypeScript sorting is acceptable.
+
+Report:
+
+EXPLAIN ANALYZE
+
+Planner
+
+Indexes used
+
+Estimated runtime
+
+Whether SQL CASE ordering is required.
+
+⸻
+
+STOP
+
+Provide a report.
+
+Wait for approval.
+
+⸻
+
+PHASE 1 — DATABASE FOUNDATION
+
+Only after approval.
+
+⸻
+
+Create a dedicated Next Actions system.
+
+Do NOT extend Tasks.
+
+Do NOT modify Currents.
+
+Do NOT modify Mail.
+
+⸻
+
+New table
+
+Use explicit foreign keys.
+
+NOT polymorphic subject_type.
+
+lead_id
+account_id
+
+Exactly one must exist.
+
+CHECK constraint.
+
+Partial unique indexes.
+
+One open Next Action per Lead.
+
+One open Next Action per Account.
+
+⸻
+
+Fields include
+
+title
+
+description
+
+owner_user_id
+
+created_by_user_id
+
+waiting_on
+
+waiting_since_at
+
+due_at
+
+blocker
+
+snoozed_until
+
+completed_at
+
+cancelled_at
+
+created_at
+
+updated_at
+
+status
+
+⸻
+
+waiting_on has only
+
+VoltSafe
+
+Customer
+
+No third state.
+
+⸻
+
+waiting_since_at
+
+Required.
+
+Automatically maintained.
+
+Updated whenever waiting_on changes.
+
+Never derived from communications.
+
+⸻
+
+due_at
+
+Nullable.
+
+NULL means:
+
+Immediately due.
+
+Never use created_at for due calculations.
+
+Smart Priority uses
+
+effectiveDueAt =
+COALESCE(due_at, waiting_since_at)
+
+⸻
+
+Triggers
+
+Automatically maintain
+
+updated_at
+
+waiting_since_at
+
+completed_at
+
+cancelled_at
+
+Clear due_at when ownership returns to VoltSafe.
+
+⸻
+
+Settings
+
+Create dedicated org_settings.
+
+Do NOT reuse system_settings.
+
+All assumptions editable.
+
+No hardcoded constants.
+
+⸻
+
+Estimated Value assumptions
+
+Hardware revenue per pedestal
+
+Connector count
+
+SaaS per connector
+
+Replacement %
+
+Penetration %
+
+Shore power %
+
+All nullable.
+
+If incomplete,
+
+return NULL,
+
+never fake a value.
+
+⸻
+
+Migration safety
+
+Idempotent.
+
+Rollback.
+
+No destructive updates.
+
+No startup DDL.
+
+No TRUNCATE.
+
+No DROP.
+
+⸻
+
+Dry-run backfill ONLY
+
+Never modify data.
+
+Generate a report.
+
+For each proposed record:
+
+Current communication state
+
+Suggested Next Action
+
+Reason
+
+Waiting On
+
+Due date
+
+Owner
+
+Do NOT apply.
+
+⸻
+
+Unit tests
+
+All state transitions.
+
+Partial unique indexes.
+
+Trigger behavior.
+
+Waiting_since resets.
+
+Expired snooze.
+
+DST.
+
+Calendar day math.
+
+Estimated Value.
+
+Migration safety.
+
+Rollback.
+
+⸻
+
+STOP.
+
+Wait for approval.
+
+⸻
+
+PHASE 2 — STATUS ENGINE
+
+Build one pure function.
+
+Returns exactly:
+
+UNKNOWN
+
+NEVER_CONTACTED
+
+NO_ACTION
+
+SCHEDULED
+
+DUE
+
+CRITICAL
+
+WAITING_CUSTOMER
+
+CUSTOMER_NUDGE_DUE
+
+BLOCKED
+
+SNOOZED
+
+⸻
+
+Order
+
+1
+
+Future Snooze
+
+2
+
+Blocked
+
+3
+
+Customer Wait
+
+4
+
+VoltSafe Due
+
+5
+
+Never Contacted
+
+6
+
+Unknown
+
+7
+
+No Action
+
+⸻
+
+UNKNOWN
+
+Used only when reliable communication history cannot be determined.
+
+Never render green.
+
+⸻
+
+Calendar-day arithmetic only.
+
+America/Vancouver.
+
+No timestamp subtraction.
+
+⸻
+
+Smart Priority
+
+Ordinal buckets only.
+
+Never additive weights.
+
+Tie-breaks
+
+effectiveDueAt
+
+manual priority
+
+estimated value
+
+fit
+
+stable ID
+
+⸻
+
+Expose
+
+bucket
+
+effectiveDueAt
+
+bucket reason
+
+source field
+
+for explainability.
+
+⸻
+
+SQL implementation
+
+Implement equivalent CASE ordering in SQL.
+
+Do NOT sort in TypeScript.
+
+Add equivalence tests proving SQL and TS return identical buckets.
+
+⸻
+
+STOP.
+
+Wait.
+
+⸻
+
+PHASE 3 — UI
+
+Rename
+
+Comm Status
+
+to
+
+Waiting On
+
+⸻
+
+Waiting On icons
+
+UNKNOWN
+
+Gray hollow
+
+NEVER_CONTACTED
+
+Gray solid
+
+NO_ACTION
+
+Green solid
+
+SCHEDULED
+
+Amber hollow
+
+DUE
+
+Amber solid
+
+CRITICAL
+
+Red solid
+
+WAITING_CUSTOMER
+
+Blue solid
+
+CUSTOMER_NUDGE_DUE
+
+Blue hollow
+
+BLOCKED
+
+Slate solid
+
+SNOOZED
+
+Gray hollow
+
+No animations.
+
+No countdown rings.
+
+Rows remain one line.
+
+Tooltip includes
+
+Next Action
+
+Owner
+
+Due date
+
+Reason
+
+Blocker
+
+Deep link
+
+⸻
+
+Default Lead columns
+
+Company
+
+Waiting On
+
+Stage
+
+Priority
+
+Location
+
+Slip Count
+
+Estimated Value
+
+Actions
+
+⸻
+
+Default Account columns
+
+Account
+
+Waiting On
+
+Status
+
+Location
+
+Installed Pedestals
+
+Last Activity
+
+Actions
+
+Only if backed by real production data.
+
+⸻
+
+Owner
+
+Recommended automatically when multiple owners exist.
+
+Never forced.
+
+⸻
+
+STOP.
+
+Wait.
+
+⸻
+
+PHASE 4 — SORTS, FILTERS, PRESETS
+
+Replace Sort menu with
+
+Smart Priority
+
+Most Overdue
+
+Due Soonest
+
+Longest Silence
+
+Biggest Opportunity
+
+Recently Added
+
+⸻
+
+Visible filters
+
+Search
+
+Segment
+
+Stage
+
+Waiting On
+
+Everything else inside
+
+More Filters.
+
+⸻
+
+Saved views
+
+Leads
+
+My Work
+
+Pipeline
+
+Prospecting
+
+Accounts
+
+All Accounts
+
+At Risk
+
+⸻
+
+Prospecting must contain imported untouched marinas.
+
+Smart Priority must NOT bury active work beneath imported records.
+
+Recommend the best implementation based on the audit:
+
+• active-work eligibility
+• owner gating
+• stage gating
+• filtered default view
+
+Do not assume.
+
+Explain your recommendation.
+
+⸻
+
+FINAL REPORT
+
+Include
+
+Files changed
+
+Schema
+
+Indexes
+
+Triggers
+
+Settings
+
+Dry-run results
+
+Migration safety
+
+Rollback safety
+
+Build
+
+Tests
+
+Git SHA
+
+Publish status
+
+Deployment status
+
+Known risks
+
+Recommended next steps
+
+Stop.
+
+Do not publish.
+
+Wait for approval before every phase.
+
+⸻
+
+I think this version is stronger than the evolving prompts because it incorporates the critical corrections that emerged from the audits:
+
+* It separates the audit from implementation.
+* It avoids guessing schema or tenancy.
+* It introduces an UNKNOWN state to avoid falsely showing “No Action Needed.”
+* It uses waiting_since_at instead of created_at for immediate-due ordering.
+* It requires SQL-based Smart Priority for scalability.
+* It explicitly prevents imported prospect records from overwhelming the active work queue.
+* It enforces phased checkpoints so you don’t pay for large rewrites if an early architectural assumption turns out to be wrong.
