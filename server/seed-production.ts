@@ -2653,6 +2653,12 @@ export async function migrateUserColumnPrefsConstraints(): Promise<void> {
 
 // ── Next Actions Foundation — Run 1 ──────────────────────────────────────────
 export async function migrateNextActionsSchema(): Promise<void> {
+  // Gate: respect ROLLBACK_VALIDATION_READ_ONLY / ROLLBACK_FIRST_BOOT_READ_ONLY
+  if (process.env.ROLLBACK_VALIDATION_READ_ONLY === "true"
+    || process.env.ROLLBACK_FIRST_BOOT_READ_ONLY === "true") {
+    console.log("[rollback-gate] migrateNextActionsSchema SKIPPED (read-only mode active)");
+    return;
+  }
   try {
     // 1. Create next_actions table with CHECK constraints
     await db.execute(sql.raw(`
@@ -2775,6 +2781,12 @@ export async function migrateNextActionsSchema(): Promise<void> {
 // onConflictDoNothing() actually prevents duplicate rows.
 // opportunity_contacts already had this constraint from the initial migration.
 export async function migrateContactLinkConstraints(): Promise<void> {
+  // Gate: respect ROLLBACK_VALIDATION_READ_ONLY / ROLLBACK_FIRST_BOOT_READ_ONLY
+  if (process.env.ROLLBACK_VALIDATION_READ_ONLY === "true"
+    || process.env.ROLLBACK_FIRST_BOOT_READ_ONLY === "true") {
+    console.log("[rollback-gate] migrateContactLinkConstraints SKIPPED (read-only mode active)");
+    return;
+  }
   try {
     await db.execute(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS uq_account_contacts_pair
@@ -2792,6 +2804,12 @@ export async function migrateContactLinkConstraints(): Promise<void> {
 
 // ── Org Settings Singleton — Run 1 ───────────────────────────────────────────
 export async function migrateOrgSettingsSchema(): Promise<void> {
+  // Gate: respect ROLLBACK_VALIDATION_READ_ONLY / ROLLBACK_FIRST_BOOT_READ_ONLY
+  if (process.env.ROLLBACK_VALIDATION_READ_ONLY === "true"
+    || process.env.ROLLBACK_FIRST_BOOT_READ_ONLY === "true") {
+    console.log("[rollback-gate] migrateOrgSettingsSchema SKIPPED (read-only mode active)");
+    return;
+  }
   try {
     // 1. Create table
     await db.execute(sql.raw(`

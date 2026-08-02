@@ -208,27 +208,48 @@ export interface SmartPriorityInput {
   status:          NextActionStatus;
   dueAt:           Date | null;
   waitingSinceAt:  Date | null;
+  /** Retained for backward compat. NOT used in due-date ordering (spec §4). */
   createdAt:       Date;
   manualPriority:  'high' | 'medium' | 'low' | null;
   primaryValue:    number | null;
   fit:             'high' | 'medium' | 'low' | null;
   id:              number;
+  /** For overdueCalendarDays computation. Defaults to new Date() if omitted. */
+  now?:            Date;
+  /** For DST-safe calendar day arithmetic. Defaults to 'America/Vancouver' if omitted. */
+  orgTimezone?:    string;
 }
 
 export interface SmartPriorityResult {
   /** 1–10 ordinal bucket (1 = highest urgency). */
-  bucket:             number;
+  bucket:              number;
   /** Timestamp most relevant to this state, for display and tie-breaking. */
-  relevantTimestamp:  Date | null;
+  relevantTimestamp:   Date | null;
   /**
    * Effective due timestamp for tie-breaking within DUE bucket.
-   * NULL due_at is replaced by createdAt so it sorts FIRST (most urgent).
+   * = dueAt ?? waitingSinceAt ?? null
+   * createdAt is NOT used (spec §4: "createdAt has no effect on due ordering").
+   * null-due action waiting 10 days → effectiveDueAt=10-days-ago → sorts FIRST (most urgent).
+   * null-due action waiting 0 days  → effectiveDueAt=today        → sorts LAST within DUE bucket.
+   * null means both dueAt and waitingSinceAt are null (treated as Infinity in sort).
    */
-  effectiveDueAt:     Date;
-  manualPriorityRank: number;  // 1=high, 2=medium, 3=low, 4=unset
-  value:              number;  // higher = higher priority (negated for sort)
-  fitRank:            number;  // 1=high, 2=medium, 3=low, 4=unset
-  id:                 number;
+  effectiveDueAt:      Date | null;
+  /**
+   * Which field supplied effectiveDueAt.
+   * 'dueAt'        — explicit due date was set
+   * 'waitingSinceAt' — no due date; urgency derived from how long it has been waiting
+   * null           — both dueAt and waitingSinceAt are null
+   */
+  effectiveDueSource:  'dueAt' | 'waitingSinceAt' | null;
+  /**
+   * Positive calendar days since effectiveDueAt; null if not yet due or no effectiveDueAt.
+   * Computed using DST-safe calendar arithmetic in orgTimezone.
+   */
+  overdueCalendarDays: number | null;
+  manualPriorityRank:  number;  // 1=high, 2=medium, 3=low, 4=unset
+  value:               number;  // higher = higher priority (negated for sort)
+  fitRank:             number;  // 1=high, 2=medium, 3=low, 4=unset
+  id:                  number;
 }
 
 /**
@@ -237,10 +258,25 @@ export interface SmartPriorityResult {
  */
 export function computeSmartPriority(input: SmartPriorityInput): SmartPriorityResult {
   const bucket = STATUS_BUCKET[input.status];
+  const now         = input.now         ?? new Date();
+  const orgTimezone = input.orgTimezone ?? 'America/Vancouver';
 
-  // effectiveDueAt: NULL due_at = immediately due → use createdAt so it sorts FIRST
-  // (ascending sort: createdAt will be earlier than any future due date)
-  const effectiveDueAt = input.dueAt ?? input.createdAt;
+  // effectiveDueAt = dueAt ?? waitingSinceAt ?? null  (spec §4)
+  // createdAt is intentionally NOT used — "createdAt has no effect on due ordering."
+  // null-due action waiting 10d → effectiveDueAt=10d-ago → sorts FIRST (most urgent within DUE)
+  // null-due action waiting 0d  → effectiveDueAt=today   → sorts LAST within DUE bucket
+  const effectiveDueAt: Date | null = input.dueAt ?? input.waitingSinceAt ?? null;
+  const effectiveDueSource: 'dueAt' | 'waitingSinceAt' | null =
+    input.dueAt !== null       ? 'dueAt' :
+    input.waitingSinceAt !== null ? 'waitingSinceAt' :
+    null;
+
+  // overdueCalendarDays: positive integer if effectiveDueAt is in the past; null otherwise.
+  let overdueCalendarDays: number | null = null;
+  if (effectiveDueAt !== null) {
+    const days = calendarDaysBetween(effectiveDueAt, now, orgTimezone);
+    overdueCalendarDays = days > 0 ? days : null;
+  }
 
   // Relevant timestamp — the timestamp that most directly drives urgency.
   // For DUE/CRITICAL: use effectiveDueAt (not raw dueAt which may be null).
@@ -260,6 +296,8 @@ export function computeSmartPriority(input: SmartPriorityInput): SmartPriorityRe
     bucket,
     relevantTimestamp,
     effectiveDueAt,
+    effectiveDueSource,
+    overdueCalendarDays,
     manualPriorityRank: MANUAL_PRIORITY_RANK[input.manualPriority ?? ''] ?? 4,
     value:              input.primaryValue ?? 0,
     fitRank:            FIT_RANK[input.fit ?? ''] ?? 4,
@@ -288,7 +326,7 @@ export function compareSmartPriority(a: SmartPriorityResult, b: SmartPriorityRes
   const bTs = b.relevantTimestamp?.getTime() ?? Infinity;
   if (aTs !== bTs) return aTs - bTs;
 
-  // Tie-break 2: effectiveDueAt ASC (NULL due_at → createdAt → sorts first)
+  // Tie-break 2: effectiveDueAt ASC (null = no due date → sorts last = lowest urgency)
   const aDue = a.effectiveDueAt.getTime();
   const bDue = b.effectiveDueAt.getTime();
   if (aDue !== bDue) return aDue - bDue;
