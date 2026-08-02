@@ -1759,6 +1759,7 @@ function LeadDetailDialog({
   initialThreadId?: number;
 }) {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [editing, setEditing] = useState(false);
 
   const { data: freshLead } = useQuery<Lead>({
@@ -1814,7 +1815,7 @@ function LeadDetailDialog({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <ExpandableDialogContent popupClassName="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh]" contentClassName="overflow-y-auto overflow-x-hidden p-0">
+      <ExpandableDialogContent popupClassName="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh]" contentClassName="overflow-y-auto overflow-x-hidden p-0" onExpand={() => { setLocation(`/opportunities/${lead.id}`); onClose(); }}>
         <div className="w-full min-w-0 overflow-hidden p-6 pb-4">
         <DialogHeader>
           <div className="flex items-start gap-3">

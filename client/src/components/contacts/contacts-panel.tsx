@@ -61,7 +61,10 @@ export function ContactsPanel({
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey });
     queryClient.refetchQueries({ queryKey, type: "active" });
+    // Profile, record card, and list — all may display the contact count
     queryClient.invalidateQueries({ queryKey: [`/api/${PATH[entityType]}`, entityId, "profile"] });
+    queryClient.invalidateQueries({ queryKey: [`/api/${PATH[entityType]}`, entityId] });
+    queryClient.invalidateQueries({ queryKey: [`/api/${PATH[entityType]}`] });
   };
 
   const removeMut = useMutation({
@@ -74,7 +77,7 @@ export function ContactsPanel({
     <div className="space-y-2" data-testid={`contacts-panel-${entityType}-${entityId}`}>
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">{rows.length} {rows.length === 1 ? "contact" : "contacts"}</span>
-        {canEdit && (
+        {canEdit && !!entityId && entityId > 0 && (
           <AddContactPopover entityType={entityType} entityId={entityId} alreadyLinked={rows.map(r => r.contactId)} onAdded={invalidate} />
         )}
       </div>
@@ -249,10 +252,50 @@ function AddContactPopover({
   const filtered = Array.isArray(contacts) ? contacts.filter((c: any) => !linkedSet.has(c.id)) : [];
   const base = `/api/${PATH[entityType]}/${entityId}/contacts`;
 
+  // Guard: never fire a request with an invalid entity ID (0, NaN, undefined)
+  const entityIdValid = !!entityId && entityId > 0 && !isNaN(entityId);
+
   const link = useMutation({
-    mutationFn: (contactId: number) => apiRequest("POST", base, { contactId }),
-    onSuccess: () => {
-      toast({ title: "Contact linked", description: "Contact added to this record." });
+    mutationFn: async (contactId: number) => {
+      if (!entityIdValid) throw new Error("Parent record ID is not yet available — please wait and try again.");
+      const r = await apiRequest("POST", base, { contactId });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.message || `Server error ${r.status}`);
+      }
+      return r.json() as Promise<{ created: boolean; alreadyLinked: boolean; id: number; contactId: number }>;
+    },
+    onSuccess: async (data) => {
+      // Refetch the authoritative list and verify the contact is present
+      // before showing success — never toast on mutation callback alone.
+      await queryClient.invalidateQueries({ queryKey: [base] });
+      let confirmed = data.alreadyLinked;
+      if (!confirmed) {
+        try {
+          const list = await queryClient.fetchQuery<ContactRow[]>({
+            queryKey: [base],
+            queryFn: async () => {
+              const r = await fetch(base, { credentials: "include" });
+              if (!r.ok) throw new Error("Failed to load contacts");
+              return r.json();
+            },
+            staleTime: 0,
+          });
+          confirmed = Array.isArray(list) && list.some(r => r.contactId === data.contactId);
+        } catch {
+          confirmed = false;
+        }
+      }
+      if (confirmed || data.alreadyLinked) {
+        toast({
+          title: data.alreadyLinked ? "Already linked" : "Contact linked",
+          description: data.alreadyLinked
+            ? "This contact is already on this record."
+            : "Contact added to this record.",
+        });
+      } else {
+        toast({ title: "Link may not have saved — please refresh", variant: "destructive" });
+      }
       onAdded();
       setOpen(false);
       setSearch("");
@@ -308,7 +351,14 @@ function AddContactPopover({
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" data-testid={`button-add-contact-${entityType}`}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs gap-1"
+            data-testid={`button-add-contact-${entityType}`}
+            disabled={!entityIdValid}
+            title={!entityIdValid ? "Loading record…" : undefined}
+          >
             <Plus className="h-3.5 w-3.5" /> Add contact
           </Button>
         </PopoverTrigger>

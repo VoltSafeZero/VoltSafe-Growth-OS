@@ -1,0 +1,169 @@
+Fix the following Pipeline module bugs across Leads, Accounts, and Contacts.
+
+IMPORTANT:
+- Investigate the existing implementation first.
+- Fix the shared/root components where possible rather than patching each screen separately.
+- Do not redesign the pages.
+- Do not change unrelated behaviour.
+- Verify persistence against the database/API, not merely the visual toast.
+- Run the relevant tests and provide evidence for each acceptance criterion.
+
+==================================================
+BUG 1 — “ADD STAKEHOLDER / CONTACT” SHOWS SUCCESS BUT DOES NOT ADD
+==================================================
+
+Affected locations:
+- Lead full-profile page
+- Account full-profile page
+- Contact-related profile views wherever the same Stakeholders/Add Contact control is used
+- Any corresponding expanded popup/drawer profile
+
+Current behaviour:
+1. User clicks “Add contact” in the Stakeholders panel.
+2. User searches for an existing contact.
+3. User clicks the contact result.
+4. A success toast appears saying the contact was linked.
+5. However, the Stakeholders panel still says “0 contacts.”
+6. The selected person is not displayed after the picker closes.
+7. The relationship may also fail to persist after refresh.
+
+Required behaviour:
+- Clicking an existing contact must create the correct relationship in the backend/database.
+- The Stakeholders panel must update immediately after success.
+- The linked contact must still appear after:
+  - page refresh,
+  - leaving and reopening the record,
+  - opening the same record in the drawer and full-page views.
+- Do not display a success toast until the server confirms the relationship was actually created.
+- If the relationship already exists, handle it cleanly without creating a duplicate.
+- If the request fails, show a useful error and leave the UI unchanged.
+- Ensure cache/query invalidation or local state refresh updates every relevant record query.
+- Confirm the correct IDs are being sent:
+  - lead/account/contact or opportunity record ID,
+  - selected contact ID,
+  - correct relationship/entity type.
+- Check for any mismatch between “lead,” “deal,” “account,” and “opportunity” terminology in the endpoint or data model.
+
+Acceptance tests:
+1. Add an existing contact to a Lead.
+2. Contact immediately appears in Stakeholders.
+3. Refresh: contact remains linked.
+4. Repeat for an Account.
+5. Repeat for any Contact/profile workflow using the same component.
+6. Try adding the same contact twice: no duplicate.
+7. Verify the toast only appears after confirmed persistence.
+8. Confirm Stakeholder count changes from 0 to 1 immediately.
+
+==================================================
+BUG 2 — EXPAND PROFILE BUTTON MOVES DRAWER LEFT INSTEAD OF OPENING FULL PAGE
+==================================================
+
+Current behaviour:
+- A Lead, Account, or Contact is opened in the slide-over profile drawer.
+- Clicking the expand/full-profile icon does not navigate to the proper full-page profile.
+- Instead, the drawer shifts or anchors itself against the far-left side of the screen.
+
+Required behaviour:
+- The expand button must navigate to the canonical full-page route for the currently open record.
+- It must not resize, reposition, or restyle the drawer.
+- It must preserve the exact record being viewed.
+- It must work for:
+  - Leads,
+  - Accounts,
+  - Contacts.
+- Use the application router/navigation rather than attempting to turn the drawer into a full-screen modal.
+- Close/reset the drawer state when navigation occurs so it cannot remain layered behind or beside the full page.
+- Browser Back should return to the prior list state where reasonably supported.
+
+Investigate:
+- Whether the expand icon currently toggles a CSS “fullscreen” state instead of navigating.
+- Whether absolute/fixed positioning loses its right anchor.
+- Whether the wrong event handler or route is being used.
+- Whether drawer and profile-page identifiers use different entity IDs.
+
+Acceptance tests:
+1. Open Lead drawer → click expand → correct Lead full-profile page opens.
+2. Open Account drawer → click expand → correct Account full-profile page opens.
+3. Open Contact drawer → click expand → correct Contact full-profile page opens.
+4. Drawer does not jump left at any point.
+5. No duplicate overlay remains after navigation.
+6. Browser Back returns without a broken drawer state.
+
+==================================================
+BUG 3 — ACCOUNTS DEFAULT FILTERS DISPLAY “MARINE / MARINA” BUT ARE NOT ACTUALLY SELECTED
+==================================================
+
+Current behaviour:
+- The Accounts page visually displays:
+  - Industry = Marine
+  - Segment = Marina
+- However, opening either dropdown shows:
+  - All Industries selected,
+  - All Segments selected.
+- “Marine” and “Marina” are fake display text/placeholders rather than the actual controlled values.
+- Therefore, the default API/list filter is not reliably filtering to Marine + Marina accounts.
+
+Required behaviour:
+- On initial Accounts page load, the real controlled filter values must be:
+  - industry = "marine"
+  - segment/segmentType = "marina"
+- The dropdown checkmark/highlight must appear beside:
+  - Marine,
+  - Marina.
+- The request sent to the backend must include both filters.
+- The visible account rows and total count must reflect those actual filters.
+- Remove any fake label, hard-coded span, placeholder substitution, or display-only fallback that makes an “All” value look like Marine/Marina.
+- Use the real Select value and SelectValue rendering.
+- Ensure Reset/Clear behaviour is intentional:
+  - The default/reset state for this Accounts view should return to Marine + Marina, not silently return to All.
+- Ensure URL/query-state, saved-view state, or persisted filters do not overwrite the defaults with "__all__" immediately after initialization.
+- Avoid a brief unfiltered request on first render if practical.
+
+Expected controlled values should resemble:
+- industryFilter = "marine"
+- segmentFilter = "marina"
+
+They must not initialize as:
+- "__all__"
+- "all"
+- undefined
+while merely rendering Marine/Marina text.
+
+Acceptance tests:
+1. Fresh-load Accounts.
+2. Industry button says Marine.
+3. Open dropdown: Marine is checked/highlighted.
+4. Segment button says Marina.
+5. Open dropdown: Marina is checked/highlighted.
+6. Inspect the list/API request: both real filter values are sent.
+7. Change Industry to All: list updates correctly.
+8. Select Marine again: controlled value and request match.
+9. Click Reset: defaults return to Marine + Marina.
+10. Reload: defaults remain genuinely selected.
+
+==================================================
+IMPLEMENTATION QUALITY
+==================================================
+
+Please:
+1. Identify the exact root cause of each bug before editing.
+2. List the files/components/endpoints involved.
+3. Prefer one shared fix for reused Stakeholder pickers and profile drawers.
+4. Add or update tests covering:
+   - successful relationship persistence,
+   - UI refresh/cache invalidation,
+   - duplicate prevention,
+   - profile expansion routing,
+   - genuine default filter state.
+5. Run type-checking and the relevant test suites.
+6. Do not declare success based only on a toast or local UI state.
+7. Test using real records in the development database where safe.
+
+Final report must include:
+- Root cause for each bug.
+- Files changed.
+- Exact behavioural changes.
+- Test results.
+- Database/API proof that a linked stakeholder remains after refresh.
+- Request/filter proof that Accounts initially sends Marine + Marina.
+- Screenshots or concise manual verification steps for all three fixes.

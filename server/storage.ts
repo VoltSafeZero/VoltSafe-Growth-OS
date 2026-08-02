@@ -91,7 +91,7 @@ export interface IStorage {
   ensureAccountForLead(leadId: number): Promise<void>;
   backfillAccountsForLeads(): Promise<number>;
 
-  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; page?: number; limit?: number; onlyPromoted?: boolean }): Promise<{ data: (Account & { primaryContact: { id: number; name: string; title: string | null; email: string | null; phone: string | null } | null })[]; total: number; page: number; totalPages: number }>;
+  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; industry?: string; page?: number; limit?: number; onlyPromoted?: boolean }): Promise<{ data: (Account & { primaryContact: { id: number; name: string; title: string | null; email: string | null; phone: string | null } | null })[]; total: number; page: number; totalPages: number }>;
   getAccount(id: number): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
   updateAccount(id: number, data: Partial<InsertAccount>): Promise<Account | undefined>;
@@ -258,19 +258,19 @@ export interface IStorage {
 
   // Stage 3 — Opportunity Contacts
   getOpportunityContacts(opportunityId: number): Promise<(OpportunityContact & { contact: any })[]>;
-  addOpportunityContact(data: InsertOpportunityContact): Promise<OpportunityContact>;
+  addOpportunityContact(data: InsertOpportunityContact): Promise<{ row: OpportunityContact; created: boolean }>;
   removeOpportunityContact(opportunityId: number, contactId: number): Promise<boolean>;
 
   // Account Contacts (many-to-many; supplements contacts.account_id)
   getAccountContacts(accountId: number): Promise<(AccountContact & { contact: any })[]>;
-  addAccountContact(data: InsertAccountContact): Promise<AccountContact>;
+  addAccountContact(data: InsertAccountContact): Promise<{ row: AccountContact; created: boolean }>;
   updateAccountContactRole(accountId: number, contactId: number, role: string | null): Promise<boolean>;
   removeAccountContact(accountId: number, contactId: number): Promise<boolean>;
   getAccountsForContact(contactId: number): Promise<{ accountId: number; role: string | null; accountName: string }[]>;
 
   // Lead Contacts (many-to-many)
   getLeadContacts(leadId: number): Promise<(LeadContact & { contact: any })[]>;
-  addLeadContact(data: InsertLeadContact): Promise<LeadContact>;
+  addLeadContact(data: InsertLeadContact): Promise<{ row: LeadContact; created: boolean }>;
   updateLeadContactRole(leadId: number, contactId: number, role: string | null): Promise<boolean>;
   removeLeadContact(leadId: number, contactId: number): Promise<boolean>;
   getLeadsForContact(contactId: number): Promise<{ leadId: number; role: string | null; leadName: string; company: string }[]>;
@@ -976,7 +976,7 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; type?: string; country?: string; stateProvince?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string; onlyPromoted?: boolean; isPotentialInvestor?: boolean }) {
+  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; industry?: string; type?: string; country?: string; stateProvince?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string; onlyPromoted?: boolean; isPotentialInvestor?: boolean }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -1035,8 +1035,13 @@ export class DatabaseStorage implements IStorage {
     if (options?.stateProvince) {
       conditions.push(eq(accounts.stateProvince, options.stateProvince));
     }
-    // Note: accounts table has no `primaryIndustry` column — the filter param
-    // is accepted for UI parity with Leads but has no filtering effect yet.
+    // `industry` maps to marketSegment for accounts (no separate primaryIndustry column).
+    // "marine" is the CRM default and maps to marketSegment='marina'.
+    // When both industry=marine AND marketSegment=marina are passed the condition is
+    // AND of the same predicate — redundant but correct (no double-counting).
+    if (options?.industry === "marine") {
+      conditions.push(eq(accounts.marketSegment, "marina"));
+    }
     if (options?.onlyPromoted) {
       conditions.push(sql`(accounts.converted_from_lead_id IS NULL OR EXISTS (SELECT 1 FROM leads WHERE leads.id = accounts.converted_from_lead_id AND leads.status = 'converted'))`);
     }
@@ -1892,9 +1897,12 @@ export class DatabaseStorage implements IStorage {
     return rows.map(r => ({ ...r, contact: contactMap.get(r.contactId) }));
   }
 
-  async addOpportunityContact(data: InsertOpportunityContact): Promise<OpportunityContact> {
+  async addOpportunityContact(data: InsertOpportunityContact): Promise<{ row: OpportunityContact; created: boolean }> {
     const [r] = await db.insert(opportunityContacts).values(data).onConflictDoNothing().returning();
-    return r;
+    if (r) return { row: r, created: true };
+    const [existing] = await db.select().from(opportunityContacts)
+      .where(and(eq(opportunityContacts.opportunityId, data.opportunityId), eq(opportunityContacts.contactId, data.contactId)));
+    return { row: existing, created: false };
   }
 
   async removeOpportunityContact(opportunityId: number, contactId: number): Promise<boolean> {
@@ -1939,18 +1947,20 @@ export class DatabaseStorage implements IStorage {
     return out;
   }
 
-  async addAccountContact(data: InsertAccountContact): Promise<AccountContact> {
+  async addAccountContact(data: InsertAccountContact): Promise<{ row: AccountContact; created: boolean }> {
     const [r] = await db.insert(accountContacts).values(data).onConflictDoNothing().returning();
-    // If the contact has no home account, promote this account to be their primary.
-    const [contact] = await db.select({ accountId: contacts.accountId }).from(contacts).where(eq(contacts.id, data.contactId)).limit(1);
-    if (contact && !contact.accountId) {
-      await db.update(contacts).set({ accountId: data.accountId }).where(eq(contacts.id, data.contactId));
+    if (r) {
+      // If the contact has no home account, promote this account to be their primary.
+      const [contact] = await db.select({ accountId: contacts.accountId }).from(contacts).where(eq(contacts.id, data.contactId)).limit(1);
+      if (contact && !contact.accountId) {
+        await db.update(contacts).set({ accountId: data.accountId }).where(eq(contacts.id, data.contactId));
+      }
+      return { row: r, created: true };
     }
-    if (r) return r;
     // already exists — return the existing row
     const [existing] = await db.select().from(accountContacts)
       .where(and(eq(accountContacts.accountId, data.accountId), eq(accountContacts.contactId, data.contactId)));
-    return existing;
+    return { row: existing, created: false };
   }
 
   async updateAccountContactRole(accountId: number, contactId: number, role: string | null): Promise<boolean> {
@@ -2000,12 +2010,12 @@ export class DatabaseStorage implements IStorage {
     return rows.map(r => ({ ...r, contact: map.get(r.contactId) }));
   }
 
-  async addLeadContact(data: InsertLeadContact): Promise<LeadContact> {
+  async addLeadContact(data: InsertLeadContact): Promise<{ row: LeadContact; created: boolean }> {
     const [r] = await db.insert(leadContacts).values(data).onConflictDoNothing().returning();
-    if (r) return r;
+    if (r) return { row: r, created: true };
     const [existing] = await db.select().from(leadContacts)
       .where(and(eq(leadContacts.leadId, data.leadId), eq(leadContacts.contactId, data.contactId)));
-    return existing;
+    return { row: existing, created: false };
   }
 
   async updateLeadContactRole(leadId: number, contactId: number, role: string | null): Promise<boolean> {

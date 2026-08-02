@@ -3611,7 +3611,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/accounts", requirePermission("crm", "view"), async (req, res) => {
-    const { search, segment, leadStatus, priority, orgType, marketSegment, type, country, state, page, limit, sortBy, sortOrder, onlyPromoted, isPotentialInvestor } = req.query;
+    const { search, segment, leadStatus, priority, orgType, marketSegment, industry, type, country, state, page, limit, sortBy, sortOrder, onlyPromoted, isPotentialInvestor } = req.query;
     res.json(await storage.getAccounts({
       search: search as string | undefined,
       segment: segment as string | undefined,
@@ -3619,6 +3619,7 @@ export async function registerRoutes(
       priority: priority as string | undefined,
       orgType: orgType as string | undefined,
       marketSegment: marketSegment as string | undefined,
+      industry: industry as string | undefined,
       type: type as string | undefined,
       country: country as string | undefined,
       stateProvince: state as string | undefined,
@@ -25259,8 +25260,12 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.post("/api/opportunities/:id/contacts", requirePermission("crm", "edit"), async (req, res) => {
     try {
-      const oc = await storage.addOpportunityContact({ ...req.body, opportunityId: Number(req.params.id) });
-      res.status(201).json(oc);
+      const entityId = Number(req.params.id);
+      if (!entityId || isNaN(entityId) || entityId <= 0) return res.status(400).json({ message: "Valid opportunity id required" });
+      const { contactId, role } = req.body || {};
+      if (!contactId || isNaN(Number(contactId))) return res.status(400).json({ message: "contactId required" });
+      const result = await storage.addOpportunityContact({ opportunityId: entityId, contactId: Number(contactId), role: role ?? null });
+      res.status(result.created ? 201 : 200).json({ created: result.created, alreadyLinked: !result.created, ...result.row });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -25286,9 +25291,10 @@ export function registerConfluenceRoutes(app: Express) {
       const { contactId, role } = req.body || {};
       if (!contactId || isNaN(Number(contactId))) return res.status(400).json({ message: "contactId required" });
       const _acid = Number(req.params.id);
-      const ac = await storage.addAccountContact({ accountId: _acid, contactId: Number(contactId), role: role ?? null });
-      res.status(201).json(ac);
-      import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("account", _acid, "contact_linked")).catch(() => {});
+      if (!_acid || isNaN(_acid) || _acid <= 0) return res.status(400).json({ message: "Valid account id required" });
+      const result = await storage.addAccountContact({ accountId: _acid, contactId: Number(contactId), role: role ?? null });
+      res.status(result.created ? 201 : 200).json({ created: result.created, alreadyLinked: !result.created, ...result.row });
+      if (result.created) import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("account", _acid, "contact_linked")).catch(() => {});
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
   app.patch("/api/accounts/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {
@@ -25330,9 +25336,10 @@ export function registerConfluenceRoutes(app: Express) {
       const { contactId, role } = req.body || {};
       if (!contactId || isNaN(Number(contactId))) return res.status(400).json({ message: "contactId required" });
       const _lcid = Number(req.params.id);
-      const lc = await storage.addLeadContact({ leadId: _lcid, contactId: Number(contactId), role: role ?? null });
-      res.status(201).json(lc);
-      import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", _lcid, "contact_linked")).catch(() => {});
+      if (!_lcid || isNaN(_lcid) || _lcid <= 0) return res.status(400).json({ message: "Valid lead id required" });
+      const result = await storage.addLeadContact({ leadId: _lcid, contactId: Number(contactId), role: role ?? null });
+      res.status(result.created ? 201 : 200).json({ created: result.created, alreadyLinked: !result.created, ...result.row });
+      if (result.created) import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", _lcid, "contact_linked")).catch(() => {});
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
   app.patch("/api/leads/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {

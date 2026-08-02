@@ -1,0 +1,190 @@
+Proceed with Task #227, but tighten the implementation and validation as follows.
+
+Do not stop at the plan. Implement, test, and provide evidence.
+
+==================================================
+1. STAKEHOLDER LINKING — PROVE THE ACTUAL FAILURE
+==================================================
+
+Before changing the code, capture the failing request path and payload for one real reproduction.
+
+Confirm:
+
+- The actual entity type.
+- The actual entity ID passed to ContactsPanel.
+- The exact POST URL.
+- The selected contact ID.
+- The HTTP response status and response body.
+- Whether a relationship row is created in the database.
+- Whether the subsequent GET contains the linked contact.
+
+Do not report `entityId` being undefined as the root cause unless the reproduction proves that it is undefined.
+
+Regardless of the exact failure, implement these protections:
+
+- Never allow a request containing an undefined, null, or empty entity ID.
+- Disable or hide “Add contact” until the parent record ID is valid.
+- The server must validate both IDs and return a non-2xx response for malformed input.
+- Do not show a success toast merely because the mutation callback ran.
+- After POST success, refetch the authoritative stakeholder list.
+- Show success only after the linked contact is present in the authoritative response.
+- Update the visible stakeholder count and list immediately.
+- Invalidate every relevant query key used by:
+  - the drawer,
+  - the full profile,
+  - the lead/account/contact record,
+  - the stakeholder/contact relationship list.
+
+Duplicate handling:
+
+- Add a database-level uniqueness guarantee if one does not already exist.
+- `ON CONFLICT DO NOTHING` alone is not enough.
+- The API must return a clear result such as:
+  - `created: true`, or
+  - `alreadyLinked: true`.
+- A duplicate must not be represented as a newly created relationship.
+- Do not create duplicate rows.
+- Confirm whether existing duplicate rows already exist and report the count before making any cleanup changes.
+
+Test all supported entity types, not only Leads and Accounts.
+
+==================================================
+2. EXPAND BUTTON — INCLUDE CONTACTS
+==================================================
+
+The current investigation mentions only LeadDetailDialog and AccountDetailDialog.
+
+Search for every use of the shared dialog expand control and identify all affected record drawers, including:
+
+- Leads/opportunities,
+- Accounts,
+- Contacts.
+
+The expand icon must navigate to the canonical full-page route for the exact record and close the drawer.
+
+Expected examples:
+
+- Lead/opportunity → `/opportunities/:id` or the actual canonical route confirmed from the router.
+- Account → `/accounts/:id`.
+- Contact → the actual canonical contact route confirmed from the router.
+
+Do not guess route names. Verify them from the registered application routes.
+
+Requirements:
+
+- Remove or bypass the CSS fullscreen toggle for these record drawers.
+- Do not apply `inset-0 max-w-none`.
+- Use router navigation.
+- Close/reset the drawer after navigation.
+- Verify no overlay remains mounted.
+- Verify browser Back does not reopen a broken or left-shifted drawer.
+- Confirm whether other dialogs legitimately use the shared fullscreen CSS behaviour before changing the shared component globally.
+
+Prefer record-specific navigation props or handlers if changing the shared dialog would break unrelated modals.
+
+==================================================
+3. ACCOUNTS FILTERS — REAL DEFAULTS AND REAL REQUESTS
+==================================================
+
+Implement genuine controlled defaults:
+
+- `industryFilter = "marine"`
+- `marketSegmentFilter = "marina"`
+
+Remove the fake hardcoded trigger labels and render the actual selected values using `SelectValue`.
+
+Ensure the initial Accounts API request sends both:
+
+- industry=marine
+- marketSegment=marina
+
+Also verify:
+
+- The backend currently accepts and applies the industry parameter.
+- The parameter name matches the server contract.
+- The server query combines both filters using AND.
+- The displayed rows all satisfy both filters.
+- Reset restores Marine + Marina.
+- Saved views, URL state, persisted local state, or hydration do not immediately overwrite the defaults.
+- There is no initial unfiltered fetch followed by a filtered fetch unless unavoidable.
+- User-selected “All” remains available and works correctly after the page has loaded.
+
+Run one direct count query or equivalent backend test proving:
+
+`industry = marine AND market segment = marina`
+
+returns the same record set/count as the initial Accounts page request.
+
+==================================================
+4. REQUIRED TESTS
+==================================================
+
+Add automated coverage for:
+
+Stakeholders:
+- Valid relationship is inserted.
+- Invalid/missing entity ID is rejected.
+- Missing contact ID is rejected.
+- Duplicate link does not create another row.
+- POST success is followed by an authoritative GET containing the contact.
+- Stakeholder count changes immediately.
+- Link survives reload/reopen.
+- Test Lead, Account, and Contact workflows wherever supported.
+
+Expansion:
+- Lead drawer navigates to correct full route.
+- Account drawer navigates to correct full route.
+- Contact drawer navigates to correct full route.
+- Drawer closes.
+- CSS fullscreen state is not triggered.
+- No overlay remains.
+
+Accounts filters:
+- Initial controlled values are marine and marina.
+- Dropdown highlights the genuine selected options.
+- Initial request includes both parameters.
+- Backend applies both parameters.
+- Reset returns to Marine + Marina.
+- Selecting All removes the corresponding filter correctly.
+
+Run:
+- Relevant unit/integration tests.
+- Type-check.
+- Build.
+- Any existing Pipeline regression suite.
+
+==================================================
+5. FINAL EVIDENCE REPORT
+==================================================
+
+Return:
+
+1. Confirmed root cause of each bug, clearly separating:
+   - proven facts,
+   - previous hypotheses that were disproven.
+
+2. Files changed.
+
+3. Before/after request evidence for stakeholder linking:
+   - POST URL,
+   - non-sensitive payload shape,
+   - response,
+   - subsequent GET,
+   - persisted database relationship.
+
+4. Proof that adding the same contact twice creates only one relationship.
+
+5. All three drawer expansion routes:
+   - Lead,
+   - Account,
+   - Contact.
+
+6. Initial Accounts request showing:
+   - industry=marine,
+   - marketSegment=marina.
+
+7. Backend/database count proving the page result is genuinely filtered by both values.
+
+8. Test, type-check, and build results with exact pass/fail totals.
+
+Do not mark Task #227 complete if Contact expansion or Contact stakeholder behaviour remains untested or unsupported. Clearly identify any entity type that uses a different component or data model.

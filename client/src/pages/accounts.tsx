@@ -132,8 +132,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   });
 
   const [search, setSearch] = useState("");
-  const [industryFilter, setIndustryFilter] = useState(_storedAccountsPrefs.industry ?? "__all__");
-  const [marketSegmentFilter, setMarketSegmentFilter] = useState(_storedAccountsPrefs.marketSegment ?? "all");
+  const [industryFilter, setIndustryFilter] = useState(_storedAccountsPrefs.industry ?? "marine");
+  const [marketSegmentFilter, setMarketSegmentFilter] = useState(_storedAccountsPrefs.marketSegment ?? "marina");
   const [typeFilter, setTypeFilter] = useState(_storedAccountsPrefs.type ?? "all");
   const [countryFilter, setCountryFilter] = useState(_storedAccountsPrefs.country ?? "all");
   const [regionFilter, setRegionFilter] = useState(_storedAccountsPrefs.state ?? "all");
@@ -173,6 +173,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
+      if (industryFilter !== "__all__") params.set("industry", industryFilter);
       if (marketSegmentFilter !== "all") params.set("marketSegment", marketSegmentFilter);
       if (typeFilter !== "all") params.set("type", typeFilter);
       if (countryFilter !== "all") params.set("country", countryFilter);
@@ -211,13 +212,14 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     localStorage.setItem("vs_accounts_filters_v1", currentFiltersJson);
   }, [currentFiltersJson]);
 
-  const isFiltered = industryFilter !== "__all__" || marketSegmentFilter !== "all" || typeFilter !== "all"
+  // "filtered" means the user has deviated from the Marine+Marina default view
+  const isFiltered = industryFilter !== "marine" || marketSegmentFilter !== "marina" || typeFilter !== "all"
     || countryFilter !== "all" || regionFilter !== "all" || priorityFilter !== "all" || isPotentialInvestorFilter || sortOption !== "name:asc" || search !== "";
 
   const resetFilters = () => {
     setSearch("");
-    setIndustryFilter("__all__");
-    setMarketSegmentFilter("all");
+    setIndustryFilter("marine");
+    setMarketSegmentFilter("marina");
     setTypeFilter("all");
     setCountryFilter("all");
     setRegionFilter("all");
@@ -270,8 +272,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   const loadSavedView = (sv: SavedView) => {
     const f = sv.filtersJson ? JSON.parse(sv.filtersJson) : {};
-    setIndustryFilter(f.industry ?? "__all__");
-    setMarketSegmentFilter(f.marketSegment ?? "all");
+    setIndustryFilter(f.industry ?? "marine");
+    setMarketSegmentFilter(f.marketSegment ?? "marina");
     setTypeFilter(f.type ?? "all");
     setCountryFilter(f.country ?? "all");
     setRegionFilter(f.state ?? "all");
@@ -417,7 +419,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           >
             <Settings2 className="h-4 w-4" />
             {isFiltered ? (
-              <span className="text-xs font-bold text-primary">{[industryFilter !== "__all__" ? 1 : 0, marketSegmentFilter !== "all" ? 1 : 0, typeFilter !== "all" ? 1 : 0, countryFilter !== "all" ? 1 : 0, regionFilter !== "all" ? 1 : 0, priorityFilter !== "all" ? 1 : 0].reduce((a, b) => a + b, 0) + (sortOption !== "name:asc" ? 1 : 0)}</span>
+              <span className="text-xs font-bold text-primary">{[industryFilter !== "marine" ? 1 : 0, marketSegmentFilter !== "marina" ? 1 : 0, typeFilter !== "all" ? 1 : 0, countryFilter !== "all" ? 1 : 0, regionFilter !== "all" ? 1 : 0, priorityFilter !== "all" ? 1 : 0].reduce((a, b) => a + b, 0) + (sortOption !== "name:asc" ? 1 : 0)}</span>
             ) : null}
           </button>
         </div>
@@ -427,7 +429,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
         {/* 1 — Industry */}
         <Select value={industryFilter} onValueChange={setIndustryFilter}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-industry-filter">
-            {industryFilter === "__all__" ? <span>Marine</span> : <SelectValue />}
+            <SelectValue placeholder="Industry" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Industries</SelectItem>
@@ -439,7 +441,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
         {/* 2 — Segment */}
         <Select value={marketSegmentFilter} onValueChange={(v) => { setMarketSegmentFilter(v); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-market-segment-filter">
-            {marketSegmentFilter === "all" ? <span>Marina</span> : <SelectValue />}
+            <SelectValue placeholder="Segment" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Segments</SelectItem>
@@ -1428,7 +1430,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
   return (
     <>
     <Dialog open onOpenChange={onClose}>
-      <ExpandableDialogContent popupClassName="max-w-[95vw] sm:max-w-3xl w-full" contentClassName="overflow-y-auto">
+      <ExpandableDialogContent popupClassName="max-w-[95vw] sm:max-w-3xl w-full" contentClassName="overflow-y-auto" onExpand={() => { setLocation(`/accounts/${account.id}`); onClose(); }}>
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">

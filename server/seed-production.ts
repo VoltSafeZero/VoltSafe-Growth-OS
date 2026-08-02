@@ -2770,6 +2770,26 @@ export async function migrateNextActionsSchema(): Promise<void> {
   }
 }
 
+// ── Contact-Link Unique Pair Constraints ─────────────────────────────────────
+// Adds unique pair indexes to account_contacts and lead_contacts so that
+// onConflictDoNothing() actually prevents duplicate rows.
+// opportunity_contacts already had this constraint from the initial migration.
+export async function migrateContactLinkConstraints(): Promise<void> {
+  try {
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_account_contacts_pair
+        ON account_contacts(account_id, contact_id)
+    `));
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_lead_contacts_pair
+        ON lead_contacts(lead_id, contact_id)
+    `));
+    console.log("[migration] uq_account_contacts_pair + uq_lead_contacts_pair ready.");
+  } catch (err: any) {
+    console.error("[migration] migrateContactLinkConstraints error (non-fatal):", err?.code ?? err?.message);
+  }
+}
+
 // ── Org Settings Singleton — Run 1 ───────────────────────────────────────────
 export async function migrateOrgSettingsSchema(): Promise<void> {
   try {

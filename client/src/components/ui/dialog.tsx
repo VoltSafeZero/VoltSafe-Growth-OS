@@ -31,8 +31,8 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { onExpand?: () => void }
+>(({ className, children, onExpand, ...props }, ref) => {
   const [expanded, setExpanded] = React.useState(false)
   const [dragPos, setDragPos] = React.useState<{ x: number; y: number } | null>(null)
   const [resizeSize, setResizeSize] = React.useState<{ w: number | null; h: number | null }>({ w: null, h: null })
@@ -168,17 +168,22 @@ const DialogContent = React.forwardRef<
         {children}
 
         {/* Fullscreen toggle button — z-[11] places it above the z-10 drag handle */}
+        {/* When onExpand is provided (record drawers), clicking navigates to the full-page  */}
+        {/* profile route instead of toggling the CSS fullscreen mode.                       */}
         <button
           type="button"
           data-no-drag
-          onClick={() => { setExpanded(v => !v); setDragPos(null) }}
+          onClick={() => {
+            if (onExpand) { onExpand(); return; }
+            setExpanded(v => !v); setDragPos(null);
+          }}
           onMouseDown={(e) => e.stopPropagation()}
           className="absolute right-12 top-3 z-[11] flex items-center justify-center h-8 w-8 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer"
           data-testid="button-toggle-fullscreen"
-          title={expanded ? "Restore" : "Expand to full screen"}
+          title={onExpand ? "Open full profile" : (expanded ? "Restore" : "Expand to full screen")}
         >
-          {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-          <span className="sr-only">{expanded ? "Restore" : "Expand"}</span>
+          <Maximize2 className="h-4 w-4" />
+          <span className="sr-only">{onExpand ? "Open full profile" : (expanded ? "Restore" : "Expand")}</span>
         </button>
 
         {/* Close button — z-[11] places it above the z-10 drag handle */}

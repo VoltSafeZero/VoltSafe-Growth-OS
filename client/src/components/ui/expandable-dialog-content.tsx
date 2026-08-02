@@ -17,6 +17,12 @@ interface ExpandableDialogContentProps
    * Passed through as className to DialogContent.
    */
   contentClassName?: string
+  /**
+   * When provided, the expand button navigates to this handler (typically
+   * router.push to the full-page profile) instead of toggling CSS fullscreen.
+   * Used by Lead and Account record drawers.
+   */
+  onExpand?: () => void
 }
 
 /**
@@ -27,11 +33,12 @@ interface ExpandableDialogContentProps
 export const ExpandableDialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   ExpandableDialogContentProps
->(({ popupClassName, contentClassName, children, ...props }, ref) => {
+>(({ popupClassName, contentClassName, children, onExpand, ...props }, ref) => {
   return (
     <DialogContent
       ref={ref}
       className={cn(popupClassName, contentClassName)}
+      onExpand={onExpand}
       {...props}
     >
       {children}
